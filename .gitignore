@@ -1,0 +1,35 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# --- Data artefacts (large / derivable - never commit) ---
+data/raw/
+data/processed/
+*.npz
+*.pt
+
+# Downloadable source bundles accidentally placed at repo root
+*.zip
+DMS_substitutions_reference.csv
+dl_ref.log
+dl_clin.log
+*.log
+
+# --- Notebooks ---
+notebooks/*.csv
+notebooks/*.png
+
+# --- OS / editor noise ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Keep the directory structure but not contents where needed
+!data/.gitkeep
+!data/raw/.gitkeep
+!data/processed/.gitkeep

@@ -1,0 +1,26 @@
+# NVIDIA GPU (CUDA 12.x) requirements for the variant-pathogenicity pipeline.
+#
+# Install INSTEAD of requirements.txt on machines with an NVIDIA GPU:
+#
+#     pip install -r requirements-cuda.txt
+#
+# The --extra-index-url line pulls the CUDA-12 build of PyTorch; every other
+# dependency is identical to requirements.txt.
+#
+# Verify after install:
+#     python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+
+--extra-index-url https://download.pytorch.org/whl/cu126
+torch>=2.1
+torchvision>=0.16
+transformers>=4.40
+biopython>=1.83
+pandas>=2.0
+numpy>=1.24
+scikit-learn>=1.3
+scipy>=1.11
+matplotlib>=3.7
+seaborn>=0.13
+tqdm>=4.66
+requests>=2.31
+urllib3>=2.0
