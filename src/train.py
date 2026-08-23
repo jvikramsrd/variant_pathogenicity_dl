@@ -114,6 +114,7 @@ def _train_single_fold(
     fold_seed: int,
     sample_weights: Optional[np.ndarray] = None,
     monitor_mask: Optional[np.ndarray] = None,
+    init_state: Optional[Dict[str, torch.Tensor]] = None,
 ) -> Tuple[VariantPathogenicityMLP, int]:
     """Train one fold; restore best weights by inner validation ROC-AUC."""
     set_global_seed(fold_seed)
@@ -124,6 +125,12 @@ def _train_single_fold(
         dropout=cfg.dropout,
         n_blocks=cfg.n_blocks,
     ).to(device)
+    if init_state is not None:
+        missing, unexpected = model.load_state_dict(init_state, strict=False)
+        if missing or unexpected:
+            raise ValueError(
+                "Pretrained checkpoint is incompatible with this model: "
+                f"missing={missing}, unexpected={unexpected}")
 
     n_pos = max(1, int(np.sum(y_train == 1)))
     n_neg = max(1, int(np.sum(y_train == 0)))

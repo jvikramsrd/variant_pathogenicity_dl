@@ -41,6 +41,11 @@ python scripts/train_extended.py --features esm+priors \
 # Recommended clinical-target configuration (nested calibration; DMS features excluded)
 python scripts/train_extended.py --no_dms_features --clinical_weight 5
 
+# Two-stage transfer learning for the MMR project (commands are explicit; not automatic)
+python scripts/train_transfer.py pretrain --mode leave_gene_out --holdout_gene MSH2
+python scripts/train_transfer.py finetune --mode leave_gene_out --holdout_gene MSH2 \
+    --checkpoint data/processed/transfer/pretrain_leave_gene_out_holdout-MSH2.pt
+
 # 5. Unit tests for parsing / splitting logic
 python tests/test_datasets.py
 ```
@@ -128,3 +133,4 @@ See `docs/FINE_TUNING_FINDINGS.md` for the current performance findings,
 implemented training safeguards, and the recommended evaluation sequence.
 See `docs/DATA_PIPELINE_HARDENING.md` for the ingestion, merge, provenance,
 and conflict-quarantine guarantees.
+See `docs/MMR_TRANSFER_WORKFLOW.md` for the 80-gene-to-MMR transfer protocol.
