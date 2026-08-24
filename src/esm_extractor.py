@@ -228,6 +228,12 @@ class ESM2Extractor:
                 jobs.append((len(jobs), seq[start:end]))
 
         span_hidden, span_logp = self._embed_spans(jobs)
+        if len(span_hidden) != len(jobs) or len(span_logp) != len(jobs):
+            raise RuntimeError(
+                f"ESM span extraction returned hidden={len(span_hidden)} and "
+                f"logp={len(span_logp)} blocks for "
+                f"{len(jobs)} windows."
+            )
 
         hidden = np.zeros((n_seq, max(lengths), self.hidden_dim), dtype=np.float32)
         logp = np.zeros(
@@ -238,6 +244,13 @@ class ESM2Extractor:
         for cursor, (si, (_start, _end)) in enumerate(job_spans):
             h = span_hidden[cursor]
             lp = span_logp[cursor]
+            span_len = _end - _start
+            if h.shape[0] != span_len or lp.shape[0] != span_len:
+                raise RuntimeError(
+                    "ESM span length mismatch: "
+                    f"window [{_start}, {_end}) expected {span_len} residues, "
+                    f"got hidden={h.shape[0]}, logp={lp.shape[0]}."
+                )
             hidden[si, _start:_start + h.shape[0]] += h
             logp[si, _start:_start + lp.shape[0]] += lp
             counts[si, _start:_start + h.shape[0]] += 1.0

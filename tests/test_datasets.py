@@ -24,7 +24,7 @@ from src.dataset import (  # noqa: E402
     check_no_position_leakage,
     make_position_group_folds,
 )
-from src.esm_extractor import validate_and_align  # noqa: E402
+from src.esm_extractor import ESM2Extractor, validate_and_align  # noqa: E402
 from src.external_datasets import model_col_name, parse_mutant_token  # noqa: E402
 
 
@@ -116,6 +116,32 @@ def test_validate_and_align_drops_mismatches():
     assert list(out["position"]) == [1, 3]
     assert set(FINAL_COLUMNS) == {"gene", "position", "wt_aa", "mut_aa",
                                   "hgvs_p", "label", "review_status"}
+
+
+def test_embed_sequences_aggregates_sliding_windows_independently():
+    extractor = ESM2Extractor.__new__(ESM2Extractor)
+    extractor.hidden_dim = 1
+    seen_jobs = []
+
+    def fake_embed_spans(jobs):
+        seen_jobs.extend(jobs)
+        hidden = []
+        logp = []
+        for job_id, subseq in jobs:
+            value = float(job_id + 1)
+            hidden.append(np.full((len(subseq), 1), value, dtype=np.float32))
+            logp.append(np.full((len(subseq), 2), value, dtype=np.float32))
+        return hidden, logp
+
+    extractor._embed_spans = fake_embed_spans
+    hidden, logp = extractor.embed_sequences(["A" * 1300])
+
+    assert [job_id for job_id, _ in seen_jobs] == [0, 1]
+    assert hidden.shape == (1, 1300, 1)
+    assert logp.shape == (1, 1300, 2)
+    assert np.allclose(hidden[0, :766, 0], 1.0)
+    assert np.allclose(hidden[0, 766:1022, 0], 1.5)
+    assert np.allclose(hidden[0, 1022:, 0], 2.0)
 
 
 if __name__ == "__main__":

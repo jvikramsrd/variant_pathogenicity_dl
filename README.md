@@ -10,14 +10,35 @@ AlphaMissense and UniProt domain annotations into one leakage-audited table.
 
 ## Quickstart
 
-```bash
-# One command reproduces EVERYTHING (tests -> dataset -> audit -> training).
-bash run_pipeline.sh                       # priors-only model, CPU OK
-FEATURES="esm+priors" bash run_pipeline.sh # full ESM-2 model, NVIDIA GPU advised
-SKIP_BUILD=1 bash run_pipeline.sh          # reuse an existing dataset build
+One command reproduces EVERYTHING (tests -> dataset -> audit -> training).
 
-# Or stage by stage:
-python -m venv .venv && .venv/bin/pip install -r requirements.txt
+```bash
+# macOS/Linux
+bash run_pipeline.sh
+FEATURES="esm+priors" bash run_pipeline.sh
+SKIP_BUILD=1 bash run_pipeline.sh
+```
+
+```powershell
+# Windows PowerShell
+.\run_pipeline.ps1
+.\run_pipeline.ps1 -Features "esm+priors"
+.\run_pipeline.ps1 -SkipBuild
+```
+
+The shared runner can also be called directly on any platform:
+
+```bash
+python run_pipeline.py --features priors
+python run_pipeline.py --features esm+priors --skip-build
+```
+
+Or stage by stage:
+
+```bash
+python -m venv .venv
+# Activate it, then:
+python -m pip install -r requirements.txt
 
 # 1. Build the extended multi-source dataset (default 10-gene panel, or expand it)
 python scripts/make_expanded_panel.py                 # panel = all human ProteinGym DMS proteins
