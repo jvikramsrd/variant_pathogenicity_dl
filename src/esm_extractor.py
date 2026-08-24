@@ -215,14 +215,17 @@ class ESM2Extractor:
         n_seq = len(sequences)
         lengths = [len(s) for s in sequences]
 
-        # Build one job per (sequence, window).
+        # Build one job per (sequence, window).  Job ids must be unique PER
+        # WINDOW (not per sequence): _embed_spans accumulates pieces keyed by
+        # job id, so reusing the sequence index would concatenate overlapping
+        # windows of long chains (e.g. MSH6, 1360 aa) into one oversized block.
         jobs: List[Tuple[int, str]] = []
-        spans_per_seq: List[List[Tuple[int, int]]] = []
+        job_spans: List[Tuple[int, Tuple[int, int]]] = []   # (si, (start, end))
         for si, seq in enumerate(sequences):
             spans = _sliding_spans(len(seq))
-            spans_per_seq.append(spans)
             for start, end in spans:
-                jobs.append((si, seq[start:end]))
+                job_spans.append((si, (start, end)))
+                jobs.append((len(jobs), seq[start:end]))
 
         span_hidden, span_logp = self._embed_spans(jobs)
 
@@ -232,15 +235,12 @@ class ESM2Extractor:
         )
         counts = np.zeros((n_seq, max(lengths)), dtype=np.float32)
 
-        cursor = 0
-        for si, spans in enumerate(spans_per_seq):
-            for _start, _end in spans:
-                h = span_hidden[cursor]
-                lp = span_logp[cursor]
-                cursor += 1
-                hidden[si, _start:_start + h.shape[0]] += h
-                logp[si, _start:_start + lp.shape[0]] += lp
-                counts[si, _start:_start + h.shape[0]] += 1.0
+        for cursor, (si, (_start, _end)) in enumerate(job_spans):
+            h = span_hidden[cursor]
+            lp = span_logp[cursor]
+            hidden[si, _start:_start + h.shape[0]] += h
+            logp[si, _start:_start + lp.shape[0]] += lp
+            counts[si, _start:_start + h.shape[0]] += 1.0
         counts_safe = np.maximum(counts, 1.0)[..., None]
         return hidden / counts_safe, logp / counts_safe
 

@@ -41,13 +41,18 @@ python scripts/train_extended.py --features esm+priors \
 # Recommended clinical-target configuration (nested calibration; DMS features excluded)
 python scripts/train_extended.py --no_dms_features --clinical_weight 5
 
-# Two-stage transfer learning for the MMR project (commands are explicit; not automatic)
-python scripts/train_transfer.py pretrain --mode leave_gene_out --holdout_gene MSH2
-python scripts/train_transfer.py finetune --mode leave_gene_out --holdout_gene MSH2 \
-    --checkpoint data/processed/transfer/pretrain_leave_gene_out_holdout-MSH2.pt
+# Two-stage transfer learning for the MMR/Lynch project
+#   Stage 1: pretrain the head on ALL 80 panel genes' ESM embeddings
+#   Stage 2: fine-tune on dedicated MLH1/MSH2/MSH6(/PMS2) clinical data,
+#            evaluate leave-one-gene-out with bootstrap CIs + fusion ablations
+python scripts/build_mmr_dataset.py --exclude_pms2     # Phase-1 4-gene dataset (+gnomAD v4)
+python scripts/pretrain_esm_80.py --features esm+priors --esm_model facebook/esm2_t33_650M_UR50D
+python scripts/run_mmr_transfer.py \
+    --checkpoint data/processed/transfer/pretrain_leave_gene_out_esm_priors.pt \
+    --features esm+priors --eval lopo
 
-# 5. Unit tests for parsing / splitting logic
-python tests/test_datasets.py
+# 5. Unit tests for parsing / splitting / MMR-gnomAD logic
+python tests/test_datasets.py && python tests/test_mmr_modules.py
 ```
 
 ## NVIDIA GPU support
@@ -105,6 +110,12 @@ forward passes under fp16 autocast on GPUs. Keep `--extract_batch_size` small
 | `src/data_loader.py` | ClinVar streaming, HGVS-p parsing, star filtering |
 | `src/external_datasets.py` | ProteinGym / AlphaMissense / UniProt downloaders & parsers |
 | `src/extended_builder.py` | multi-source merge, label precedence, manifest |
+| `src/gnomad.py` | gnomAD v4 GraphQL adapter + BA1/BS1/PM2 frequency flags |
+| `src/mmr_dataset.py` | pinned MMR references, VCEP tiers, PMS2 pseudogene gate |
+| `src/mvmamba_features.py` | MVmamba WT/VT global/local features + masked-marginal scorers |
+| `src/fusion.py` | concat + GateWave fusion heads (Phase-5 start) |
+| `src/eval_utils.py` | bootstrap CIs (10k) + MCC-optimal threshold tuning |
+| `src/transfer.py` | 80-gene pretraining / MMR fine-tuning primitives |
 | `src/esm_extractor.py` | ESM-2 embedding + PLLR extraction (sliding windows) |
 | `src/dataset.py` | group-disjoint stratified CV splits |
 | `src/model.py` | residual MLP head |
@@ -133,4 +144,7 @@ See `docs/FINE_TUNING_FINDINGS.md` for the current performance findings,
 implemented training safeguards, and the recommended evaluation sequence.
 See `docs/DATA_PIPELINE_HARDENING.md` for the ingestion, merge, provenance,
 and conflict-quarantine guarantees.
-See `docs/MMR_TRANSFER_WORKFLOW.md` for the 80-gene-to-MMR transfer protocol.
+See `docs/MMR_TRANSFER_WORKFLOW.md` for the Lynch-syndrome MMR workflow:
+pinned MLH1/MSH2/MSH6/PMS2 references, the PMS2 pseudogene gate, gnomAD v4
+frequency features (BA1/BS1/PM2), 80-gene ESM pretraining, leave-one-gene-out
+evaluation, and MVmamba-style WT/VT + masked-marginal feature extraction.

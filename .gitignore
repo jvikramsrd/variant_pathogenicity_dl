@@ -9,6 +9,7 @@ venv/
 # --- Data artefacts (large / derivable - never commit) ---
 data/raw/
 data/processed/
+data/mmr/
 *.npz
 *.pt
 

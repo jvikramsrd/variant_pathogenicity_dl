@@ -1,0 +1,419 @@
+"""Two-stage transfer learning with ESM-embedding pretraining (Phases 0–3 DL).
+
+Stage 1 — **pretrain**: fit the classification head on the broad multi-source
+dataset covering **all 80 panel genes**, using their frozen ESM-2 embedding
+features (+ published-model priors, never DMS-derived supervision columns).
+In ``leave_gene_out`` mode every MMR gene is excluded from pretraining so no
+MMR variant contaminates the general representation before transfer.
+
+Stage 2 — **finetune**: warm-start the same architecture from the pretrained
+checkpoint on dedicated MMR data (ClinVar/PG-clinical labels only; PMS2
+homology gate already applied upstream) and evaluate leave-one-MMR-gene-out
+with bootstrap CIs, validation-tuned thresholds, and mandatory ablations:
+
+* ESM branch only          (branch baseline)
+* prior branch only        (branch baseline)
+* concat fusion            (plan-default head)
+* GateWave gated fusion    (MVmamba base-paper head)
+
+The checkpoint stores its exact feature-column order; fine-tuning refuses to
+load a checkpoint whose schema differs (a different order invalidates transfer
+even when dimensions happen to match).
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import time
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Dict, List, Optional, Sequence, Tuple
+
+import numpy as np
+import pandas as pd
+import torch
+
+from .dataset import make_position_group_folds
+from .eval_utils import bootstrap_ci, optimal_threshold_by_mcc
+from .esm_extractor import extract_features_cached, get_device
+from .fusion import BranchHead, ConcatFusionHead, GateWaveFusionHead
+from .train import TrainConfig, set_global_seed
+
+logger = logging.getLogger(__name__)
+
+#: Leakage-safe prior columns shared by both stages.  DMS-derived columns are
+#: deliberately absent: their bins ARE supervision for most pretraining rows.
+TRANSFER_PRIOR_COLS: Tuple[str, ...] = ("am_pathogenicity", "in_domain")
+ZS_PREFIX = "zs_"
+
+MMR_GENES: Tuple[str, ...] = ("MLH1", "MSH2", "MSH6", "PMS2")
+
+
+# --------------------------------------------------------------------------- #
+# Feature construction
+# --------------------------------------------------------------------------- #
+def prior_columns_of(df: pd.DataFrame) -> List[str]:
+    """All leakage-safe prior columns present in *df*."""
+    return [c for c in df.columns
+            if c in TRANSFER_PRIOR_COLS or c.startswith(ZS_PREFIX)]
+
+
+def prior_matrix(df: pd.DataFrame,
+                 columns: Optional[Sequence[str]] = None) -> Tuple[np.ndarray, List[str]]:
+    """Median-imputed numeric prior matrix + missingness indicator flags.
+
+    Parameters
+    ----------
+    columns:
+        Full ordered column specification.  Entries starting with
+        ``is_missing_`` name *derived* missingness flags (never source
+        columns); everything else must exist in *df*.  When ``None``, all
+        leakage-safe prior columns of *df* are used in values-then-flags
+        order.
+
+    Returns ``(X, ordered_column_names_including_missing_flags)``.
+    """
+    cols = list(columns) if columns is not None else prior_columns_of(df)
+    if not cols:
+        raise ValueError("No non-DMS prior columns available.")
+    base_cols = [c for c in cols if not c.startswith("is_missing_")]
+    if not base_cols:
+        raise ValueError("Prior column spec contains only missingness flags.")
+    missing_cols = [c for c in base_cols if c not in df.columns]
+    if missing_cols:
+        raise ValueError(
+            f"Table lacks required prior column(s): {missing_cols[:5]} "
+            f"({len(missing_cols)} total). Rebuild the table or re-pretrain "
+            "with a matching feature schema.")
+    raw = df[base_cols].apply(pd.to_numeric, errors="coerce")
+    missing = raw.isna().astype(np.float32)
+    missing.columns = [f"is_missing_{c}" for c in base_cols]
+    values = raw.fillna(raw.median()).fillna(0.0)
+    combined = pd.concat([values, missing], axis=1)
+    if columns is not None:
+        # Enforce the stored ordering exactly; an unknown entry here means
+        # the schema drifted between stages.
+        combined = combined[cols]
+    return combined.to_numpy(np.float32), list(combined.columns)
+
+
+def esm_branch_matrix(
+    df: pd.DataFrame,
+    sequence_by_gene: Dict[str, str],
+    model_name: str,
+    processed_dir: Path,
+    device: torch.device,
+    batch_size: int = 8,
+    overwrite_cache: bool = False,
+) -> Tuple[np.ndarray, pd.DataFrame]:
+    """Stack cached ESM+PLLR feature blocks for every gene present in *df*."""
+    blocks: List[np.ndarray] = []
+    metas: List[pd.DataFrame] = []
+    for gene in sorted(df["gene"].unique()):
+        sub = df[df["gene"] == gene].sort_values(["position", "mut_aa"])
+        seq = sequence_by_gene.get(gene)
+        if not seq:
+            logger.warning("%s: no canonical sequence available; skipped.", gene)
+            continue
+        feats, meta = extract_features_cached(
+            sub.reset_index(drop=True), seq, gene=gene, model_name=model_name,
+            processed_dir=processed_dir, batch_size=batch_size, device=device,
+            overwrite=overwrite_cache, extra_features=None)
+        blocks.append(feats.astype(np.float32))
+        metas.append(meta)
+    if not blocks:
+        raise ValueError("No ESM features extracted for any requested gene.")
+    return np.vstack(blocks), pd.concat(metas, ignore_index=True)
+
+
+def align_rows(meta: pd.DataFrame, target_keys: pd.DataFrame) -> np.ndarray:
+    """Boolean mask selecting *meta* rows present in *target_keys* frame."""
+    keys = set(zip(target_keys["gene"], target_keys["position"].astype(int),
+                   target_keys["wt_aa"], target_keys["mut_aa"]))
+    return np.array([
+        (g, int(p), w, m) in keys
+        for g, p, w, m in zip(meta["gene"], meta["position"],
+                              meta["wt_aa"], meta["mut_aa"])
+    ], dtype=bool)
+
+
+# --------------------------------------------------------------------------- #
+# Training configuration / primitives
+# --------------------------------------------------------------------------- #
+@dataclass
+class TransferConfig:
+    epochs: int = 60
+    patience: int = 10
+    lr: float = 3e-4
+    finetune_lr: float = 3e-5
+    weight_decay: float = 1e-2
+    batch_size: int = 256
+    dropout: float = 0.15
+    clinical_weight: float = 5.0
+    seed: int = 42
+    n_bootstrap: int = 2000          # headline CIs; plan asks 10k for final runs
+    threshold_grid: int = 1001
+
+    def to_dict(self) -> Dict[str, object]:
+        return asdict(self)
+
+
+ARCHITECTURES: Dict[str, type] = {
+    "esm": BranchHead,           # branch-only baselines
+    "priors": BranchHead,
+    "concat": ConcatFusionHead,
+    "gatewave": GateWaveFusionHead,
+}
+
+
+def build_model(arch: str, dims: Sequence[int], hidden_dim: int = 256,
+                dropout: float = 0.15) -> torch.nn.Module:
+    """Instantiate one of the four benchmarked architectures."""
+    if arch in ("esm", "priors"):
+        return BranchHead(int(dims[0]), hidden_dim=hidden_dim, dropout=dropout)
+    if arch == "concat":
+        return ConcatFusionHead(tuple(dims), shared_dim=min(128, hidden_dim),
+                                dropout=dropout)
+    if arch == "gatewave":
+        return GateWaveFusionHead(tuple(dims), shared_dim=min(128, hidden_dim),
+                                  dropout=dropout)
+    raise ValueError(f"Unknown architecture '{arch}'.")
+
+
+def predict_logits(model: torch.nn.Module,
+                   inputs: Sequence[np.ndarray],
+                   device: torch.device, batch_size: int = 1024) -> np.ndarray:
+    model.eval()
+    tensors = [torch.as_tensor(x, dtype=torch.float32) for x in inputs]
+    n = len(tensors[0])
+    out = np.empty(n, dtype=np.float32)
+    with torch.inference_mode():
+        for start in range(0, n, batch_size):
+            chunk = [t[start:start + batch_size].to(device) for t in tensors]
+            out[start:start + batch_size] = model(*chunk).cpu().numpy()
+    return out
+
+
+def fit_head(
+    model: torch.nn.Module,
+    Xs_train: Sequence[np.ndarray],
+    y_train: np.ndarray,
+    Xs_val: Sequence[np.ndarray],
+    y_val: np.ndarray,
+    sample_weights: Optional[np.ndarray],
+    lr: float,
+    epochs: int,
+    patience: int,
+    weight_decay: float,
+    batch_size: int,
+    device: torch.device,
+    monitor_mask: Optional[np.ndarray] = None,
+    seed: int = 42,
+) -> Tuple[torch.nn.Module, int]:
+    """Generic head trainer with early stopping on val ROC-AUC."""
+    from sklearn.metrics import roc_auc_score
+    from .calibration import expit
+
+    set_global_seed(seed)
+    model.to(device)
+    n_pos = max(1, int((y_train == 1).sum()))
+    n_neg = max(1, int((y_train == 0).sum()))
+    pos_weight = torch.tensor(n_neg / n_pos, dtype=torch.float32)
+
+    tensors_tr = [torch.as_tensor(x, dtype=torch.float32) for x in Xs_train]
+    y_t = torch.as_tensor(y_train, dtype=torch.float32)
+    w_t = (torch.ones(len(y_train)) if sample_weights is None
+           else torch.as_tensor(sample_weights, dtype=torch.float32))
+    optimizer = torch.optim.AdamW(model.parameters(), lr=lr,
+                                  weight_decay=weight_decay)
+
+    val_inputs = [torch.as_tensor(x, dtype=torch.float32).to(device) for x in Xs_val]
+    y_val_np = np.asarray(y_val, dtype=np.float32)
+    active = (np.asarray(monitor_mask, dtype=bool) if monitor_mask is not None
+              else np.ones(len(y_val_np), dtype=bool))
+
+    best_auc, best_state, best_epoch, left = -np.inf, None, -1, patience
+    for epoch in range(epochs):
+        model.train()
+        perm = torch.randperm(len(y_t))
+        for start in range(0, len(perm), batch_size):
+            idx = perm[start:start + batch_size]
+            optimizer.zero_grad(set_to_none=True)
+            logits = model(*(t[idx].to(device) for t in tensors_tr))
+            y_dev = y_t[idx].to(device)
+            cw = torch.where(y_dev > 0.5, pos_weight,
+                             torch.ones_like(pos_weight))
+            loss = (torch.nn.functional.binary_cross_entropy_with_logits(
+                logits, y_dev, reduction="none")
+                * w_t[idx].to(device) * cw).mean()
+            loss.backward()
+            optimizer.step()
+
+        model.eval()
+        with torch.inference_mode():
+            val_logits = model(*val_inputs).cpu().numpy()
+        try:
+            use = active if np.unique(y_val_np[active]).size > 1 \
+                else np.ones(len(y_val_np), dtype=bool)
+            val_auc = float(roc_auc_score(y_val_np[use], expit(val_logits)[use]))
+        except ValueError:
+            val_auc = float("nan")
+        if not np.isfinite(val_auc):
+            val_auc = -np.inf
+        if val_auc > best_auc:
+            best_auc, best_epoch, left = val_auc, epoch + 1, patience
+            best_state = {k: v.detach().cpu().clone()
+                          for k, v in model.state_dict().items()}
+        else:
+            left -= 1
+            if left <= 0:
+                break
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    return model, max(best_epoch, 0)
+
+
+# --------------------------------------------------------------------------- #
+# Stage 1 — pretraining over the broad panel
+# --------------------------------------------------------------------------- #
+def select_stage_rows(df: pd.DataFrame, stage: str, mode: str,
+                      holdout_gene: Optional[str]) -> pd.DataFrame:
+    """Anti-circularity row selection applied before any fitting."""
+    if stage == "pretrain":
+        out = df.copy()
+        if mode == "leave_gene_out":
+            out = out[~out["gene"].isin(MMR_GENES)]
+        return out.reset_index(drop=True)
+    # Fine-tune: clinical labels only (ClinVar / ProteinGym-clinical), MMR
+    # genes only; DMS-only and functional-assay values never become targets.
+    out = df[df["gene"].isin(MMR_GENES)].copy()
+    if len(out):
+        if "label_source" in out.columns:
+            clin = out["label_source"].isin(["clinvar", "pg_clinical"]).to_numpy()
+        elif {"clinvar_label", "clinical_label"} <= set(out.columns):
+            clin = (out["clinvar_label"].notna()
+                    | out["clinical_label"].notna()).to_numpy()
+        else:
+            raise ValueError("Fine-tuning table lacks label-source columns.")
+        out = out.loc[clin]
+    if mode == "leave_gene_out":
+        if holdout_gene is None:
+            raise ValueError("leave_gene_out mode requires --holdout_gene.")
+        out = out[out["gene"] != holdout_gene]
+    return out.reset_index(drop=True)
+
+
+def save_checkpoint(path: Path, model: torch.nn.Module, scaler_mean, scaler_scale,
+                    feature_columns: Sequence[str], cfg_dict: Dict,
+                    extra: Optional[Dict] = None) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "model_state_dict": model.state_dict(),
+        "scaler_mean": scaler_mean,
+        "scaler_scale": scaler_scale,
+        "feature_columns": list(feature_columns),
+        "config": cfg_dict,
+        **(extra or {}),
+    }
+    torch.save(payload, path)
+    logger.info("Checkpoint saved -> %s", path)
+    return path
+
+
+def load_checkpoint(path: Path) -> Dict:
+    return torch.load(path, map_location="cpu", weights_only=False)
+
+
+# --------------------------------------------------------------------------- #
+# Shared feature-block assembly used by both stage CLIs
+# --------------------------------------------------------------------------- #
+@dataclass
+class FeatureBundle:
+    """Assembled training matrices for one stage.
+
+    ``X_esm`` is the frozen ESM+PLLR branch (or None in priors-only mode);
+    ``X_prior`` the leakage-safe external-prior branch whose column order is
+    exactly ``prior_cols`` (missingness flags included).  ``meta`` is
+    row-aligned with every matrix.
+    """
+
+    X_esm: Optional[np.ndarray]
+    X_prior: np.ndarray
+    prior_cols: List[str]
+    meta: pd.DataFrame
+
+    @property
+    def dims(self) -> List[int]:
+        dims = []
+        if self.X_esm is not None:
+            dims.append(self.X_esm.shape[1])
+        dims.append(self.X_prior.shape[1])
+        return dims
+
+    def stack(self) -> np.ndarray:
+        """Single-matrix view (ESM | priors) for BranchHead-style models."""
+        parts = [x for x in (self.X_esm, self.X_prior) if x is not None]
+        return np.concatenate(parts, axis=1).astype(np.float32) if len(parts) > 1 \
+            else parts[0].astype(np.float32)
+
+
+def assemble_features(
+    df: pd.DataFrame,
+    sequence_by_gene: Dict[str, str],
+    model_name: str,
+    processed_dir: Path,
+    device: torch.device,
+    features_mode: str = "esm+priors",
+    batch_size: int = 8,
+    overwrite_cache: bool = False,
+    fixed_prior_columns: Optional[Sequence[str]] = None,
+) -> FeatureBundle:
+    """Build the (ESM | prior) feature bundle for every labelled row in *df*."""
+    if features_mode == "esm+priors":
+        X_esm_all, meta = esm_branch_matrix(
+            df, sequence_by_gene, model_name, processed_dir, device,
+            batch_size=batch_size, overwrite_cache=overwrite_cache)
+        # Keep only rows that survived extraction (unknown-sequence genes drop).
+        mask = align_rows(meta, df)
+        df_aligned = df.loc[mask].reset_index(drop=True)
+        if len(df_aligned) != len(meta):
+            raise RuntimeError("Row alignment failed between extraction pool "
+                               "and labelled table.")
+        X_prior, prior_cols = prior_matrix(meta, columns=fixed_prior_columns)
+        return FeatureBundle(X_esm=X_esm_all.astype(np.float32),
+                             X_prior=X_prior.astype(np.float32),
+                             prior_cols=prior_cols, meta=meta)
+    if features_mode == "priors":
+        X_prior, prior_cols = prior_matrix(df, columns=fixed_prior_columns)
+        return FeatureBundle(X_esm=None, X_prior=X_prior.astype(np.float32),
+                             prior_cols=prior_cols, meta=df.reset_index(drop=True))
+    raise ValueError(f"Unknown --features mode '{features_mode}'.")
+
+
+def stage_sample_weights(meta: pd.DataFrame, clinical_weight: float,
+                         dms_weight: float = 1.0) -> np.ndarray:
+    """Evidence-quality × source-priority loss weights for a stage table."""
+    if "label_source" in meta.columns:
+        is_clinical = meta["label_source"].isin(["clinvar", "pg_clinical"]).to_numpy()
+    elif {"clinvar_label", "clinical_label"} <= set(meta.columns):
+        is_clinical = (meta["clinvar_label"].notna()
+                       | meta["clinical_label"].notna()).to_numpy()
+    else:
+        is_clinical = np.ones(len(meta), dtype=bool)
+    weights = np.where(is_clinical, clinical_weight, dms_weight).astype(np.float32)
+    if "label_weight" in meta.columns:
+        quality = pd.to_numeric(meta["label_weight"], errors="coerce") \
+            .fillna(0.0).to_numpy(np.float32)
+        weights = weights * quality
+    return weights
+
+
+__all__ = [
+    "MMR_GENES", "TRANSFER_PRIOR_COLS",
+    "TransferConfig", "FeatureBundle",
+    "prior_columns_of", "prior_matrix", "esm_branch_matrix", "align_rows",
+    "assemble_features", "stage_sample_weights",
+    "build_model", "predict_logits", "fit_head", "select_stage_rows",
+    "save_checkpoint", "load_checkpoint",
+]
