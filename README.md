@@ -10,6 +10,37 @@ AlphaMissense and UniProt domain annotations into one leakage-audited table.
 
 ## Quickstart
 
+### Lynch-syndrome MMR project (recommended entrypoint)
+
+One command runs the whole **download -> clean/process -> train** pipeline
+for the MLH1/MSH2/MSH6/PMS2 project end to end (PROJECT_PLAN.md Phases 0-3,
+stopping at fine-tuning by design -- no calibration/LLM/fusion stages here):
+
+```bash
+python run_mmr_pipeline.py --dry_run      # preview every stage's command first
+python run_mmr_pipeline.py                # CPU-friendly default (priors-only features)
+
+# Full model on a GPU box: broad-panel structural/domain sources + ESM-2
+# embeddings + true backbone fine-tuning
+python run_mmr_pipeline.py --features esm+priors \
+    --esm_model facebook/esm2_t33_650M_UR50D --all_sources --full_finetune
+
+# Re-run training only, reusing already-downloaded/cleaned data
+python run_mmr_pipeline.py --skip_build
+```
+
+Cross-platform wrappers: `bash run_mmr_pipeline.sh [args...]` (macOS/Linux),
+`.\run_mmr_pipeline.ps1 [args...]` (Windows) -- both just forward every
+argument to `run_mmr_pipeline.py`. See `python run_mmr_pipeline.py --help`
+for the full flag list (feature mode, PMS2 handling, CIMRA CSV, pretrain
+mode, leave-one-gene-out vs single holdout, full fine-tuning options).
+
+This is a sibling to `run_pipeline.py` below (the original, still-unchanged
+single-/multi-gene extended-dataset workflow) -- use whichever matches what
+you're trying to reproduce.
+
+### Original single-/multi-gene workflow
+
 One command reproduces EVERYTHING (tests -> dataset -> audit -> training).
 
 ```bash
@@ -66,14 +97,58 @@ python scripts/train_extended.py --no_dms_features --clinical_weight 5
 #   Stage 1: pretrain the head on ALL 80 panel genes' ESM embeddings
 #   Stage 2: fine-tune on dedicated MLH1/MSH2/MSH6(/PMS2) clinical data,
 #            evaluate leave-one-gene-out with bootstrap CIs + fusion ablations
-python scripts/build_mmr_dataset.py --exclude_pms2     # Phase-1 4-gene dataset (+gnomAD v4)
+python scripts/build_mmr_dataset.py --exclude_pms2     # Phase-1 4-gene dataset
+    # (+ gnomAD v4 AF/constraint, AlphaFold pLDDT, InterPro, UniProt point
+    #  features, all on by default for the small 4-gene panel -- use the
+    #  --skip_* flags to disable any of them for an offline run)
 python scripts/pretrain_esm_80.py --features esm+priors --esm_model facebook/esm2_t33_650M_UR50D
 python scripts/run_mmr_transfer.py \
     --checkpoint data/processed/transfer/pretrain_leave_gene_out_esm_priors.pt \
     --features esm+priors --eval lopo
 
-# 5. Unit tests for parsing / splitting / MMR-gnomAD logic
-python tests/test_datasets.py && python tests/test_mmr_modules.py
+# 5. Orthogonal functional-assay data (Phase 2; validation-only, never fed
+#    into ESM-branch training) -- MaveDB has a live API (MSH2 Jia et al. 2021
+#    LOF screen + MLH1 2025 abundance assay); CIMRA has no bulk API, so supply
+#    a CSV extracted from the paper supplements (see src/cimra.py docstring).
+python scripts/build_mmr_dataset.py --exclude_pms2 \
+    --cimra_csv data/raw/cimra/cimra_oddspath.csv    # optional
+
+# 6. Broad-panel gnomAD + AlphaFold + InterPro + UniProt point features (the
+#    *pretraining* data gets the same feature set the MMR fine-tuning stage
+#    does, not just the 4 MMR genes) -- all opt-in, one extra REST/GraphQL
+#    call per gene per source:
+python scripts/build_extended_dataset.py --panel_file data/raw/uniprot/expanded_panel.json \
+    --all_sources   # = --include_gnomad --include_structure --include_interpro --include_functional_sites
+
+# 7. Full ESM-2 fine-tuning (backbone gradients, not a frozen linear probe) --
+#    ProPath's Siamese/PLLR recipe or a CSBJ-style token classifier:
+python scripts/finetune_esm_mmr.py --mode siamese --n_unfrozen_layers -1 \
+    --esm_model facebook/esm2_t33_650M_UR50D --eval lopo \
+    --backbone_lr 1e-5 --batch_size 8 --epochs 10 --gradient_checkpointing
+
+# 8. Benchmark all four Phase-3 fine-tuning strategies on identical MMR splits
+#    (mvmamba recipe / VariPred linear probe / ProPath siamese / CSBJ token
+#    classifier) before committing to one:
+python scripts/compare_finetune_strategies.py --holdout_gene MSH2 \
+    --esm_model facebook/esm2_t33_650M_UR50D
+
+# 9. ESM-1b vs ESM2-650M masked-marginal zero-shot -- don't assume ESM2 wins:
+python scripts/compare_backbones.py
+
+# 10. Leave-one-protein-out CV over the broad pretraining panel (the honest
+#     transfer-to-a-new-gene estimate, not just residue-disjoint folds):
+python scripts/eval_leave_one_protein_out.py --features priors
+
+# 11. Sequence-cluster-disjoint split (MMseqs2, 20% id / 20% cov) so
+#     near-duplicate/paralogous proteins never straddle train/val:
+python scripts/build_cluster_split.py \
+    --panel_json data/raw/uniprot/expanded_panel.json \
+    --out_dir data/processed/extended
+
+# 12. Unit tests for parsing / splitting / MMR-gnomAD / MaveDB / CIMRA / ESM
+#     fine-tuning logic
+python tests/test_datasets.py && python tests/test_mmr_modules.py \
+    && python tests/test_new_data_sources.py
 ```
 
 ## NVIDIA GPU support
@@ -126,14 +201,20 @@ forward passes under fp16 autocast on GPUs. Keep `--extract_batch_size` small
 
 | Path | Role |
 |------|------|
+| `run_mmr_pipeline.py` (+ `.sh`/`.ps1`) | **recommended entrypoint**: download -> clean -> train for the Lynch-syndrome MMR project |
 | `main.py` | end-to-end training CLI (single or comma-separated genes) |
 | `scripts/build_extended_dataset.py` | extended-dataset build CLI |
 | `src/data_loader.py` | ClinVar streaming, HGVS-p parsing, star filtering |
 | `src/external_datasets.py` | ProteinGym / AlphaMissense / UniProt downloaders & parsers |
 | `src/extended_builder.py` | multi-source merge, label precedence, manifest |
-| `src/gnomad.py` | gnomAD v4 GraphQL adapter + BA1/BS1/PM2 frequency flags |
-| `src/mmr_dataset.py` | pinned MMR references, VCEP tiers, PMS2 pseudogene gate |
+| `src/gnomad.py` | gnomAD v4 GraphQL adapter: variant AF + BA1/BS1/PM2 flags + gene-level constraint (pLI, oe_mis, mis_z) |
+| `src/mavedb.py` | MaveDB REST client (MSH2 Jia 2021 LOF screen, MLH1 abundance assay) |
+| `src/cimra.py` | CIMRA OddsPath CSV loader + Tavtigian ACMG-strength classification |
+| `src/structure.py` | AlphaFold DB per-residue pLDDT structural-confidence feature |
+| `src/interpro.py` | InterPro domain/family/superfamily calls (complements UniProt domains) |
+| `src/mmr_dataset.py` | pinned MMR references, VCEP tiers, PMS2 pseudogene gate, functional-assay attach |
 | `src/mvmamba_features.py` | MVmamba WT/VT global/local features + masked-marginal scorers |
+| `src/esm_finetune.py` | full ESM-2 fine-tuning (ProPath siamese / CSBJ token-classifier) |
 | `src/fusion.py` | concat + GateWave fusion heads (Phase-5 start) |
 | `src/eval_utils.py` | bootstrap CIs (10k) + MCC-optimal threshold tuning |
 | `src/transfer.py` | 80-gene pretraining / MMR fine-tuning primitives |
@@ -142,7 +223,12 @@ forward passes under fp16 autocast on GPUs. Keep `--extract_batch_size` small
 | `src/model.py` | residual MLP head |
 | `src/loss.py` | focal loss, weighted BCE |
 | `src/calibration.py` | ECE/MCE/Brier, temperature & isotonic calibrators, plots |
-| `tests/test_datasets.py` | unit tests |
+| `scripts/finetune_esm_mmr.py` | full backbone fine-tuning + leave-one-gene-out eval CLI |
+| `scripts/compare_finetune_strategies.py` | benchmarks all 4 Phase-3 fine-tuning strategies |
+| `scripts/compare_backbones.py` | ESM-1b vs ESM2-650M masked-marginal comparison |
+| `scripts/eval_leave_one_protein_out.py` | leave-one-protein-out CV over the broad panel |
+| `scripts/build_cluster_split.py` | MMseqs2 sequence-cluster-disjoint split |
+| `tests/test_datasets.py`, `tests/test_mmr_modules.py`, `tests/test_new_data_sources.py` | unit tests |
 | `docs/DATASETS.md` | **full dataset documentation** (licences, schemas, rules) |
 | `docs/CODE_REVIEW.md` | issues found & fixed + complete changelog |
 | `data/raw/`, `data/processed/` | cached artefacts (never edit by hand) |

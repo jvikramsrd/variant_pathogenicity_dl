@@ -28,6 +28,7 @@ from src.extended_builder import (  # noqa: E402
     DEFAULT_GENE_PANEL,
     build_extended_dataset,
 )
+from src.gnomad import DEFAULT_BA1_AF, DEFAULT_BS1_AF, DEFAULT_PM2_AF  # noqa: E402
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -51,6 +52,35 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="Skip the AlphaMissense streaming filter (~1.2 GB scan).")
     p.add_argument("--no-zeroshot", action="store_true",
                    help="Skip ProteinGym zero-shot model-score enrichment.")
+    p.add_argument("--include_gnomad", action="store_true",
+                   help="Fetch gnomAD v4 allele frequencies for every panel gene "
+                        "(one GraphQL call per gene; opt-in, can take minutes for "
+                        "a large panel) and attach them as explicit input features "
+                        "(gnomad_log10_af, acmg_ba1/bs1/pm2), not just for the 4 "
+                        "MMR genes -- PROJECT_PLAN.md Phase 3's 'genome data used "
+                        "for pretraining' should carry the same features the MMR "
+                        "fine-tuning stage sees.")
+    p.add_argument("--gnomad_ba1_af", type=float, default=DEFAULT_BA1_AF,
+                   help="ACMG BA1 (stand-alone benign) allele-frequency threshold.")
+    p.add_argument("--gnomad_bs1_af", type=float, default=DEFAULT_BS1_AF,
+                   help="ACMG BS1 (moderate benign) allele-frequency threshold.")
+    p.add_argument("--gnomad_pm2_af", type=float, default=DEFAULT_PM2_AF,
+                   help="ACMG PM2 (absent/rare) allele-frequency threshold.")
+    p.add_argument("--include_structure", action="store_true",
+                   help="Fetch AlphaFold DB per-residue pLDDT structural-confidence "
+                        "feature for every panel accession (one REST call + one PDB "
+                        "download per accession; opt-in).")
+    p.add_argument("--include_interpro", action="store_true",
+                   help="Fetch InterPro domain/family/superfamily calls (one REST "
+                        "call per accession; complements UniProt's own domain "
+                        "annotations; opt-in).")
+    p.add_argument("--include_functional_sites", action="store_true",
+                   help="Attach UniProt point features -- active/binding site, PTM, "
+                        "disulfide bond (reuses the UniProt JSON already cached for "
+                        "domains, no extra network calls; opt-in).")
+    p.add_argument("--all_sources", action="store_true",
+                   help="Shortcut for --include_gnomad --include_structure "
+                        "--include_interpro --include_functional_sites.")
     p.add_argument("--overwrite_cache", action="store_true",
                    help="Re-download remote artefacts and re-resolve the panel.")
     return p.parse_args(argv)
@@ -76,6 +106,13 @@ def main() -> int:
         min_stars=args.min_stars,
         include_alphamissense=not args.no_alphamissense,
         include_zeroshot=not args.no_zeroshot,
+        include_gnomad=args.include_gnomad or args.all_sources,
+        gnomad_ba1_af=args.gnomad_ba1_af,
+        gnomad_bs1_af=args.gnomad_bs1_af,
+        gnomad_pm2_af=args.gnomad_pm2_af,
+        include_structure=args.include_structure or args.all_sources,
+        include_interpro=args.include_interpro or args.all_sources,
+        include_functional_sites=args.include_functional_sites or args.all_sources,
         overwrite_cache=args.overwrite_cache,
         panel_records=panel_records,
     )

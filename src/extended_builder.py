@@ -11,6 +11,10 @@ ProteinGym DMS v1.3     Continuous fitness scores + assay-binarised labels
 AlphaMissense 2023      Per-variant pathogenicity score/class (prior feature)
 ProteinGym zero-shot    ~17 published model scores (EVE, ESM1b, GEMME, ...)
 UniProt domains         ``in_domain`` structural flag
+gnomAD v4 (opt-in)      Variant AF + BA1/BS1/PM2 flags, gene-level constraint
+AlphaFold DB (opt-in)   Per-residue pLDDT structural-confidence feature
+InterPro (opt-in)       Domain/family/superfamily calls, complements UniProt
+UniProt point features  ``is_functional_site`` (active/binding site, PTM, ...)
 ======================  ======================================================
 
 Join keys and numbering guarantees
@@ -43,7 +47,11 @@ extended_dataset.csv           master long-format table (unique substitutions)
 dms_scores_long.csv            full per-assay DMS scores
 alphamissense_subset.csv       AlphaMissense rows for the panel proteins
 zeroshot_scores_subset.csv     published-model scores mapped to the panel
+gnomad_subset.csv              gnomAD v4 AF per variant (opt-in)
+alphafold_plddt_subset.csv     AlphaFold per-residue pLDDT (opt-in)
+interpro_intervals.csv         InterPro domain/family/superfamily calls (opt-in)
 uniprot_domains.csv            domain intervals for the panel
+uniprot_functional_sites.csv   active/binding site, PTM, disulfide (opt-in)
 panel_sequences.fasta|json     canonical reference sequences
 manifest.json                  provenance, checksums, counts, parameters
 =============================  ==============================================
@@ -70,15 +78,29 @@ from .data_loader import (
     stars_for_review,
 )
 from .esm_extractor import validate_and_align
+from .gnomad import (
+    DEFAULT_BA1_AF,
+    DEFAULT_BS1_AF,
+    DEFAULT_PM2_AF,
+    GENE_CONSTRAINT_COLUMNS,
+    GNOMAD_FEATURE_COLUMNS,
+    add_frequency_flags,
+    attach_gene_constraint,
+    fetch_gene_gnomad_variants,
+    load_or_fetch_constraint,
+    validate_against_sequence as validate_gnomad_against_sequence,
+)
 from .external_datasets import (
     ALPHAMISSENSE_AA_URL,
     ALPHAMISSENSE_VERSION,
     PROTEINGYM_BASE_HARVARD,
     PROTEINGYM_VERSION,
     PROTEINGYM_ZENODO_RECORD,
+    attach_functional_site_features,
     download_alphamissense,
     download_proteingym,
     fetch_uniprot_domains,
+    fetch_uniprot_point_features,
     load_clinical_benchmark,
     load_dms_assays,
     load_zero_shot_scores,
@@ -88,6 +110,16 @@ from .external_datasets import (
     sha256_of,
     stream_filter_alphamissense,
     ZERO_SHOT_MODEL_COLUMNS,
+)
+from .structure import (
+    ALPHAFOLD_FEATURE_COLUMNS,
+    attach_alphafold_features,
+    load_panel_alphafold_features,
+)
+from .interpro import (
+    INTERPRO_FEATURE_COLUMNS,
+    attach_interpro_features,
+    load_panel_interpro_intervals,
 )
 
 logger = logging.getLogger(__name__)
@@ -130,6 +162,15 @@ class BuildStats:
     clinical_np_matched: int = 0
     clinical_np_unmatched: int = 0
     alphamissense_rows_panel: int = 0
+    gnomad_rows_panel: int = 0
+    gnomad_genes_fetched: List[str] = field(default_factory=list)
+    gnomad_genes_failed: List[str] = field(default_factory=list)
+    gnomad_constraint_genes_fetched: List[str] = field(default_factory=list)
+    gnomad_constraint_genes_failed: List[str] = field(default_factory=list)
+    alphafold_residues_with_plddt: int = 0
+    alphafold_accessions_covered: int = 0
+    interpro_intervals: int = 0
+    functional_site_rows: int = 0
     zeroshot_rows_joined: int = 0
     domain_intervals: int = 0
     master_rows: int = 0
@@ -313,6 +354,128 @@ def build_alphamissense_part(
     return am
 
 
+def build_gnomad_part(
+    panel: pd.DataFrame, raw_dir: Path, ext_dir: Path, stats: BuildStats,
+    session=None, overwrite: bool = False,
+    ba1_af: float = DEFAULT_BA1_AF, bs1_af: float = DEFAULT_BS1_AF,
+    pm2_af: float = DEFAULT_PM2_AF,
+) -> pd.DataFrame:
+    """gnomAD v4 allele-frequency features for every panel gene (cached per gene).
+
+    PROJECT_PLAN.md Phase 3 step 1 treats gnomAD AF as an explicit **input
+    feature** (not just an ACMG filtering criterion) for the whole pretraining
+    panel, not only the four MMR genes — MVmamba's own ablation improved every
+    metric by adding AF on top of a strong structure+sequence model. One
+    GraphQL call per gene (:mod:`src.gnomad`), so this is opt-in
+    (``include_gnomad=True``) and can be slow for a large panel; per-gene
+    results are cached under ``data/raw/gnomad/`` and reused on rebuild.
+    """
+    from .data_loader import make_session as _make_session
+
+    sess = session or _make_session()
+    cache_dir = raw_dir / "gnomad"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    seq_of = dict(zip(panel["uniprot_id"], panel["sequence"]))
+    frames: List[pd.DataFrame] = []
+    for gene, uniprot_id in zip(panel["gene"], panel["uniprot_id"]):
+        gene_up = str(gene).upper()
+        cache = cache_dir / f"{gene_up}_gnomad_v4.csv"
+        try:
+            if cache.exists() and not overwrite:
+                df = pd.read_csv(cache)
+            else:
+                df = fetch_gene_gnomad_variants(gene_up, session=sess)
+                if len(df):
+                    df = validate_gnomad_against_sequence(df, seq_of[uniprot_id])
+                df.to_csv(cache, index=False)
+        except Exception as exc:  # noqa: BLE001 - one gene's API failure must not abort the panel build
+            logger.warning("gnomAD: %s fetch failed (%s); skipped.", gene_up, exc)
+            stats.gnomad_genes_failed.append(gene_up)
+            continue
+        if df.empty:
+            continue
+        df = df.copy()
+        df["uniprot_id"] = uniprot_id
+        frames.append(df)
+        stats.gnomad_genes_fetched.append(gene_up)
+
+    if not frames:
+        stats.gnomad_rows_panel = 0
+        return pd.DataFrame(columns=["uniprot_id", "position", "wt_aa", "mut_aa",
+                                     *GNOMAD_FEATURE_COLUMNS])
+    gnomad_panel = add_frequency_flags(pd.concat(frames, ignore_index=True),
+                                       ba1_af=ba1_af, bs1_af=bs1_af, pm2_af=pm2_af)
+    gnomad_panel.to_csv(ext_dir / "gnomad_subset.csv", index=False)
+    stats.gnomad_rows_panel = len(gnomad_panel)
+    return gnomad_panel
+
+
+def build_gnomad_constraint_part(
+    panel: pd.DataFrame, raw_dir: Path, stats: BuildStats,
+    session=None, overwrite: bool = False,
+) -> Dict[str, Dict[str, float]]:
+    """Gene-level gnomAD constraint metrics (pLI, oe_mis, mis_z, ...) per panel gene.
+
+    Cheap (one small GraphQL call per gene, cached); a gene-level complement
+    to the variant-level AF features from :func:`build_gnomad_part`.
+    """
+    from .data_loader import make_session as _make_session
+    sess = session or _make_session()
+    out: Dict[str, Dict[str, float]] = {}
+    for gene in panel["gene"]:
+        gene_up = str(gene).upper()
+        try:
+            out[gene_up] = load_or_fetch_constraint(gene_up, raw_dir, session=sess,
+                                                     overwrite=overwrite)
+            stats.gnomad_constraint_genes_fetched.append(gene_up)
+        except Exception as exc:  # noqa: BLE001 - one gene's failure must not abort the panel
+            logger.warning("gnomAD constraint: %s fetch failed (%s); skipped.", gene_up, exc)
+            stats.gnomad_constraint_genes_failed.append(gene_up)
+    return out
+
+
+def build_structure_part(panel: pd.DataFrame, raw_dir: Path, ext_dir: Path,
+                         stats: BuildStats, session=None, overwrite: bool = False) -> pd.DataFrame:
+    """Per-residue AlphaFold pLDDT structural-confidence features for the panel."""
+    from .data_loader import make_session as _make_session
+    sess = session or _make_session()
+    af_panel = load_panel_alphafold_features(panel, raw_dir, session=sess, overwrite=overwrite)
+    if len(af_panel):
+        af_panel.to_csv(ext_dir / "alphafold_plddt_subset.csv", index=False)
+    stats.alphafold_residues_with_plddt = len(af_panel)
+    stats.alphafold_accessions_covered = int(af_panel["uniprot_id"].nunique()) if len(af_panel) else 0
+    return af_panel
+
+
+def build_interpro_part(panel: pd.DataFrame, raw_dir: Path, ext_dir: Path,
+                        stats: BuildStats, session=None, overwrite: bool = False) -> pd.DataFrame:
+    """InterPro domain/family/superfamily intervals for the panel."""
+    from .data_loader import make_session as _make_session
+    sess = session or _make_session()
+    intervals = load_panel_interpro_intervals(panel, raw_dir, session=sess, overwrite=overwrite)
+    if len(intervals):
+        intervals.to_csv(ext_dir / "interpro_intervals.csv", index=False)
+    stats.interpro_intervals = len(intervals)
+    return intervals
+
+
+def build_functional_sites_part(panel: pd.DataFrame, raw_dir: Path, ext_dir: Path,
+                                stats: BuildStats, session=None) -> pd.DataFrame:
+    """Single-residue UniProt functional-site annotations for the panel.
+
+    Reuses the UniProt JSON already cached by the domain-interval fetch (see
+    :func:`src.external_datasets.fetch_uniprot_point_features`), so this adds
+    no extra network calls when domains were already built for the same panel.
+    """
+    from .data_loader import make_session as _make_session
+    sess = session or _make_session()
+    sites = fetch_uniprot_point_features(list(panel["uniprot_id"]), raw_dir, session=sess)
+    if len(sites):
+        sites.to_csv(ext_dir / "uniprot_functional_sites.csv", index=False)
+    stats.functional_site_rows = len(sites)
+    return sites
+
+
 def build_zeroshot_and_clinical_part(
     panel: pd.DataFrame, raw_dir: Path, stats: BuildStats
 ) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame]]:
@@ -354,6 +517,11 @@ def assemble_master(
     domains: pd.DataFrame,
     stats: BuildStats,
     gene_of_uniprot: Optional[Dict[str, str]] = None,
+    gnomad_panel: Optional[pd.DataFrame] = None,
+    gnomad_constraint: Optional[Dict[str, Dict[str, float]]] = None,
+    alphafold_panel: Optional[pd.DataFrame] = None,
+    interpro_intervals: Optional[pd.DataFrame] = None,
+    functional_sites: Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """Merge all sources into the master table, one row per substitution.
 
@@ -481,6 +649,51 @@ def assemble_master(
         for model in ZERO_SHOT_MODEL_COLUMNS:
             master[_model_name(model)] = np.nan
 
+    # --- gnomAD v4 allele frequency (explicit input feature, opt-in) ------- #
+    # Filled only when gnomad_panel actually covers the whole requested panel
+    # (build_gnomad_part loops over every panel gene): a left-join miss is
+    # then genuine "absent from gnomAD" and join_gnomad_features's PM2=1 /
+    # BA1=BS1=0 fallback is correct. Genes that failed the GraphQL fetch
+    # (stats.gnomad_genes_failed) are the one exception — their rows get the
+    # same fallback even though gnomAD truly wasn't checked; this is logged
+    # and treated as an acceptable, rare partial-failure caveat rather than a
+    # blocking condition for the whole panel build.
+    if gnomad_panel is not None and len(gnomad_panel):
+        from .gnomad import join_gnomad_features
+        master = join_gnomad_features(master, gnomad_panel)
+    else:
+        for c in GNOMAD_FEATURE_COLUMNS:
+            master[c] = np.nan
+
+    # --- gnomAD gene-level constraint (opt-in, broadcast per gene) --------- #
+    if gnomad_constraint:
+        master = attach_gene_constraint(master, gnomad_constraint)
+    else:
+        for c in GENE_CONSTRAINT_COLUMNS:
+            master[c] = np.nan
+
+    # --- AlphaFold per-residue pLDDT (opt-in) ------------------------------- #
+    if alphafold_panel is not None and len(alphafold_panel):
+        master = attach_alphafold_features(master, alphafold_panel)
+    else:
+        for c in ALPHAFOLD_FEATURE_COLUMNS:
+            master[c] = np.nan
+        master["af_plddt_bin"] = np.nan
+
+    # --- InterPro domain/family/superfamily calls (opt-in) ------------------ #
+    if interpro_intervals is not None and len(interpro_intervals):
+        master = attach_interpro_features(master, interpro_intervals)
+    else:
+        master["in_interpro_domain"] = 0
+        master["interpro_names"] = ""
+
+    # --- UniProt point features: active/binding site, PTM, disulfide ------- #
+    if functional_sites is not None and len(functional_sites):
+        master = attach_functional_site_features(master, functional_sites)
+    else:
+        master["is_functional_site"] = 0
+        master["functional_site_types"] = ""
+
     # --- UniProt domains --------------------------------------------------- #
     dom = domains.loc[domains["feature_type"].isin(["Domain", "Region"])] \
         if len(domains) else domains
@@ -553,6 +766,10 @@ def assemble_master(
         "zeroshot_models": master[[c for c in master.columns if c.startswith("zs_")]]
         .notna().any(axis=1),
         "domains": master["in_domain"] == 1,
+        "gnomad": master["gnomad_af_joint"].notna(),
+        "alphafold": master["af_plddt"].notna(),
+        "interpro": master["in_interpro_domain"] == 1,
+        "functional_site": master["is_functional_site"] == 1,
     }
     parts = []
     for name, mask in src_cols.items():
@@ -573,6 +790,10 @@ def assemble_master(
         "dms_score_median", "dms_bin_median", "dms_bin_nunique", "n_dms_assays", "dms_ids",
         "dms_selection_types",
         "am_pathogenicity", "am_class", "in_domain", "domain_names",
+        *GNOMAD_FEATURE_COLUMNS, *GENE_CONSTRAINT_COLUMNS,
+        *ALPHAFOLD_FEATURE_COLUMNS, "af_plddt_bin",
+        "in_interpro_domain", "interpro_names",
+        "is_functional_site", "functional_site_types",
         *[c for c in master.columns if c.startswith("zs_")],
         "sources", "n_sources",
     ]
@@ -630,6 +851,13 @@ def build_extended_dataset(
     min_stars: int = 2,
     include_alphamissense: bool = True,
     include_zeroshot: bool = True,
+    include_gnomad: bool = False,
+    gnomad_ba1_af: float = DEFAULT_BA1_AF,
+    gnomad_bs1_af: float = DEFAULT_BS1_AF,
+    gnomad_pm2_af: float = DEFAULT_PM2_AF,
+    include_structure: bool = False,
+    include_interpro: bool = False,
+    include_functional_sites: bool = False,
     overwrite_cache: bool = False,
     panel_records: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> Dict[str, object]:
@@ -643,8 +871,19 @@ def build_extended_dataset(
     3. Multi-gene single-pass ClinVar extraction + alignment.
     4. AlphaMissense streaming filter (only if requested; heavy first run).
     5. Zero-shot clinical scores + RefSeq mapping.
-    6. UniProt domain annotations.
-    7. Assemble master table, write artefacts + manifest.json.
+    6. gnomAD v4 allele-frequency features (only if requested; one GraphQL
+       call per panel gene, so this can add minutes for a large panel).
+    7. gnomAD v4 gene-level constraint metrics (pLI, oe_mis, mis_z, ...;
+       same opt-in flag as step 6, one small extra call per gene).
+    8. AlphaFold DB per-residue pLDDT structural-confidence feature
+       (only if requested; one REST call + one PDB download per accession).
+    9. InterPro domain/family/superfamily calls (only if requested; one REST
+       call per accession, complements UniProt's own domain annotations).
+    10. UniProt domain annotations.
+    11. UniProt point features -- active/binding site, PTM, disulfide bond
+        (only if requested; reuses the UniProt JSON already cached by step 10,
+        no extra network calls).
+    12. Assemble master table, write artefacts + manifest.json.
     """
     raw_dir = data_dir / "raw"
     processed_dir = data_dir / "processed"
@@ -671,20 +910,21 @@ def build_extended_dataset(
     stats.genes_resolved = dict(zip(panel["gene"].astype(str), panel["uniprot_id"]))
     write_fasta(panel, ext_dir / "panel_sequences.fasta")
 
-    logger.info("[1/6] ProteinGym bundles ...")
+    N = 11
+    logger.info("[1/%d] ProteinGym bundles ...", N)
     download_proteingym(raw_dir, overwrite=overwrite_cache)
 
-    logger.info("[2/6] ClinVar multi-gene pass (%d genes) ...", len(panel))
+    logger.info("[2/%d] ClinVar multi-gene pass (%d genes) ...", N, len(panel))
     labeled, vus = build_clinvar_part(panel, raw_dir, processed_dir,
                                       min_stars=min_stars, stats=stats)
 
-    logger.info("[3/6] ProteinGym DMS assays ...")
+    logger.info("[3/%d] ProteinGym DMS assays ...", N)
     dms_panel = build_dms_part(panel, raw_dir, stats)
     dms_panel.to_csv(ext_dir / "dms_scores_long.csv", index=False)
 
     clin_panel = zs_panel = None
     if include_zeroshot:
-        logger.info("[4/6] Clinical benchmark + zero-shot model scores ...")
+        logger.info("[4/%d] Clinical benchmark + zero-shot model scores ...", N)
         clin_panel, zs_panel = build_zeroshot_and_clinical_part(panel, raw_dir, stats)
         if clin_panel is not None:
             clin_panel.to_csv(ext_dir / "pg_clinical_panel.csv", index=False)
@@ -693,18 +933,56 @@ def build_extended_dataset(
 
     am_panel = pd.DataFrame(columns=MASTER_BASE_COLS)
     if include_alphamissense:
-        logger.info("[5/6] AlphaMissense streaming filter ...")
+        logger.info("[5/%d] AlphaMissense streaming filter ...", N)
         am_panel = build_alphamissense_part(panel, raw_dir, ext_dir, stats)
 
-    logger.info("[6/6] UniProt domain annotations ...")
+    gnomad_panel = None
+    gnomad_constraint = None
+    if include_gnomad:
+        logger.info("[6/%d] gnomAD v4 allele frequencies (%d genes) ...", N, len(panel))
+        gnomad_panel = build_gnomad_part(panel, raw_dir, ext_dir, stats,
+                                         session=session, overwrite=overwrite_cache,
+                                         ba1_af=gnomad_ba1_af, bs1_af=gnomad_bs1_af,
+                                         pm2_af=gnomad_pm2_af)
+        logger.info("[7/%d] gnomAD gene-level constraint (%d genes) ...", N, len(panel))
+        gnomad_constraint = build_gnomad_constraint_part(
+            panel, raw_dir, stats, session=session, overwrite=overwrite_cache)
+
+    alphafold_panel = None
+    if include_structure:
+        logger.info("[8/%d] AlphaFold DB per-residue pLDDT (%d accessions) ...",
+                    N, panel["uniprot_id"].nunique())
+        alphafold_panel = build_structure_part(panel, raw_dir, ext_dir, stats,
+                                               session=session, overwrite=overwrite_cache)
+
+    interpro_intervals = None
+    if include_interpro:
+        logger.info("[9/%d] InterPro domain/family calls (%d accessions) ...",
+                    N, panel["uniprot_id"].nunique())
+        interpro_intervals = build_interpro_part(panel, raw_dir, ext_dir, stats,
+                                                 session=session, overwrite=overwrite_cache)
+
+    logger.info("[10/%d] UniProt domain annotations ...", N)
     domains = fetch_uniprot_domains(list(panel["uniprot_id"]), raw_dir, session=session)
     domains.to_csv(ext_dir / "uniprot_domains.csv", index=False)
     stats.domain_intervals = len(domains)
 
+    functional_sites = None
+    if include_functional_sites:
+        logger.info("[11/%d] UniProt point features (active/binding site, PTM, ...) ...", N)
+        functional_sites = build_functional_sites_part(panel, raw_dir, ext_dir, stats,
+                                                        session=session)
+
+    logger.info("Assembling master table ...")
     master = assemble_master(labeled, vus, dms_panel, clin_panel, am_panel,
                              zs_panel, domains, stats,
                              gene_of_uniprot=dict(zip(panel["uniprot_id"],
-                                                      panel["gene"].astype(str))))
+                                                      panel["gene"].astype(str))),
+                             gnomad_panel=gnomad_panel,
+                             gnomad_constraint=gnomad_constraint,
+                             alphafold_panel=alphafold_panel,
+                             interpro_intervals=interpro_intervals,
+                             functional_sites=functional_sites)
     stats.master_rows = len(master)
     vc = master["label"].value_counts(dropna=False)
     stats.master_label_counts = {("nan" if pd.isna(k) else str(int(k))):
@@ -721,6 +999,10 @@ def build_extended_dataset(
             "min_stars": min_stars,
             "include_alphamissense": include_alphamissense,
             "include_zeroshot": include_zeroshot,
+            "include_gnomad": include_gnomad,
+            "include_structure": include_structure,
+            "include_interpro": include_interpro,
+            "include_functional_sites": include_functional_sites,
         },
         "sources": {
             "clinvar": {
@@ -748,6 +1030,33 @@ def build_extended_dataset(
                 "licence": "CC BY-NC-SA 4.0",
             },
             "uniprot_domains": {"rest_url": "https://rest.uniprot.org/uniprotkb/{acc}.json"},
+            "gnomad": {
+                "enabled": include_gnomad,
+                "api_url": "https://gnomad.broadinstitute.org/api",
+                "dataset": "gnomad_r4",
+                "genes_fetched": stats.gnomad_genes_fetched,
+                "genes_failed": stats.gnomad_genes_failed,
+                "constraint_genes_fetched": stats.gnomad_constraint_genes_fetched,
+                "constraint_genes_failed": stats.gnomad_constraint_genes_failed,
+            },
+            "alphafold": {
+                "enabled": include_structure,
+                "api_url": "https://alphafold.ebi.ac.uk/api",
+                "licence": "CC-BY-4.0",
+                "accessions_covered": stats.alphafold_accessions_covered,
+                "residues_with_plddt": stats.alphafold_residues_with_plddt,
+            },
+            "interpro": {
+                "enabled": include_interpro,
+                "api_url": "https://www.ebi.ac.uk/interpro/api",
+                "licence": "CC0",
+                "intervals": stats.interpro_intervals,
+            },
+            "uniprot_point_features": {
+                "enabled": include_functional_sites,
+                "rest_url": "https://rest.uniprot.org/uniprotkb/{acc}.json",
+                "rows": stats.functional_site_rows,
+            },
         },
         "panel": {g: {"accession": a, "length":
                       int(panel.loc[panel["gene"] == g, "sequence"].str.len().iloc[0])}

@@ -25,6 +25,13 @@ Last full build: see `manifest.json → built_at_utc`.
 11. [Leakage controls](#10-leakage-controls)
 12. [Considered but rejected sources](#11-considered-but-rejected-sources)
 13. [Reproduction commands](#12-reproduction-commands)
+14. [gnomAD v4 allele frequencies](#13-gnomad-v4-allele-frequencies)
+15. [MaveDB deep mutational scans](#14-mavedb-deep-mutational-scans)
+16. [CIMRA OddsPath (MMR-specific)](#15-cimra-oddspath-mmr-specific)
+17. [gnomAD v4 gene-level constraint](#16-gnomad-v4-gene-level-constraint)
+18. [AlphaFold DB structural confidence](#17-alphafold-db-structural-confidence)
+19. [InterPro domain/family/superfamily calls](#18-interpro-domainfamilysuperfamily-calls)
+20. [UniProt point features](#19-uniprot-point-features)
 
 ---
 
@@ -306,10 +313,15 @@ on `dms_score_median`).
 | Source | Reason for rejection |
 |--------|----------------------|
 | dbNSFP 4.x | ~30 GB unpacked; overlaps almost fully with the zs_* columns already obtained via ProteinGym |
-| gnomAD v4 allele frequencies | Hail/table toolchain too heavy for this repo; frequency-based benignness mostly redundant with ClinVar benign set here |
 | EVE default repo files | ships MSAs/labels only, no ready scores; EVE scores already included via ProteinGym bundle |
-| MaveDB | requires per-experiment registration/API scraping; ProteinGym covers the major assays |
 | CADD genome-wide TSVs | registration wall + huge files; CADD already present among zs_* columns |
+
+**Reversed decisions** (originally rejected here, now implemented — see
+§13/§14 below): gnomAD v4 allele frequencies turned out to have a lightweight
+per-gene GraphQL API (no Hail toolchain needed), and MaveDB turned out to have
+a plain REST API for individual score sets (no registration/scraping needed)
+once a specific, plan-relevant score set (MSH2's Jia et al. 2021 screen) was
+targeted instead of a bulk crawl.
 
 ## 12. Reproduction commands
 
@@ -325,3 +337,145 @@ python tests/test_datasets.py
 python main.py --gene TP53,BRCA1,PTEN --extra_features all \
        --esm_model facebook/esm2_t33_650M_UR50D
 ```
+
+---
+
+## 13. gnomAD v4 allele frequencies
+
+* **API**: `https://gnomad.broadinstitute.org/api` (GraphQL), dataset `gnomad_r4`.
+* **Licence**: gnomAD data is in the public domain (ODbL-compatible terms; see
+  the gnomAD site for the current statement).
+* **Content**: per-gene missense substitutions with genome/exome/joint AF,
+  AC, AN. Joined onto the master table by `(gene, position, wt_aa, mut_aa)`.
+* **Processing rules** (`src/gnomad.py`): HGVSp parsing rejects fs/ext/*
+  tokens; rows validated against the canonical sequence (isoform-numbering
+  safety, same contract as every other source); highest-AF observation kept
+  per protein substitution when multiple gnomAD variants collapse onto one.
+* **Derived features**: `gnomad_log10_af` (absent variants floored at -9, so
+  "absent < rare < common" orders correctly), `acmg_ba1`/`acmg_bs1` (AF above
+  0.05 / 1e-3), `acmg_pm2` (AF below 1e-5 or absent).
+* **Coverage**: always fetched for the 4 MMR genes
+  (`scripts/build_mmr_dataset.py`, opt out with `--skip_gnomad`). For the
+  broader pretraining panel it is **opt-in**
+  (`scripts/build_extended_dataset.py --include_gnomad`) since it costs one
+  GraphQL call per gene; without that flag the panel's `gnomad_*` columns are
+  NaN (median-imputed + `is_missing_*` flagged downstream, same handling as
+  every other sparse prior).
+* **Caveat**: a GraphQL failure for one gene is logged and skipped
+  (`manifest.json → sources.gnomad.genes_failed`) rather than aborting the
+  whole panel build; those genes' rows get the same "absent" fallback as a
+  true gnomAD miss even though they were never actually checked.
+
+## 14. MaveDB deep mutational scans
+
+* **API**: `https://api.mavedb.org/api/v1` (score-set metadata + scores CSV;
+  no authentication, no registration).
+* **Licence**: CC0 (public domain) for the MSH2 score set fetched here;
+  verify per-score-set licence in `data/raw/mavedb/*_metadata.json` before
+  reusing others.
+* **Content** (verified live, see `src/mavedb.py` module docstring):
+  * MSH2 — `urn:mavedb:00000050-a-1`, Jia et al. 2021 (PMID 33357406),
+    17,746 variants, HAP1-cell loss-of-function score (`mave_assay_type =
+    "lof_repair"`).
+  * MLH1 — `urn:mavedb:00001218-a-1` (2025), 5,056 variants, DHFR-PCA
+    cellular-abundance score in yeast (`mave_assay_type = "abundance"` —
+    **not** a repair-function assay; do not treat as equivalent evidence to
+    MSH2's screen without that caveat).
+  * MSH6, PMS2 — no score set as of this writing.
+    `load_mmr_mavedb_features(..., check_for_new=True)` re-runs
+    `search_mavedb_for_gene` live so a future submission is surfaced (as a
+    logged candidate for manual review, never auto-ingested — MaveDB's text
+    search matches free text, e.g. "PMS2" also hits MLH1 score sets whose
+    description mentions a PMS2 interaction partner).
+* **Processing rules**: `hgvs_pro` (e.g. `p.Met1Ala`) parsed to one-letter
+  `(wt, pos, mut)`; synonymous (`p.Met1=`), stop-gain (`p.Met1Ter`) and `NA`
+  rows dropped. `mave_score_pct` is a within-score-set percentile rank (raw
+  scores are assay-specific in scale/sign).
+* **Non-circularity contract**: joined via `src.mmr_dataset.attach_mavedb`
+  as **validation-only** columns
+  (`src.mmr_dataset.FUNCTIONAL_ASSAY_VALIDATION_ONLY_COLS`) — never fed into
+  `src.transfer.TRANSFER_PRIOR_COLS`, exactly like the existing ProteinGym
+  DMS exclusion (PROJECT_PLAN.md Phase 2).
+
+## 15. CIMRA OddsPath (MMR-specific)
+
+* **No bulk API** — per-variant OddsPath values live in supplementary tables
+  of paywalled journal articles (PMS2: Rayner et al. 2022, Human Mutation,
+  <https://doi.org/10.1002/humu.24387>; MLH1/MSH2/MSH6: the prior CIMRA
+  calibration papers). `src/cimra.py` documents the exact expected CSV schema
+  and will not fabricate or scrape this data — supply the CSV yourself and
+  pass it via `scripts/build_mmr_dataset.py --cimra_csv <path>`.
+* **Processing rules**: rows with a hypothesized splicing mechanism are
+  excluded (CIMRA is a cell-free assay, cannot detect a splicing effect);
+  OddsPath is classified into an ACMG evidence-strength bucket
+  (`cimra_acmg_strength`) using the Tavtigian et al. 2018 point-based
+  thresholds (`src.cimra.TAVTIGIAN_ODDSPATH_THRESHOLDS`, overridable).
+* **Non-circularity contract**: same validation-only treatment as MaveDB
+  above.
+
+## 16. gnomAD v4 gene-level constraint
+
+* **API**: same GraphQL endpoint as §13, a different query field
+  (`gene { gnomad_constraint { ... } }`).
+* **Content**: how tolerant/intolerant the *whole gene* is to LoF and missense
+  variation genome-wide -- `pLI`, `oe_lof`, `oe_mis`, `mis_z`, `syn_z`. One
+  small call per gene, broadcast to every row of that gene
+  (`src.gnomad.attach_gene_constraint`), complementing the variant-level AF
+  in §13.
+* **Why it matters**: a gene under strong missense constraint (`mis_z >> 0`,
+  `oe_mis << 1`, e.g. MSH2: mis_z ≈ -4.3, oe_mis ≈ 1.30 -- actually *tolerant*
+  to missense variation genome-wide, illustrating why this is a genuinely
+  informative per-gene prior rather than a fixed assumption) makes a novel
+  missense variant a priori more or less suspect than the same AF alone would
+  suggest.
+* **Coverage / opt-in flag**: same `--include_gnomad` (broad panel) /
+  `--skip_gnomad_constraint` (MMR, on by default) flags as §13 -- one extra
+  lightweight call per gene already being queried for AF.
+
+## 17. AlphaFold DB structural confidence
+
+* **API**: `https://alphafold.ebi.ac.uk/api/prediction/{accession}` (model
+  metadata + PDB/CIF file URLs); no auth.
+* **Licence**: CC-BY-4.0.
+* **Content**: per-residue pLDDT (model confidence, 0-100) parsed from the
+  PDB file's B-factor column via biopython (already a project dependency --
+  no DSSP binary, no FoldX, no GPU needed). Binned per AlphaFold's own FAQ
+  thresholds (`very_low <50`, `low <70`, `confident <90`, `very_high >=90`);
+  `af_disordered = 1` when `pLDDT < 50` (AlphaFold's own disorder proxy).
+* **Why it matters**: this is the closest this repo gets to PROJECT_PLAN.md
+  Phase 3's "generate wild-type structures (AlphaFold for WT ...)" without a
+  full FoldX/DSSP structural pipeline -- a substitution in a well-packed,
+  high-confidence region behaves very differently from one in an
+  intrinsically disordered stretch.
+* **Coverage**: not every accession has an AlphaFold model (rare; treated as
+  "unavailable", not an error). Opt-in: `--include_structure` (broad panel) /
+  `--skip_structure` (MMR, on by default -- only 4 accessions).
+
+## 18. InterPro domain/family/superfamily calls
+
+* **API**: `https://www.ebi.ac.uk/interpro/api/entry/all/protein/uniprot/{accession}/`;
+  no auth.
+* **Licence**: CC0.
+* **Content**: consensus domain/family/homologous-superfamily/repeat calls
+  integrating Pfam, PROSITE, SMART, CATH-Gene3D, SUPERFAMILY and PRINTS —
+  broader coverage than UniProt's own `Domain`/`Region` annotations (§6) for
+  the same accession, kept as an **independent** `in_interpro_domain` /
+  `interpro_names` column pair rather than merged into `in_domain` so a
+  discrepancy between the two curations stays visible.
+* **Coverage**: opt-in: `--include_interpro` (broad panel) / `--skip_interpro`
+  (MMR, on by default).
+
+## 19. UniProt point features
+
+* **Source**: the same per-accession UniProt JSON already cached by §6's
+  domain fetch -- `src.external_datasets.fetch_uniprot_point_features` reads
+  it directly, so this adds **zero extra network calls** when domains were
+  already built for the panel.
+* **Kept feature types**: `Active site`, `Binding site`, `Site`, `Metal
+  binding`, `Modified residue` (PTMs), `Disulfide bond`, `Cross-link`.
+* **Output**: `is_functional_site ∈ {0,1}` + `functional_site_types` per
+  variant position -- a substitution AT a catalytic residue, phosphosite, or
+  disulfide-forming cysteine is mechanistically more likely to be damaging
+  regardless of which domain it falls in.
+* **Coverage**: opt-in: `--include_functional_sites` (broad panel) /
+  `--skip_functional_sites` (MMR, on by default).

@@ -679,6 +679,82 @@ def fetch_uniprot_domains(accessions: Sequence[str], raw_dir: Path,
 
 
 # --------------------------------------------------------------------------- #
+# 5b. UniProt point features (active/binding sites, PTMs, disulfides)
+# --------------------------------------------------------------------------- #
+#: Point (single-residue) feature types worth a "functional site" flag --
+#: distinct from the interval Domain/Region features already captured by
+#: fetch_uniprot_domains. A substitution AT one of these positions is
+#: mechanistically much more likely to be damaging regardless of domain
+#: membership (e.g. a catalytic residue, a phosphosite, a disulfide-forming
+#: cysteine) than the coarser domain/region annotation alone would suggest.
+POINT_FEATURE_TYPES = (
+    "Active site", "Binding site", "Site", "Metal binding",
+    "Modified residue", "Disulfide bond", "Cross-link",
+)
+
+
+def fetch_uniprot_point_features(accessions: Sequence[str], raw_dir: Path,
+                                 session: Optional[requests.Session] = None) -> pd.DataFrame:
+    """Single-residue functional-site annotations per accession.
+
+    Reuses the same per-accession UniProt JSON cache as
+    :func:`fetch_uniprot_domains` (``data/raw/uniprot_domains/{ACC}.json``) --
+    both feature families come from one REST call, so this never re-fetches
+    if the domain cache already exists.
+
+    Returns tidy frame ``[uniprot_id, position, feature_type, description]``
+    (one row per point feature; ``Disulfide bond`` -- a two-residue feature --
+    contributes a row at both endpoints).
+    """
+    out_dir = raw_dir / "uniprot_domains"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    sess = session or make_session()
+    rows = []
+    for acc in accessions:
+        cache = out_dir / f"{acc}.json"
+        if not cache.exists():
+            resp = sess.get(UNIPROT_DOMAINS_URL.format(accession=acc), timeout=60)
+            resp.raise_for_status()
+            cache.write_text(resp.text)
+        payload = json.loads(cache.read_text())
+        for feat in payload.get("features", []):
+            ftype = feat.get("type")
+            if ftype not in POINT_FEATURE_TYPES:
+                continue
+            loc = feat.get("location", {})
+            start = loc.get("start", {}).get("value")
+            end = loc.get("end", {}).get("value")
+            if start is None:
+                continue
+            desc = feat.get("description", "")
+            positions = {int(start)} if end is None else {int(start), int(end)}
+            for pos in positions:
+                rows.append({"uniprot_id": acc, "position": pos,
+                            "feature_type": ftype, "description": desc})
+    return pd.DataFrame(rows, columns=["uniprot_id", "position", "feature_type", "description"])
+
+
+def attach_functional_site_features(master: pd.DataFrame, sites: pd.DataFrame) -> pd.DataFrame:
+    """Add ``is_functional_site`` (0/1) and ``functional_site_types`` per variant."""
+    if not len(sites) or not len(master):
+        out = master.copy()
+        out["is_functional_site"] = 0
+        out["functional_site_types"] = ""
+        return out
+    types_by_pos = (
+        sites.groupby(["uniprot_id", "position"])["feature_type"]
+        .agg(lambda s: "|".join(sorted(set(s))))
+    )
+    joined = master[["uniprot_id", "position"]].merge(
+        types_by_pos.rename("functional_site_types").reset_index(),
+        on=["uniprot_id", "position"], how="left")
+    out = master.copy()
+    out["is_functional_site"] = joined["functional_site_types"].notna().astype(int).to_numpy()
+    out["functional_site_types"] = joined["functional_site_types"].fillna("").to_numpy()
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # small utilities
 # --------------------------------------------------------------------------- #
 class zipfile_ctx:
@@ -703,5 +779,7 @@ __all__ = [
     "map_np_to_panel",
     "download_alphamissense", "stream_filter_alphamissense",
     "fetch_uniprot_domains",
+    "POINT_FEATURE_TYPES", "fetch_uniprot_point_features",
+    "attach_functional_site_features",
     "ZERO_SHOT_MODEL_COLUMNS",
 ]

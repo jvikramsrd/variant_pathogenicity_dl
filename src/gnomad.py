@@ -36,6 +36,7 @@ downstream code can both filter on them (BA1) and feed them as features.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 import time
@@ -75,6 +76,29 @@ query($gene: String!, $dataset: DatasetId!) {
   }
 }
 """
+
+#: Gene-level constraint (gnomAD v4 aggregate): how tolerant/intolerant the
+#: gene is to LoF and missense variation genome-wide. A *gene*-level prior
+#: (broadcast to every variant row of that gene), complementary to the
+#: *variant*-level AF features above -- e.g. a gene under strong missense
+#: constraint (mis_z >> 0, oe_mis << 1) makes any novel missense variant a
+#: priori more suspect than the same AF would suggest in a tolerant gene.
+_GENE_CONSTRAINT_QUERY = """
+query($gene: String!) {
+  gene(gene_symbol: $gene, reference_genome: GRCh38) {
+    symbol
+    gnomad_constraint {
+      exp_lof obs_lof oe_lof oe_lof_lower oe_lof_upper pLI
+      exp_mis obs_mis oe_mis oe_mis_lower oe_mis_upper mis_z
+      exp_syn obs_syn oe_syn syn_z
+    }
+  }
+}
+"""
+
+GENE_CONSTRAINT_COLUMNS = [
+    "gnomad_pli", "gnomad_oe_lof", "gnomad_oe_mis", "gnomad_mis_z", "gnomad_syn_z",
+]
 
 #: ``p.Arg273His`` / ``p.(Arg273His)`` -> wt3, pos, mut3.  Rejects fs/ext/*.
 _HGVSP_RE = re.compile(r"^p\.\(?([A-Z][a-z]{2})(\d+)([A-Z][a-z]{2})\)?$")
@@ -191,6 +215,55 @@ def fetch_gene_gnomad_variants(gene: str,
     logger.info("gnomAD %s: %d unique missense protein substitutions.",
                 gene.upper(), len(df))
     return df
+
+
+def fetch_gene_constraint(gene: str, session: Optional[requests.Session] = None) -> Dict[str, float]:
+    """Gene-level gnomAD v4 constraint metrics (pLI, oe_mis, mis_z, ...).
+
+    Returns a flat dict with :data:`GENE_CONSTRAINT_COLUMNS` keys (NaN for any
+    field gnomAD doesn't report for this gene, e.g. very short genes).
+    """
+    sess = session or make_session()
+    data = _gql(sess, _GENE_CONSTRAINT_QUERY, {"gene": gene.upper()})
+    gene_payload = data.get("gene")
+    if gene_payload is None:
+        raise RuntimeError(f"gnomAD returned no gene object for '{gene}'.")
+    c = gene_payload.get("gnomad_constraint") or {}
+    return {
+        "gnomad_pli": c.get("pLI"),
+        "gnomad_oe_lof": c.get("oe_lof"),
+        "gnomad_oe_mis": c.get("oe_mis"),
+        "gnomad_mis_z": c.get("mis_z"),
+        "gnomad_syn_z": c.get("syn_z"),
+    }
+
+
+def load_or_fetch_constraint(gene: str, raw_dir: Path,
+                             session: Optional[requests.Session] = None,
+                             overwrite: bool = False) -> Dict[str, float]:
+    """Cached per-gene constraint dict (``data/raw/gnomad/{GENE}_constraint.json``)."""
+    cache_dir = Path(raw_dir) / "gnomad"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    path = cache_dir / f"{gene.upper()}_constraint.json"
+    if path.exists() and not overwrite:
+        return json.loads(path.read_text())
+    values = fetch_gene_constraint(gene, session=session)
+    path.write_text(json.dumps(values, indent=2))
+    return values
+
+
+def attach_gene_constraint(target: pd.DataFrame,
+                           constraint_by_gene: Dict[str, Dict[str, float]]) -> pd.DataFrame:
+    """Broadcast gene-level constraint metrics onto every row of that gene."""
+    const_df = pd.DataFrame.from_dict(constraint_by_gene, orient="index")
+    const_df.index.name = "gene"
+    const_df = const_df.reset_index()
+    missing = set(GENE_CONSTRAINT_COLUMNS) - set(const_df.columns)
+    for c in missing:
+        const_df[c] = np.nan
+    merged = target.merge(const_df[["gene"] + GENE_CONSTRAINT_COLUMNS],
+                          on="gene", how="left")
+    return merged
 
 
 def validate_against_sequence(df: pd.DataFrame, sequence: str) -> pd.DataFrame:
@@ -317,4 +390,6 @@ __all__ = [
     "parse_hgvsp", "fetch_gene_gnomad_variants", "validate_against_sequence",
     "add_frequency_flags", "load_or_fetch_gene", "join_gnomad_features",
     "fetch_mmr_genes", "GNOMAD_FEATURE_COLUMNS",
+    "GENE_CONSTRAINT_COLUMNS", "fetch_gene_constraint",
+    "load_or_fetch_constraint", "attach_gene_constraint",
 ]

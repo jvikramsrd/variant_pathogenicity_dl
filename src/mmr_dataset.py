@@ -49,6 +49,9 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+from .cimra import attach_cimra_features, load_cimra_oddspath
+from .mavedb import load_mmr_mavedb_features
+
 logger = logging.getLogger(__name__)
 
 # --------------------------------------------------------------------------- #
@@ -264,6 +267,65 @@ def apply_pms2_homology_gate(
 
 
 # --------------------------------------------------------------------------- #
+# Phase 2 — orthogonal functional-assay data (CIMRA OddsPath, MaveDB DMS)
+# --------------------------------------------------------------------------- #
+#: Columns that must never enter ESM-branch pretraining/fine-tuning features
+#: (src.transfer.TRANSFER_PRIOR_COLS) -- Phase 2 requires this data be "held
+#: out from ESM2/LLM branch training, used only for validation" so headline
+#: performance claims stay non-circular against the orthogonal functional
+#: evidence, exactly like the existing ProteinGym DMS exclusion.
+FUNCTIONAL_ASSAY_VALIDATION_ONLY_COLS: Tuple[str, ...] = (
+    "cimra_oddspath", "cimra_log10_oddspath", "cimra_acmg_strength",
+    "mave_score", "mave_score_pct", "mave_urn", "mave_assay_type",
+)
+
+
+def attach_cimra(master: pd.DataFrame, cimra_csv: Path) -> pd.DataFrame:
+    """Join CIMRA OddsPath evidence onto the MMR master table.
+
+    Thin, gene-key-aware wrapper around :func:`src.cimra.attach_cimra_features`
+    -- see :mod:`src.cimra` for the expected CSV schema (no bulk CIMRA API
+    exists, so the file must be supplied). The added columns are validation-
+    only (:data:`FUNCTIONAL_ASSAY_VALIDATION_ONLY_COLS`); callers must not
+    feed them into :mod:`src.transfer` prior features.
+    """
+    cimra_df = load_cimra_oddspath(cimra_csv)
+    have_genes = set(cimra_df["gene"].unique())
+    missing_genes = set(master["gene"].unique()) - have_genes
+    if missing_genes:
+        logger.info("CIMRA: no OddsPath coverage for %s in %s.",
+                    sorted(missing_genes), cimra_csv)
+    return attach_cimra_features(master, cimra_df)
+
+
+def attach_mavedb(master: pd.DataFrame, raw_dir: Path,
+                  overwrite: bool = False, check_for_new: bool = False) -> pd.DataFrame:
+    """Join MaveDB deep-mutational-scan scores onto the MMR master table.
+
+    Adds ``mave_score`` (raw, assay-scale), ``mave_score_pct`` (within-assay
+    percentile rank), ``mave_urn``, ``mave_assay_type``. MSH2 gets the Jia
+    et al. 2021 loss-of-function screen; MLH1 gets the 2025 cellular-abundance
+    assay (tagged ``mave_assay_type="abundance"`` -- a different evidence
+    class, not directly comparable to MSH2's repair-function LOF score).
+    MSH6/PMS2 currently have no MaveDB score set (searched live via
+    :func:`src.mavedb.search_mavedb_for_gene`); those columns stay NaN for
+    them. Validation-only, same non-circularity contract as CIMRA above.
+    """
+    mave_df = load_mmr_mavedb_features(
+        raw_dir, genes=tuple(master["gene"].unique()),
+        overwrite=overwrite, check_for_new=check_for_new)
+    if mave_df.empty:
+        for c in ("mave_score", "mave_score_pct", "mave_urn", "mave_assay_type"):
+            master = master.copy()
+            master[c] = np.nan
+        return master
+    key = ["gene", "position", "wt_aa", "mut_aa"]
+    cols = ["mave_score", "mave_score_pct", "mave_urn", "mave_assay_type"]
+    sub = mave_df[key + cols].drop_duplicates(subset=key)
+    return master.merge(sub, on=key, how="left", validate="m:1")
+
+
+# --------------------------------------------------------------------------- #
 # Balanced-label diagnostic subsets (VariPred recipe)
 # --------------------------------------------------------------------------- #
 def make_balanced_subset(labeled: pd.DataFrame, seed: int = 42) -> pd.DataFrame:
@@ -326,6 +388,7 @@ __all__ = [
     "MMR_GENES", "MMR_UNIPROT", "STAR_WEIGHT",
     "resolve_mmr_panel", "panel_frame",
     "add_evidence_tiers", "apply_pms2_homology_gate", "variant_key",
+    "FUNCTIONAL_ASSAY_VALIDATION_ONLY_COLS", "attach_cimra", "attach_mavedb",
     "make_balanced_subset",
     "write_leave_one_gene_out_manifest", "load_leave_one_gene_out_manifest",
 ]

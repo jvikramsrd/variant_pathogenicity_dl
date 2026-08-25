@@ -42,9 +42,31 @@ from .train import TrainConfig, set_global_seed
 
 logger = logging.getLogger(__name__)
 
-#: Leakage-safe prior columns shared by both stages.  DMS-derived columns are
-#: deliberately absent: their bins ARE supervision for most pretraining rows.
-TRANSFER_PRIOR_COLS: Tuple[str, ...] = ("am_pathogenicity", "in_domain")
+#: Leakage-safe prior columns shared by both stages.  DMS-derived columns and
+#: the functional-assay validation-only columns
+#: (src.mmr_dataset.FUNCTIONAL_ASSAY_VALIDATION_ONLY_COLS: CIMRA OddsPath,
+#: MaveDB scores) are deliberately absent: they are supervision or held-out
+#: orthogonal evidence, never training features.
+#:
+#: Every other source this project acquires (src/extended_builder.py) IS
+#: wired in here deliberately -- a column joined onto the table but missing
+#: from this tuple is silently invisible to the model (this bit us once
+#: already with gnomAD AF; fixed below, and every new source added since is
+#: included from the start):
+#:   * gnomad_log10_af, acmg_ba1/bs1/pm2   -- variant-level AF (opt-in join)
+#:   * gnomad_pli, gnomad_oe_lof/mis,
+#:     gnomad_mis_z, gnomad_syn_z          -- gene-level constraint (opt-in)
+#:   * af_plddt, af_disordered             -- AlphaFold structural confidence (opt-in)
+#:   * in_interpro_domain                  -- InterPro domain/family call (opt-in)
+#:   * is_functional_site                  -- UniProt active/binding site, PTM, ... (opt-in)
+TRANSFER_PRIOR_COLS: Tuple[str, ...] = (
+    "am_pathogenicity", "in_domain",
+    "gnomad_log10_af", "acmg_ba1", "acmg_bs1", "acmg_pm2",
+    "gnomad_pli", "gnomad_oe_lof", "gnomad_oe_mis", "gnomad_mis_z", "gnomad_syn_z",
+    "af_plddt", "af_disordered",
+    "in_interpro_domain",
+    "is_functional_site",
+)
 ZS_PREFIX = "zs_"
 
 MMR_GENES: Tuple[str, ...] = ("MLH1", "MSH2", "MSH6", "PMS2")
