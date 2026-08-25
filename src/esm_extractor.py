@@ -167,13 +167,23 @@ class ESM2Extractor:
             with torch.inference_mode():
                 # fp16 autocast on CUDA roughly doubles ESM-2 throughput;
                 # hidden states / logits are cast back to fp32 below.
+                #
+                # Only the last layer's hidden state is used below, so we call
+                # the encoder and LM head directly instead of passing
+                # output_hidden_states=True through the full MaskedLM model:
+                # that flag makes HF retain *every* transformer layer's
+                # hidden state (33 layers + embeddings for esm2_t33_650M),
+                # a ~34x peak-memory spike per batch for the 33 layers we
+                # never look at.
                 if self.device.type == "cuda":
                     with torch.autocast(device_type="cuda", dtype=torch.float16):
-                        outputs = self.model(**tokens, output_hidden_states=True)
+                        sequence_output = self.model.esm(**tokens).last_hidden_state
+                        logits = self.model.lm_head(sequence_output)
                 else:
-                    outputs = self.model(**tokens, output_hidden_states=True)
-                hidden = outputs.hidden_states[-1].float()          # [B,T,d]
-                log_probs = torch.log_softmax(outputs.logits.float(), dim=-1)
+                    sequence_output = self.model.esm(**tokens).last_hidden_state
+                    logits = self.model.lm_head(sequence_output)
+                hidden = sequence_output.float()                     # [B,T,d]
+                log_probs = torch.log_softmax(logits.float(), dim=-1)
 
             lengths = tokens["attention_mask"].sum(dim=1)
             for row, (job_id, _, offset) in enumerate(batch):
