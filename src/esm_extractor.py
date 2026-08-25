@@ -213,6 +213,57 @@ class ESM2Extractor:
             logp_out.append(np.concatenate([p[1] for p in pieces_lp], axis=0))
         return hidden_out, logp_out
 
+    def embed_site_hidden(
+        self, sequences: Sequence[str], sites: Sequence[int]
+    ) -> np.ndarray:
+        """Last-layer hidden vector at one residue per sequence.
+
+        Only the windows that actually cover ``sites[i]`` are forwarded, and
+        only that single row is kept (averaged across windows when more than
+        one covers it, matching :meth:`embed_sequences`' aggregation).  This
+        is the mutant-pass workhorse for :meth:`extract`, which reads exactly
+        one residue out of every mutant sequence: building the full
+        ``[N, L, d]`` per-residue matrix via :meth:`embed_sequences` for that
+        would cost O(N*L*d) memory to produce O(N*d) worth of used output --
+        gigabytes for genes with thousands of unique mutants.
+        """
+        n_seq = len(sequences)
+        acc = np.zeros((n_seq, self.hidden_dim), dtype=np.float32)
+        counts = np.zeros(n_seq, dtype=np.float32)
+
+        jobs: List[Tuple[int, int, int, int]] = []   # (si, start, end, local_idx)
+        for si, (seq, site) in enumerate(zip(sequences, sites)):
+            for start, end in _sliding_spans(len(seq)):
+                if start <= site < end:
+                    jobs.append((si, start, end, site - start))
+
+        def flush(batch: Sequence[Tuple[int, int, int, int]]) -> None:
+            if not batch:
+                return
+            seqs = [sequences[si][start:end] for si, start, end, _ in batch]
+            tokens = self.tokenizer(seqs, return_tensors="pt", padding=True)
+            tokens = {k: v.to(self.device) for k, v in tokens.items()}
+            with torch.inference_mode():
+                if self.device.type == "cuda":
+                    with torch.autocast(device_type="cuda", dtype=torch.float16):
+                        hidden = self.model.esm(**tokens).last_hidden_state.float()
+                else:
+                    hidden = self.model.esm(**tokens).last_hidden_state.float()
+            for row, (si, _start, _end, local_idx) in enumerate(batch):
+                acc[si] += hidden[row, 1 + local_idx].cpu().numpy()
+                counts[si] += 1.0
+
+        pending: list = []
+        for job in jobs:
+            pending.append(job)
+            if len(pending) >= self.batch_size:
+                flush(pending)
+                pending = []
+        flush(pending)
+
+        counts_safe = np.maximum(counts, 1.0)[:, None]
+        return acc / counts_safe
+
     def embed_sequences(
         self, sequences: Sequence[str]
     ) -> Tuple[np.ndarray, np.ndarray]:
@@ -308,7 +359,8 @@ class ESM2Extractor:
             sequence[:pos - 1] + mut + sequence[pos:]
             for pos, mut in zip(unique_pairs["position"], unique_pairs["mut_aa"])
         ]
-        h_mut_unique, _ = self.embed_sequences(mut_seqs)
+        mut_pos_idx = unique_pairs["position"].to_numpy() - 1
+        h_mut_at_site = self.embed_site_hidden(mut_seqs, mut_pos_idx.tolist())  # [n_mut, d]
 
         pair_key = {
             (int(pos), mut): k
@@ -316,9 +368,6 @@ class ESM2Extractor:
                                                unique_pairs["mut_aa"]))
         }
         rows = [pair_key[(int(p), m)] for p, m in zip(df["position"], df["mut_aa"])]
-        # Gather each unique mutant's hidden state at its own mutated residue.
-        mut_pos_idx = unique_pairs["position"].to_numpy() - 1
-        h_mut_at_site = h_mut_unique[np.arange(len(unique_pairs)), mut_pos_idx]  # [n_mut, d]
         h_mut = h_mut_at_site[np.asarray(rows)]                    # [n, d]
 
         # ---- Feature stacking ----------------------------------------------
