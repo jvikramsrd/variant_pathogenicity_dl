@@ -45,7 +45,7 @@ from src.esm_finetune import (  # noqa: E402
     predict_proba,
 )
 from src.eval_utils import bootstrap_ci, optimal_threshold_by_mcc  # noqa: E402
-from src.transfer import load_checkpoint, save_checkpoint  # noqa: E402
+from src.transfer import save_checkpoint  # noqa: E402
 
 logger = logging.getLogger("finetune_esm_mmr")
 

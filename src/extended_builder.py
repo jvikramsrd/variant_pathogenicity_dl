@@ -117,7 +117,6 @@ from .structure import (
     load_panel_alphafold_features,
 )
 from .interpro import (
-    INTERPRO_FEATURE_COLUMNS,
     attach_interpro_features,
     load_panel_interpro_intervals,
 )

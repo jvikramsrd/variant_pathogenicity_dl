@@ -16,13 +16,11 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import torch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from sklearn.metrics import roc_auc_score
-from sklearn.preprocessing import StandardScaler
 
 from src.calibration import expit, full_report
 from src.dataset import make_position_group_folds

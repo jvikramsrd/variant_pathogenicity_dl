@@ -214,7 +214,6 @@ def test_evidence_tiers():
 
 def test_balanced_subset_per_gene():
     rows = []
-    rng = np.random.default_rng(0)
     for gene in ("MLH1", "MSH2"):
         for i in range(30):
             rows.append({"gene": gene, "position": i + 1,

@@ -57,7 +57,6 @@ def centered_window_bounds(seq_len: int, pos0: int,
     """
     span = min(max_residues, seq_len)
     left_capacity = span // 2          # 510/511 style split
-    right_capacity = span - left_capacity - 1
     start = int(np.clip(pos0 - left_capacity, 0, max(0, seq_len - span)))
     end = start + span
     # Guarantee the mutated residue is inside the window.

@@ -283,7 +283,7 @@ def main() -> int:
             vus_feats = all_feats[~is_train]
             vus_meta = all_meta.loc[~is_train].reset_index(drop=True)
         pllr = meta["pllr"].to_numpy(dtype=np.float64)
-        baseline_name, baseline_col = "pllr", "pllr"
+        baseline_name = "pllr"
     else:
         features = build_prior_matrix(train, drop_dms=args.no_dms_features)
         meta = train.copy()
@@ -292,7 +292,7 @@ def main() -> int:
         am = meta["am_pathogenicity"].fillna(
             meta["am_pathogenicity"].median()).clip(1e-6, 1 - 1e-6)
         pllr = np.log(am / (1 - am)).to_numpy()
-        baseline_name, baseline_col = "alphamissense_logit", "pllr"
+        baseline_name = "alphamissense_logit"
         meta["pllr"] = pllr
 
     group_keys = (meta["uniprot_id"].astype(str) + ":"

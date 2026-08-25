@@ -23,10 +23,8 @@ even when dimensions happen to match).
 
 from __future__ import annotations
 
-import json
 import logging
-import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -34,11 +32,9 @@ import numpy as np
 import pandas as pd
 import torch
 
-from .dataset import make_position_group_folds
-from .eval_utils import bootstrap_ci, optimal_threshold_by_mcc
-from .esm_extractor import extract_features_cached, get_device
+from .esm_extractor import extract_features_cached
 from .fusion import BranchHead, ConcatFusionHead, GateWaveFusionHead
-from .train import TrainConfig, set_global_seed
+from .train import set_global_seed
 
 logger = logging.getLogger(__name__)
 
