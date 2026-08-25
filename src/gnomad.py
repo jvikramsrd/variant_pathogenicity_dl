@@ -254,13 +254,20 @@ def load_or_fetch_constraint(gene: str, raw_dir: Path,
 
 def attach_gene_constraint(target: pd.DataFrame,
                            constraint_by_gene: Dict[str, Dict[str, float]]) -> pd.DataFrame:
-    """Broadcast gene-level constraint metrics onto every row of that gene."""
+    """Broadcast gene-level constraint metrics onto every row of that gene.
+
+    Drops any pre-existing column of the same name from *target* first (see
+    :func:`join_gnomad_features`'s docstring for why -- same collision risk
+    when a caller re-attaches constraint separately after building the table
+    with ``include_gnomad=False``).
+    """
     const_df = pd.DataFrame.from_dict(constraint_by_gene, orient="index")
     const_df.index.name = "gene"
     const_df = const_df.reset_index()
     missing = set(GENE_CONSTRAINT_COLUMNS) - set(const_df.columns)
     for c in missing:
         const_df[c] = np.nan
+    target = target.drop(columns=[c for c in GENE_CONSTRAINT_COLUMNS if c in target.columns])
     merged = target.merge(const_df[["gene"] + GENE_CONSTRAINT_COLUMNS],
                           on="gene", how="left")
     return merged
@@ -353,6 +360,13 @@ def join_gnomad_features(target: pd.DataFrame, gnomad_df: pd.DataFrame,
     The join key is ``(gene, position, wt_aa, mut_aa)``, identical to every
     other source merge in this project.  Rows without gnomAD observations keep
     NaN frequencies (PM2-consistent) and flag=0.
+
+    If *target* already carries a column with one of these names (e.g. a
+    NaN placeholder seeded by ``assemble_master`` when a caller built the
+    table with ``include_gnomad=False`` and is now joining real gnomAD data
+    separately, as ``scripts/build_mmr_dataset.py`` does), that column is
+    dropped first so pandas' merge does not silently rename both sides with
+    ``_x``/``_y`` suffixes instead of overwriting it.
     """
     cols = list(feature_columns or GNOMAD_FEATURE_COLUMNS)
     key = ["gene", "position", "wt_aa", "mut_aa"]
@@ -361,6 +375,7 @@ def join_gnomad_features(target: pd.DataFrame, gnomad_df: pd.DataFrame,
     if missing:
         raise ValueError(f"gnomAD frame lacks requested feature columns: {sorted(missing)}")
     sub = gnomad_df[source_cols].drop_duplicates(subset=key)
+    target = target.drop(columns=[c for c in cols if c in target.columns])
     merged = target.merge(sub, on=key, how="left", validate="m:1")
     for c in cols:
         if c.endswith(("ba1", "bs1")):

@@ -38,7 +38,10 @@ from scripts.build_cluster_split import (  # noqa: E402
 )
 from src.gnomad import (  # noqa: E402
     GENE_CONSTRAINT_COLUMNS,
+    GNOMAD_FEATURE_COLUMNS,
+    add_frequency_flags,
     attach_gene_constraint,
+    join_gnomad_features,
 )
 from src.structure import ALPHAFOLD_FEATURE_COLUMNS, attach_alphafold_features, plddt_bin  # noqa: E402
 from src.interpro import (  # noqa: E402
@@ -200,6 +203,40 @@ def test_assign_cluster_split_keeps_clusters_together():
     assert split["P1"] == split["P2"]                  # same cluster, same side
     assert split["P4"] == split["P5"]
     assert set(split.values()) <= {"train", "val"}
+
+
+# --------------------------------------------------------------------------- #
+# Regression: joining real gnomAD data onto a table pre-seeded with NaN
+# placeholder columns of the same name (assemble_master does this when
+# include_gnomad=False) must overwrite, not _x/_y-suffix-collide.
+# --------------------------------------------------------------------------- #
+def test_join_gnomad_features_overwrites_preexisting_placeholder_columns():
+    placeholder_master = pd.DataFrame([{
+        "gene": "MLH1", "position": 5, "wt_aa": "A", "mut_aa": "V",
+        **{c: float("nan") for c in GNOMAD_FEATURE_COLUMNS},
+    }])
+    real_gnomad = add_frequency_flags(pd.DataFrame([{
+        "gene": "MLH1", "position": 5, "wt_aa": "A", "mut_aa": "V",
+        "gnomad_af_joint": 0.02, "gnomad_af_genome": 0.02, "gnomad_af_exome": 0.02,
+        "gnomad_ac_joint": 200, "gnomad_an_joint": 10000,
+    }]))
+    merged = join_gnomad_features(placeholder_master, real_gnomad)
+    assert not any(c.endswith(("_x", "_y")) for c in merged.columns)
+    assert merged.loc[0, "acmg_bs1"] == 1
+    assert not pd.isna(merged.loc[0, "gnomad_af_joint"])
+
+
+def test_attach_gene_constraint_overwrites_preexisting_placeholder_columns():
+    placeholder_master = pd.DataFrame([{
+        "gene": "MLH1", "position": 5,
+        **{c: float("nan") for c in GENE_CONSTRAINT_COLUMNS},
+    }])
+    merged = attach_gene_constraint(
+        placeholder_master,
+        {"MLH1": {"gnomad_pli": 0.48, "gnomad_oe_lof": 0.40, "gnomad_oe_mis": 0.94,
+                  "gnomad_mis_z": 0.68, "gnomad_syn_z": -0.29}})
+    assert not any(c.endswith(("_x", "_y")) for c in merged.columns)
+    assert merged.loc[0, "gnomad_mis_z"] == 0.68
 
 
 # --------------------------------------------------------------------------- #
