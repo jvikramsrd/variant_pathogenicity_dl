@@ -225,6 +225,17 @@ def parse_args() -> argparse.Namespace:
              "halves activation memory.")
     train2.set_defaults(amp=True)
     train2.add_argument(
+        "--epochs", type=int, default=20,
+        help="Stage 2b epoch cap. Deliberately above src/esm_finetune.py's "
+             "ProPath default of 10: --patience early-stops on validation "
+             "ROC-AUC, so a higher cap costs nothing on splits that plateau "
+             "early and only buys epochs on splits still improving.")
+    train2.add_argument(
+        "--patience", type=int, default=3,
+        help="Stage 2b early-stopping patience, in epochs without a "
+             "validation ROC-AUC improvement. This, not --epochs, is what "
+             "actually decides how long a split runs.")
+    train2.add_argument(
         "--skip_vram_preflight", action="store_true",
         help="Run stage 2b even when the estimated peak VRAM exceeds the "
              "detected card. The estimate is approximate; pass this if you "
@@ -607,6 +618,8 @@ def main() -> None:
             "--batch_size", str(args.batch_size),
             "--grad_accum", str(args.grad_accum),
             "--max_residues", str(args.max_residues),
+            "--epochs", str(args.epochs),
+            "--patience", str(args.patience),
         ]
         if args.gradient_checkpointing:
             ft_args.append("--gradient_checkpointing")

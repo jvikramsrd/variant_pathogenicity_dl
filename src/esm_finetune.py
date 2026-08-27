@@ -37,6 +37,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import random
+import time
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -366,6 +367,7 @@ def fit_esm_finetune(
     n_batches = len(train_loader)
     best_auc, best_state, best_epoch, left = -np.inf, None, -1, patience
     for epoch in range(epochs):
+        epoch_t0 = time.time()
         model.train()
         running = 0.0
         optimizer.zero_grad(set_to_none=True)
@@ -412,8 +414,16 @@ def fit_esm_finetune(
             val_auc = float("nan")
         if not np.isfinite(val_auc):
             val_auc = -np.inf
-        logger.info("epoch %d/%d: train_loss=%.4f val_auc=%.4f",
-                    epoch + 1, epochs, running / max(1, len(train_examples)), val_auc)
+        # Wall clock per epoch, plus what the remaining cap would cost. At
+        # micro-batch 1 with gradient checkpointing an epoch is minutes, not
+        # seconds, so "how long will this take" is a question worth answering
+        # from the first epoch rather than by watching the log all evening.
+        # The projection is the ceiling: early stopping usually beats it.
+        epoch_s = time.time() - epoch_t0
+        logger.info("epoch %d/%d: train_loss=%.4f val_auc=%.4f | %.1fs "
+                    "(<= %.1f min left this split at %d epochs)",
+                    epoch + 1, epochs, running / max(1, len(train_examples)),
+                    val_auc, epoch_s, epoch_s * (epochs - epoch - 1) / 60, epochs)
 
         if val_auc > best_auc:
             best_auc, best_epoch, left = val_auc, epoch + 1, patience
