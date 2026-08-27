@@ -34,6 +34,7 @@ example, and this is standard practice for PLM fine-tuning on long chains.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import random
 from dataclasses import dataclass
@@ -55,6 +56,32 @@ FINETUNE_MODES = ("wt_site", "siamese")
 PROPATH_DEFAULTS: Dict[str, object] = {
     "backbone_lr": 1e-5, "batch_size": 8, "epochs": 10,
 }
+
+
+# --------------------------------------------------------------------------- #
+# Mixed precision
+# --------------------------------------------------------------------------- #
+def amp_dtype_for(device: torch.device) -> Optional[torch.dtype]:
+    """Autocast dtype for *device*, or ``None`` when AMP does not apply.
+
+    Backbone gradient fine-tuning stores an activation per saved tensor per
+    layer, so fp32 activations -- not the weights -- are what blows up VRAM
+    here (esm2_t33_650M, siamese, batch 8 x 1024 tokens: ~41 GB of fp32
+    activations against ~10 GB of weights/grads/AdamW state). Halving them is
+    the single largest lever, so this mirrors the fp16 autocast that
+    :mod:`src.esm_extractor` already uses for frozen inference -- but prefers
+    bf16 when the card supports it, because bf16 keeps fp32's exponent range
+    and so needs no loss scaler to train stably.
+    """
+    if device.type != "cuda":
+        return None                       # MPS/CPU autocast buys us nothing here
+    return torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+
+
+def _autocast(device: torch.device, dtype: Optional[torch.dtype]):
+    if dtype is None:
+        return contextlib.nullcontext()
+    return torch.autocast(device_type=device.type, dtype=dtype)
 
 
 # --------------------------------------------------------------------------- #
@@ -256,17 +283,20 @@ def set_seed(seed: int) -> None:
 
 
 def predict_proba(model: ESMFineTuneClassifier, examples: Sequence[FineTuneExample],
-                  device: torch.device, batch_size: int = 16) -> np.ndarray:
+                  device: torch.device, batch_size: int = 16,
+                  amp: bool = True) -> np.ndarray:
     """Batched, no-grad calibrated-free probability prediction (sigmoid of logit)."""
     model.eval()
+    amp_dtype = amp_dtype_for(device) if amp else None
     loader = DataLoader(FineTuneDataset(examples), batch_size=batch_size, shuffle=False,
                         collate_fn=make_collate_fn(model.tokenizer, model.mode))
     out: List[np.ndarray] = []
     with torch.inference_mode():
         for batch in loader:
             batch = _to_device(batch, device)
-            logits = _forward(model, batch)
-            out.append(torch.sigmoid(logits).cpu().numpy())
+            with _autocast(device, amp_dtype):
+                logits = _forward(model, batch)
+            out.append(torch.sigmoid(logits.float()).cpu().numpy())
     return np.concatenate(out) if out else np.zeros(0, dtype=np.float32)
 
 
@@ -283,17 +313,42 @@ def fit_esm_finetune(
     weight_decay: float = 1e-2,
     seed: int = 42,
     max_grad_norm: float = 1.0,
+    grad_accum_steps: int = 1,
+    amp: bool = True,
 ) -> Tuple[ESMFineTuneClassifier, int, float]:
     """Fine-tune with two AdamW parameter groups (ProPath's LR split).
 
     Early-stops on validation ROC-AUC (best-weight restoration), mirroring
     :func:`src.transfer.fit_head`'s contract so both are drop-in comparable
     inside ``scripts/compare_finetune_strategies.py``.
+
+    ``batch_size`` is the *micro*-batch that has to fit in VRAM;
+    ``grad_accum_steps`` multiplies it into the effective batch the optimizer
+    sees, so a card that can only hold 2 examples at a time still trains at
+    ProPath's effective batch of 8 (``batch_size=2, grad_accum_steps=4``).
+    ``amp`` runs the forward/backward under autocast (see
+    :func:`amp_dtype_for`); with fp16 a :class:`torch.amp.GradScaler` is used,
+    with bf16 none is needed.
     """
     from sklearn.metrics import roc_auc_score
 
+    if grad_accum_steps < 1:
+        raise ValueError(f"grad_accum_steps must be >= 1; got {grad_accum_steps}")
+
     set_seed(seed)
     model.to(device)
+
+    amp_dtype = amp_dtype_for(device) if amp else None
+    # bf16 has fp32's exponent range, so gradients cannot underflow the way
+    # fp16's can -- a scaler is only needed for the fp16 path.
+    scaler = (torch.amp.GradScaler(device.type)
+              if amp_dtype is torch.float16 else None)
+    if amp_dtype is not None:
+        logger.info("Mixed precision: autocast %s%s | micro-batch %d x %d "
+                    "accumulation steps = effective batch %d",
+                    str(amp_dtype).replace("torch.", ""),
+                    " + GradScaler" if scaler is not None else "",
+                    batch_size, grad_accum_steps, batch_size * grad_accum_steps)
 
     param_groups = []
     backbone_params = model.trainable_backbone_params()
@@ -307,23 +362,49 @@ def fit_esm_finetune(
         collate_fn=make_collate_fn(model.tokenizer, model.mode))
     val_labels = np.array([e.label for e in val_examples], dtype=np.float32)
 
+    clip_params = [p for g in param_groups for p in g["params"]]
+    n_batches = len(train_loader)
     best_auc, best_state, best_epoch, left = -np.inf, None, -1, patience
     for epoch in range(epochs):
         model.train()
         running = 0.0
-        for batch in train_loader:
+        optimizer.zero_grad(set_to_none=True)
+        for step, batch in enumerate(train_loader, start=1):
             batch = _to_device(batch, device)
-            optimizer.zero_grad(set_to_none=True)
-            logits = _forward(model, batch)
+            with _autocast(device, amp_dtype):
+                logits = _forward(model, batch)
+            # BCE in fp32 regardless of autocast: the loss reduction is where
+            # reduced precision actually costs accuracy, and it is free here.
             loss = (torch.nn.functional.binary_cross_entropy_with_logits(
-                logits, batch["labels"], reduction="none") * batch["weights"]).mean()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(
-                [p for g in param_groups for p in g["params"]], max_grad_norm)
-            optimizer.step()
+                logits.float(), batch["labels"], reduction="none")
+                * batch["weights"]).mean()
             running += float(loss.item()) * len(batch["labels"])
+            # Average over the accumulation window so the effective batch's
+            # gradient matches what a single batch_size*grad_accum_steps step
+            # would have produced. The divisor is the *current* window's
+            # length, not grad_accum_steps: an epoch whose batch count is not
+            # a multiple of grad_accum_steps ends in a short window, and
+            # dividing that by the full step count would silently shrink its
+            # learning rate.
+            window_start = ((step - 1) // grad_accum_steps) * grad_accum_steps
+            window = min(grad_accum_steps, n_batches - window_start)
+            scaled = loss / window
+            (scaler.scale(scaled) if scaler is not None else scaled).backward()
+            # The tail of an epoch rarely divides evenly; step on it anyway
+            # rather than dropping those gradients on the floor.
+            if step % grad_accum_steps == 0 or step == n_batches:
+                if scaler is not None:
+                    scaler.unscale_(optimizer)   # clip real, not scaled, norms
+                torch.nn.utils.clip_grad_norm_(clip_params, max_grad_norm)
+                if scaler is not None:
+                    scaler.step(optimizer)
+                    scaler.update()
+                else:
+                    optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
 
-        val_probs = predict_proba(model, val_examples, device, batch_size=max(16, batch_size))
+        val_probs = predict_proba(model, val_examples, device,
+                                  batch_size=batch_size, amp=amp)
         try:
             val_auc = float(roc_auc_score(val_labels, val_probs)) \
                 if len(np.unique(val_labels)) > 1 else float("nan")
@@ -353,5 +434,5 @@ __all__ = [
     "FINETUNE_MODES", "PROPATH_DEFAULTS",
     "ESMFineTuneClassifier", "FineTuneExample", "FineTuneDataset",
     "build_examples", "make_collate_fn", "predict_proba", "fit_esm_finetune",
-    "set_seed",
+    "set_seed", "amp_dtype_for",
 ]

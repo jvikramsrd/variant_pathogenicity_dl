@@ -78,7 +78,17 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--backbone_lr", type=float, default=1e-5)
     p.add_argument("--head_lr", type=float, default=3e-4)
     p.add_argument("--finetune_epochs", type=int, default=10)
-    p.add_argument("--finetune_batch_size", type=int, default=8)
+    p.add_argument("--finetune_batch_size", type=int, default=8,
+                   help="Micro-batch that must fit in VRAM; multiply by "
+                        "--finetune_grad_accum for the effective batch.")
+    p.add_argument("--finetune_grad_accum", type=int, default=1,
+                   help="Gradient accumulation steps for the two backbone "
+                        "fine-tuning strategies. Effective batch = "
+                        "--finetune_batch_size * this.")
+    p.add_argument("--no_amp", dest="amp", action="store_false",
+                   help="Disable mixed-precision autocast (on by default on "
+                        "CUDA; roughly halves activation memory).")
+    p.set_defaults(amp=True)
     p.add_argument("--probe_epochs", type=int, default=60)
     p.add_argument("--probe_lr", type=float, default=3e-5)
     p.add_argument("--hidden_dim", type=int, default=256)
@@ -168,9 +178,12 @@ def run_esm_finetune(args, mode, ft_df, ho_df, sequence_by_gene, device) -> dict
     model, best_epoch, _ = fit_esm_finetune(
         model, train_ex, val_ex, device, backbone_lr=args.backbone_lr,
         head_lr=args.head_lr, epochs=args.finetune_epochs, patience=3,
-        batch_size=args.finetune_batch_size, seed=args.seed)
-    val_probs = ft_predict_proba(model, val_ex, device)
-    ho_probs = ft_predict_proba(model, ho_ex, device)
+        batch_size=args.finetune_batch_size, seed=args.seed,
+        grad_accum_steps=args.finetune_grad_accum, amp=args.amp)
+    val_probs = ft_predict_proba(model, val_ex, device,
+                                 batch_size=args.finetune_batch_size, amp=args.amp)
+    ho_probs = ft_predict_proba(model, ho_ex, device,
+                                batch_size=args.finetune_batch_size, amp=args.amp)
     val_labels = np.array([e.label for e in val_ex])
     ho_labels = np.array([e.label for e in ho_ex])
     rep = evaluate(ho_labels, ho_probs, val_labels, val_probs, args.n_bootstrap, args.seed)

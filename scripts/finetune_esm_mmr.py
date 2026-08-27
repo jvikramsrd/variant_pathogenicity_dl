@@ -14,10 +14,17 @@ Examples
     python scripts/finetune_esm_mmr.py --mode wt_site --n_unfrozen_layers 4 \
         --esm_model facebook/esm2_t12_35M_UR50D --eval holdout --holdout_gene MSH2
 
-    # ProPath recipe, full backbone fine-tune, GPU
+    # ProPath recipe, full backbone fine-tune, 16 GB consumer GPU.
+    # A full siamese fine-tune of esm2_t33_650M runs two 1024-token forward
+    # passes through 33 layers per example and keeps every activation for the
+    # backward pass; at --batch_size 8 in fp32 that is ~41 GB of activations
+    # on top of ~10 GB of weights/gradients/AdamW state. The micro-batch,
+    # accumulation, AMP and checkpointing flags below are what make it fit --
+    # the effective batch is still ProPath's 8.
     python scripts/finetune_esm_mmr.py --mode siamese --n_unfrozen_layers -1 \
         --esm_model facebook/esm2_t33_650M_UR50D --eval lopo \
-        --backbone_lr 1e-5 --batch_size 8 --epochs 10 --gradient_checkpointing
+        --backbone_lr 1e-5 --batch_size 1 --grad_accum 8 --epochs 10 \
+        --gradient_checkpointing
 """
 from __future__ import annotations
 
@@ -76,7 +83,20 @@ def parse_args(argv=None) -> argparse.Namespace:
     t.add_argument("--head_lr", type=float, default=3e-4)
     t.add_argument("--epochs", type=int, default=10)
     t.add_argument("--patience", type=int, default=3)
-    t.add_argument("--batch_size", type=int, default=8)
+    t.add_argument("--batch_size", type=int, default=8,
+                   help="Micro-batch that must fit in VRAM. On a 16 GB card a "
+                        "full siamese fine-tune of esm2_t33_650M needs 1-2; "
+                        "raise --grad_accum to keep the effective batch at 8.")
+    t.add_argument("--grad_accum", type=int, default=1,
+                   help="Accumulate this many micro-batches per optimizer "
+                        "step. Effective batch = batch_size * grad_accum, so "
+                        "--batch_size 2 --grad_accum 4 trains at ProPath's "
+                        "batch of 8 using a quarter of the activation memory.")
+    t.add_argument("--no_amp", dest="amp", action="store_false",
+                   help="Disable mixed-precision autocast (bf16 where "
+                        "supported, else fp16). AMP roughly halves activation "
+                        "memory and is on by default on CUDA.")
+    t.set_defaults(amp=True)
     t.add_argument("--hidden_dim", type=int, default=256)
     t.add_argument("--dropout", type=float, default=0.15)
     t.add_argument("--weight_decay", type=float, default=1e-2)
@@ -155,10 +175,14 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
         model, train_ex, val_ex, device,
         backbone_lr=args.backbone_lr, head_lr=args.head_lr, epochs=args.epochs,
         patience=args.patience, batch_size=args.batch_size,
-        weight_decay=args.weight_decay, seed=args.seed)
+        weight_decay=args.weight_decay, seed=args.seed,
+        grad_accum_steps=args.grad_accum, amp=args.amp)
 
-    val_probs = predict_proba(model, val_ex, device, batch_size=max(16, args.batch_size))
-    ho_probs = predict_proba(model, ho_ex, device, batch_size=max(16, args.batch_size))
+    # Eval reuses the training micro-batch rather than a larger one: the
+    # optimizer state is still resident here, so a bigger eval batch would
+    # push peak VRAM above what training itself needed.
+    val_probs = predict_proba(model, val_ex, device, batch_size=args.batch_size, amp=args.amp)
+    ho_probs = predict_proba(model, ho_ex, device, batch_size=args.batch_size, amp=args.amp)
     val_labels = np.array([e.label for e in val_ex])
     ho_labels = np.array([e.label for e in ho_ex])
 
@@ -174,6 +198,8 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
     row = {
         "holdout_gene": holdout, "mode": args.mode, "esm_model": args.esm_model,
         "n_unfrozen_layers": args.n_unfrozen_layers,
+        "batch_size": args.batch_size, "grad_accum": args.grad_accum,
+        "effective_batch": args.batch_size * args.grad_accum, "amp": args.amp,
         "n_finetune": len(train_ex), "n_inner_val": len(val_ex), "n_holdout": len(ho_ex),
         "best_epoch": best_epoch, "inner_val_roc_auc": best_val_auc,
         "runtime_s": round(time.time() - t0, 1), **rep,
@@ -201,7 +227,14 @@ def main() -> int:
     if torch.cuda.is_available():
         torch.backends.cuda.matmul.allow_tf32 = True
         torch.backends.cudnn.allow_tf32 = True
-        logger.info("CUDA device: %s", torch.cuda.get_device_name(0))
+        total_gb = torch.cuda.get_device_properties(0).total_memory / 2**30
+        logger.info("CUDA device: %s (%.1f GiB)",
+                    torch.cuda.get_device_name(0), total_gb)
+        logger.info("Memory plan: micro-batch %d x %d accum = effective batch "
+                    "%d | amp=%s | gradient_checkpointing=%s | max_residues=%d",
+                    args.batch_size, args.grad_accum,
+                    args.batch_size * args.grad_accum, args.amp,
+                    args.gradient_checkpointing, args.max_residues)
     device = get_device()
 
     if not args.mmr_csv.exists():
@@ -214,8 +247,16 @@ def main() -> int:
     if args.eval == "holdout" and args.holdout_gene is None:
         raise SystemExit("--holdout_gene required with --eval holdout.")
 
-    rows = [run_one_split(args, master, sequence_by_gene, device, g)
-            for g in splits if g in set(master["gene"].unique())]
+    # One split at a time, releasing the previous split's backbone and AdamW
+    # state before building the next: the caching allocator would otherwise
+    # carry that fragmentation across all four leave-one-gene-out models.
+    rows = []
+    for g in splits:
+        if g not in set(master["gene"].unique()):
+            continue
+        rows.append(run_one_split(args, master, sequence_by_gene, device, g))
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     results = pd.DataFrame(rows)
     args.out_dir.mkdir(parents=True, exist_ok=True)

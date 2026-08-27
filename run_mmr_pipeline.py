@@ -203,6 +203,32 @@ def parse_args() -> argparse.Namespace:
              "--no-full_finetune): recompute activations instead of storing "
              "them. Roughly 30%% slower, and it is often what makes the "
              "650M checkpoint fit on a consumer GPU.")
+    train2.add_argument(
+        "--batch_size", type=int, default=8,
+        help="Stage 2b micro-batch -- the batch that has to fit in VRAM. "
+             "A full siamese fine-tune of esm2_t33_650M does not fit at 8 on "
+             "anything smaller than an 80 GB card; drop this to 1-2 and raise "
+             "--grad_accum to keep the effective batch at ProPath's 8.")
+    train2.add_argument(
+        "--grad_accum", type=int, default=1,
+        help="Stage 2b gradient accumulation. Effective batch = --batch_size "
+             "* --grad_accum, so the optimizer still sees ProPath's batch of "
+             "8 when the card can only hold 1 example at a time.")
+    train2.add_argument(
+        "--max_residues", type=int, default=1022,
+        help="Stage 2b mutation-centred crop width. Activation memory is "
+             "linear in this; halving it halves the activation term.")
+    train2.add_argument(
+        "--no_amp", dest="amp", action="store_false",
+        help="Disable stage 2b mixed-precision autocast (bf16 where "
+             "supported, else fp16). On by default on CUDA; it roughly "
+             "halves activation memory.")
+    train2.set_defaults(amp=True)
+    train2.add_argument(
+        "--skip_vram_preflight", action="store_true",
+        help="Run stage 2b even when the estimated peak VRAM exceeds the "
+             "detected card. The estimate is approximate; pass this if you "
+             "believe it is wrong for your setup.")
 
     parser.add_argument("--overwrite_cache", action="store_true",
                         help="Re-download/re-fetch every source instead of "
@@ -226,19 +252,138 @@ def detect_accelerator(py: str) -> str:
     import subprocess
     probe = (
         "import torch;"
-        "print('cuda' if torch.cuda.is_available() else "
+        "cuda=torch.cuda.is_available();"
+        "print('cuda' if cuda else "
         "('mps' if getattr(torch.backends,'mps',None) and "
-        "torch.backends.mps.is_available() else 'cpu'))"
+        "torch.backends.mps.is_available() else 'cpu'));"
+        "print(torch.cuda.get_device_properties(0).total_memory/2**30 "
+        "if cuda else 0.0)"
     )
     try:
         out = subprocess.run([py, "-c", probe], capture_output=True,
                              text=True, timeout=120)
     except (OSError, subprocess.SubprocessError):
-        return "unknown"
+        return "unknown", 0.0
     if out.returncode != 0:
-        return "unknown"
-    device = out.stdout.strip().splitlines()[-1] if out.stdout.strip() else ""
-    return device if device in ("cuda", "mps", "cpu") else "unknown"
+        return "unknown", 0.0
+    lines = out.stdout.strip().splitlines()
+    device = lines[0].strip() if lines else ""
+    try:
+        vram_gib = float(lines[1]) if len(lines) > 1 else 0.0
+    except ValueError:
+        vram_gib = 0.0
+    if device not in ("cuda", "mps", "cpu"):
+        return "unknown", 0.0
+    return device, vram_gib
+
+
+#: Per-layer shape of the ESM-2 checkpoints this pipeline can drive, used by
+#: :func:`estimate_finetune_vram_gib`. (layers, hidden, ffn, params)
+_ESM_SHAPES = {
+    "facebook/esm2_t6_8M_UR50D":     (6, 320, 1280, 7_400_000),
+    "facebook/esm2_t12_35M_UR50D":   (12, 480, 1920, 33_600_000),
+    "facebook/esm2_t30_150M_UR50D":  (30, 640, 2560, 148_000_000),
+    "facebook/esm2_t33_650M_UR50D":  (33, 1280, 5120, 652_000_000),
+    "facebook/esm2_t36_3B_UR50D":    (36, 2560, 10240, 2_840_000_000),
+}
+
+
+def estimate_finetune_vram_gib(esm_model: str, mode: str, n_unfrozen_layers: int,
+                               batch_size: int, max_residues: int,
+                               grad_accum: int, amp: bool,
+                               gradient_checkpointing: bool) -> float | None:
+    """Rough peak VRAM for one stage-2b training step, in GiB.
+
+    Deliberately a closed-form estimate rather than a trial allocation: the
+    point is to reject an impossible configuration *before* the hour of
+    downloads and the two frozen-embedding stages, on a box where the OOM
+    would otherwise land at the very end of the pipeline.
+
+    Two terms dominate:
+
+    * **Static state** -- fp32 weights, plus fp32 gradients and two AdamW
+      moments for every *trainable* parameter. A full fine-tune pays
+      16 bytes/param; freezing all but the last N layers pays 4 bytes/param
+      plus 12 bytes for the N layers' share.
+    * **Activations** -- every saved tensor of every layer that participates
+      in backward, times two for siamese's WT+VT passes. Without
+      checkpointing, frozen leading layers save nothing (autograd builds no
+      graph for them); autocast halves what the rest save; and gradient
+      checkpointing replaces the per-layer total with one layer's worth plus
+      the layer boundaries.
+
+    Accuracy is roughly +/-25%%, which is enough to separate "fits" from
+    "needs 3x the card". Returns ``None`` for an unrecognised checkpoint.
+    """
+    shape = _ESM_SHAPES.get(esm_model)
+    if shape is None:
+        return None
+    n_layers, hidden, _ffn, n_params = shape
+    grad_layers = n_layers if n_unfrozen_layers == -1 else max(0, min(n_unfrozen_layers, n_layers))
+    trainable = n_params * (grad_layers / n_layers)
+
+    static = (n_params * 4 + trainable * 12) / 2**30
+
+    seq = max_residues + 2                       # <cls> + residues + <eos>
+    unit = batch_size * seq * hidden * 4         # one B x L x H fp32 tensor
+    per_layer = 16 * unit                        # saved tensors per encoder layer
+    if amp:
+        per_layer /= 2
+    passes = 2 if mode == "siamese" else 1
+    if gradient_checkpointing:
+        # Only layer boundaries survive the forward; recompute peaks at one
+        # layer. Boundaries are counted over *all* layers, not just the
+        # trainable ones: gradient_checkpointing_enable() forces requires_grad
+        # on the embedding output, so even a partial unfreeze backpropagates
+        # (cheaply, and pointlessly) through the frozen stack below.
+        activations = passes * (n_layers * unit + per_layer)
+    else:
+        activations = passes * grad_layers * per_layer
+    # grad_accum does not change peak: it is the same micro-batch, more steps.
+    return static + activations / 2**30
+
+
+def _suggest_fitting_config(args, vram_gib: float) -> str:
+    """First configuration that fits *vram_gib*, as a copy-pasteable flag list.
+
+    Ordered by how little it gives up: keep the requested backbone depth and
+    the effective batch, spend compute (checkpointing) and precision (AMP)
+    first, shrink the crop next, and only then fall back to unfreezing fewer
+    layers -- which changes what is actually being benchmarked.
+    """
+    # Stricter than the 0.9 rejection threshold: a suggestion the user will
+    # actually run should clear the estimate's own ~25%% error bar, not sit
+    # one padded batch away from the same OOM.
+    budget = 0.7 * vram_gib
+    effective = max(1, args.batch_size * args.grad_accum)
+    for depth in (args.n_unfrozen_layers, 8, 6, 4, 2):
+        for residues in (args.max_residues, 512):
+            for micro in (args.batch_size, 4, 2, 1):
+                if micro > effective:
+                    continue
+                need = estimate_finetune_vram_gib(
+                    args.esm_model, args.finetune_mode, depth, micro,
+                    residues, 1, True, True)
+                if need is None or need > budget:
+                    continue
+                flags = [f"--batch_size {micro}",
+                         f"--grad_accum {max(1, effective // micro)}",
+                         "--gradient_checkpointing"]
+                if residues != args.max_residues:
+                    flags.append(f"--max_residues {residues}")
+                if depth != args.n_unfrozen_layers:
+                    flags.append(f"--n_unfrozen_layers {depth}")
+                note = (f" (~{need:.1f} GiB; effective batch still "
+                        f"{micro * max(1, effective // micro)})")
+                if depth != args.n_unfrozen_layers:
+                    note += (f"\n     Note: --n_unfrozen_layers {depth} is a "
+                             "partial fine-tune, not the full-backbone run you "
+                             "asked for -- the frozen leading layers are what "
+                             "buy the memory back.")
+                return "Fits here: " + " ".join(flags) + note
+    return (f"Nothing in the search space fits {vram_gib:.1f} GiB with "
+            f"{args.esm_model}. Use a smaller checkpoint "
+            "(--esm_model facebook/esm2_t30_150M_UR50D) or a larger GPU.")
 
 
 class StageCounter:
@@ -281,6 +426,11 @@ def main() -> None:
 
     env = os.environ.copy()
     env.setdefault("PYTHONUTF8", "1")
+    # Stage 2b allocates and frees large, differently-shaped activation
+    # buffers every step (padded batches vary in sequence length), which
+    # fragments the default caching allocator badly enough to OOM with GiB
+    # still nominally free. Expandable segments is PyTorch's own remedy.
+    env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     if args.dry_run:
         # Environment setup (possible venv creation + a multi-GB requirements
         # install) is a real side effect -- never trigger it just to preview
@@ -298,9 +448,41 @@ def main() -> None:
     # multi-day run, so decide whether it is viable BEFORE spending an hour on
     # downloads and the frozen-embedding stages -- failing at the end of a
     # long pipeline is the worst possible time to find out.
-    device = "unknown"
+    device, vram_gib = "unknown", 0.0
     if args.full_finetune:
-        device = detect_accelerator(py)
+        device, vram_gib = detect_accelerator(py)
+        if device == "cuda":
+            need = estimate_finetune_vram_gib(
+                args.esm_model, args.finetune_mode, args.n_unfrozen_layers,
+                args.batch_size, args.max_residues, args.grad_accum, args.amp,
+                args.gradient_checkpointing)
+            if need is not None:
+                print(f"[preflight] stage 2b estimated peak VRAM "
+                      f"~{need:.1f} GiB against {vram_gib:.1f} GiB detected "
+                      f"({args.esm_model}, {args.finetune_mode}, micro-batch "
+                      f"{args.batch_size} x {args.max_residues} residues, "
+                      f"amp={args.amp}, checkpointing="
+                      f"{args.gradient_checkpointing}).")
+            # 0.9 headroom: the estimate covers the training step, not the
+            # driver context, fragmentation, or the eval pass.
+            if need is not None and need > 0.9 * vram_gib and not args.skip_vram_preflight:
+                fits = _suggest_fitting_config(args, vram_gib)
+                msg = (
+                    f"Stage 2b as configured needs roughly {need:.1f} GiB of "
+                    f"VRAM but this GPU has {vram_gib:.1f} GiB.\n"
+                    "  This is the configuration that OOMs deep inside the "
+                    "backward pass after the rest of the pipeline has already "
+                    "run, so it is refused here instead.\n"
+                    f"  {fits}\n"
+                    "  Or pass --skip_vram_preflight to try it anyway."
+                )
+                if args.dry_run:
+                    banner("PREFLIGHT WARNING")
+                    print(msg)
+                    print("\n[dry-run] continuing anyway to show the full "
+                          "planned command sequence.")
+                else:
+                    raise SystemExit("\n" + msg)
         if device == "cpu" and not args.allow_cpu_finetune:
             msg = (
                 "Stage 2b (true ESM-2 backbone gradient fine-tuning) is on by "
@@ -419,9 +601,14 @@ def main() -> None:
             "--mode", args.finetune_mode, "--esm_model", args.esm_model,
             "--n_unfrozen_layers", str(args.n_unfrozen_layers),
             "--eval", args.eval, "--n_bootstrap", str(args.n_bootstrap),
+            "--batch_size", str(args.batch_size),
+            "--grad_accum", str(args.grad_accum),
+            "--max_residues", str(args.max_residues),
         ]
         if args.gradient_checkpointing:
             ft_args.append("--gradient_checkpointing")
+        if not args.amp:
+            ft_args.append("--no_amp")
         if args.eval == "holdout":
             ft_args += ["--holdout_gene", args.holdout_gene]
         run_stage(ft_args, env)
