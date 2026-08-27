@@ -48,6 +48,8 @@ from src.esm_extractor import get_device  # noqa: E402
 from src.train import set_global_seed  # noqa: E402
 from src.transfer import (  # noqa: E402
     assemble_features,
+    prior_impute_values,
+    prior_matrix,
     build_model,
     fit_head,
     predict_logits,
@@ -156,6 +158,22 @@ def main() -> int:
     train_idx, val_idx = make_position_group_folds(
         positions, y, k_folds=5, seed=args.seed, groups=groups)[0]
 
+    # Re-impute the prior branch using the TRAINING partition's medians only.
+    # assemble_features has to run before the split (the split needs `meta`,
+    # and in esm+priors mode extraction decides which rows survive), so its
+    # first pass necessarily saw validation rows. Recomputing here is cheap --
+    # no ESM re-extraction, just the prior matrix -- and it is what makes the
+    # stored fill values a property of the fitting data rather than of the
+    # whole table. Those same values are written to the checkpoint below and
+    # reused by stage 2.
+    fit_impute = prior_impute_values(meta.iloc[train_idx], bundle.prior_cols)
+    X_prior, prior_cols = prior_matrix(meta, columns=bundle.prior_cols,
+                                       impute_values=fit_impute)
+    assert prior_cols == bundle.prior_cols, "prior column order changed on re-imputation"
+    bundle.X_prior = X_prior.astype(np.float32)
+    bundle.impute_values = fit_impute
+    X_full = bundle.stack() if bundle.X_esm is not None else bundle.X_prior
+
     scaler = StandardScaler().fit(X_full[train_idx])
     X_tr = scaler.transform(X_full[train_idx]).astype(np.float32)
     X_va = scaler.transform(X_full[val_idx]).astype(np.float32)
@@ -194,6 +212,10 @@ def main() -> int:
         },
         extra={
             "stage": "pretrain",
+            # Persisted so stage 2 can impute its prior columns with the
+            # values this head was actually fitted on, instead of
+            # recomputing medians over the four MMR genes.
+            "prior_impute_values": bundle.impute_values,
             "genes": sorted(meta["gene"].unique()),
             "n_rows": int(len(meta)),
             "inner_val_roc_auc": float(val_auc),

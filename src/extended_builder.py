@@ -178,6 +178,9 @@ class BuildStats:
     clinvar_conflicting_keys: int = 0
     clinical_conflicting_keys: int = 0
     dms_conflicting_keys: int = 0
+    master_dropped_synonymous: int = 0
+    master_dropped_incomplete_key: int = 0
+    master_gene_relabelled: int = 0
 
 
 def panel_frame_from_records(records: Dict[str, Dict[str, str]]) -> pd.DataFrame:
@@ -506,6 +509,68 @@ def build_zeroshot_and_clinical_part(
 # --------------------------------------------------------------------------- #
 # Master assembly
 # --------------------------------------------------------------------------- #
+def _normalise_key_dtypes(df: pd.DataFrame) -> pd.DataFrame:
+    """Coerce the variant key to one dtype across every source frame.
+
+    ``position`` becomes nullable ``Int64`` and the residue columns become
+    stripped strings. Two things depend on this and both fail quietly without
+    it:
+
+    * **String keys.** ``mutant`` tokens are built as ``wt + str(position) +
+      mut``. A float position renders as ``"A10.0C"`` and matches nothing on
+      the other side of the join, which is built from an integer cast
+      (``external_datasets.py``). The whole zero-shot block -- all 17
+      published model scores -- then joins zero rows, with no error. A single
+      source frame carrying one NaN position is enough to make the entire
+      column float and trigger this.
+    * **Merge keys.** ``assemble_master`` left-joins every source onto the
+      master by ``MASTER_KEY``; mixed int/float key dtypes across frames make
+      those joins depend on pandas' upcasting rules rather than on intent.
+
+    Normalising once, here, is what makes both safe -- rather than relying on
+    every present and future adapter to remember the cast.
+    """
+    if not len(df):
+        return df
+    out = df.copy()
+    if "position" in out.columns:
+        out["position"] = pd.to_numeric(out["position"], errors="coerce").astype("Int64")
+    for col in ("wt_aa", "mut_aa"):
+        if col in out.columns:
+            # Upper-case as well as stripped: a source emitting "a" instead of
+            # "A" would otherwise split one variant into two rows that then
+            # collide on MASTER_KEY and abort the build at export.
+            out[col] = out[col].astype("string").str.strip().str.upper()
+    return out
+
+
+#: Three-letter rendering for ``hgvs_p``. Extends the 20 standard residues with
+#: the non-standard codes that genuinely occur in UniProt canonical sequences
+#: (U = selenocysteine, O = pyrrolysine) and the IUPAC ambiguity codes, then
+#: falls back to the raw letter. ``ONE_TO_THREE`` alone returns NaN for these,
+#: and a NaN ``hgvs_p`` aborts the entire build at export -- so one
+#: selenocysteine residue in one gene used to kill an 80-gene panel.
+_THREE_LETTER: Dict[str, str] = {
+    **ONE_TO_THREE,
+    "U": "Sec", "O": "Pyl",
+    "B": "Asx", "Z": "Glx", "J": "Xle", "X": "Xaa",
+}
+
+
+def _render_hgvs_p(wt: pd.Series, position: pd.Series, mut: pd.Series) -> pd.Series:
+    """Canonical ``p.{Wt}{pos}{Mut}`` for every row, never NaN.
+
+    Derived rather than taken from whichever source supplied the row: two
+    sources rendering the same substitution differently (``p.A10C`` vs
+    ``p.Ala10Cys``) would otherwise survive de-duplication as twin rows and
+    abort the build on the duplicate-key check.
+    """
+    wt3 = wt.map(_THREE_LETTER).fillna(wt.astype("string"))
+    mut3 = mut.map(_THREE_LETTER).fillna(mut.astype("string"))
+    pos = position.astype("Int64").astype("string")
+    return ("p." + wt3.astype("string") + pos + mut3.astype("string"))
+
+
 def assemble_master(
     labeled: pd.DataFrame,
     vus: pd.DataFrame,
@@ -537,6 +602,16 @@ def assemble_master(
     """
     key = MASTER_KEY
 
+    # One key dtype for every frame that is about to be joined or concatenated.
+    labeled = _normalise_key_dtypes(labeled)
+    vus = _normalise_key_dtypes(vus)
+    dms_panel = _normalise_key_dtypes(dms_panel)
+    clin_panel = _normalise_key_dtypes(clin_panel) if clin_panel is not None else None
+    am_panel = _normalise_key_dtypes(am_panel)
+    gnomad_panel = _normalise_key_dtypes(gnomad_panel) if gnomad_panel is not None else None
+    alphafold_panel = (_normalise_key_dtypes(alphafold_panel)
+                       if alphafold_panel is not None else None)
+
     def _base(df: pd.DataFrame, source: str) -> pd.DataFrame:
         # Tolerant column pick: some sources (e.g. cached AlphaMissense
         # subsets) may lack gene/hgvs_p; those are backfilled below.
@@ -555,19 +630,50 @@ def assemble_master(
 
     master = union.drop(columns="source").copy()
 
-    # Backfill gene/hgvs_p for rows whose source lacked them BEFORE the
-    # de-duplication below, otherwise e.g. an AlphaMissense row (no gene)
-    # would survive as a twin of its ClinVar counterpart.
+    # ---- Canonicalise the descriptive columns BEFORE de-duplicating ------- #
+    # `gene` and `hgvs_p` are part of MASTER_BASE_COLS, which is the dedupe
+    # key, but they are *descriptions* of the variant rather than part of its
+    # identity -- MASTER_KEY is. Letting each source supply its own spelling
+    # meant two rows for one variant whenever sources disagreed on a gene
+    # alias or an HGVS rendering, which then collided on MASTER_KEY and
+    # aborted the whole build at export. Deriving both here makes
+    # de-duplication on MASTER_BASE_COLS equivalent to de-duplication on
+    # MASTER_KEY, by construction.
     if "gene" not in master.columns:
         master["gene"] = pd.NA
-    master["gene"] = master["gene"].fillna(
-        master["uniprot_id"].map(gene_of_uniprot))
-    need_hgvs = master["hgvs_p"].isna()
-    if need_hgvs.any():
-        master.loc[need_hgvs, "hgvs_p"] = (
-            "p." + master.loc[need_hgvs, "wt_aa"].map(ONE_TO_THREE)
-            + master.loc[need_hgvs, "position"].astype(int).astype(str)
-            + master.loc[need_hgvs, "mut_aa"].map(ONE_TO_THREE))
+    canonical_gene = master["uniprot_id"].map(gene_of_uniprot)
+    if canonical_gene.notna().any():
+        differs = (master["gene"].notna() & canonical_gene.notna()
+                   & (master["gene"].astype("string")
+                      != canonical_gene.astype("string")))
+        stats.master_gene_relabelled = int(differs.sum())
+        if stats.master_gene_relabelled:
+            examples = sorted(set(zip(
+                master.loc[differs, "gene"].astype(str),
+                canonical_gene[differs].astype(str))))[:3]
+            logger.info(
+                "Relabelled %d rows to the panel's gene symbol (source aliases "
+                "-> canonical): %s", stats.master_gene_relabelled, examples)
+    # The panel resolved each accession *from* its gene symbol, so the panel is
+    # the authority; a source's alias never wins.
+    master["gene"] = canonical_gene.fillna(master["gene"])
+    master["hgvs_p"] = _render_hgvs_p(master["wt_aa"], master["position"],
+                                      master["mut_aa"])
+
+    # ---- Drop rows that are not well-formed missense substitutions -------- #
+    incomplete = master[MASTER_KEY].isna().any(axis=1)
+    stats.master_dropped_incomplete_key = int(incomplete.sum())
+    if stats.master_dropped_incomplete_key:
+        logger.warning("Dropped %d rows with an incomplete variant key.",
+                       stats.master_dropped_incomplete_key)
+    synonymous = ~incomplete & (master["wt_aa"] == master["mut_aa"])
+    stats.master_dropped_synonymous = int(synonymous.sum())
+    if stats.master_dropped_synonymous:
+        # A substitution to the same residue is not a missense variant. Left in,
+        # a single-assay DMS row like this acquires a pathogenicity label.
+        logger.warning("Dropped %d synonymous rows (wt_aa == mut_aa).",
+                       stats.master_dropped_synonymous)
+    master = master.loc[~(incomplete | synonymous)].reset_index(drop=True)
 
     master = master.drop_duplicates(subset=MASTER_BASE_COLS,
                                     keep="first").reset_index(drop=True)
@@ -637,12 +743,28 @@ def assemble_master(
         keep = [c for c in zs_small.columns
                 if c.startswith("zs_") or c in ("uniprot_id", "mutant")]
         zs_small = zs_small[keep].drop_duplicates(subset=["uniprot_id", "mutant"])
-        master["mutant"] = master["wt_aa"] + master["position"].astype(str) \
-            + master["mut_aa"]
+        # astype("Int64") -- NOT astype(str) on a possibly-float column. The
+        # other side of this join builds its token from an integer cast, so a
+        # float here silently joins zero rows. See _normalise_key_dtypes.
+        master["mutant"] = (master["wt_aa"].astype(str)
+                            + master["position"].astype("Int64").astype(str)
+                            + master["mut_aa"].astype(str))
         master = master.merge(zs_small, on=["uniprot_id", "mutant"], how="left")
         stats.zeroshot_rows_joined = int(master[[c for c in master.columns
                                                  if c.startswith("zs_")]]
                                          .notna().any(axis=1).sum())
+        if not stats.zeroshot_rows_joined:
+            # Never let the strongest prior block vanish quietly: 17 published
+            # model scores joining zero rows is a broken key, not a real
+            # coverage result.
+            logger.error(
+                "Zero-shot join matched 0 of %d master rows from %d score rows. "
+                "This is a key mismatch, not absent data -- check the "
+                "(uniprot_id, mutant) tokens on both sides.",
+                len(master), len(zs_small))
+        else:
+            logger.info("Zero-shot scores joined onto %d/%d master rows.",
+                        stats.zeroshot_rows_joined, len(master))
         master = master.drop(columns="mutant")
     else:
         for model in ZERO_SHOT_MODEL_COLUMNS:
@@ -746,6 +868,12 @@ def assemble_master(
     master["label_source"] = np.select(
         [master["clinvar_label"].notna(), master["clinical_label"].notna(), dms_single_ok],
         ["clinvar", "pg_clinical", "dms"], default="")
+    # A quarantined row has no resolved label, so it has no label source
+    # either. Leaving "clinvar" on a row whose label is NaN invites any
+    # consumer that groups or filters by label_source -- without also
+    # checking label_conflict -- to count evidence that was deliberately
+    # withheld. The raw per-source columns remain for investigation.
+    master.loc[master["label_conflict"] == 1, "label_source"] = ""
     # Confidence is explicit metadata, not a claim that DMS fitness is a
     # clinical ground truth. It gives downstream trainers a safe default for
     # source-aware losses and can be overridden by experiment configuration.

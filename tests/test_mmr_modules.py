@@ -49,6 +49,7 @@ from src.mvmamba_features import centered_window_bounds  # noqa: E402
 from src.transfer import (  # noqa: E402
     FeatureBundle,
     align_rows,
+    prior_impute_values,
     prior_matrix,
     select_stage_rows,
 )
@@ -414,6 +415,90 @@ def test_feature_bundle_stack_order_esm_then_priors():
     stacked = bundle.stack()
     assert stacked.shape == (3, 6)
     assert (stacked[:, :4] == 0).all() and (stacked[:, 4:] == 1).all()
+
+
+def test_prior_matrix_reuses_supplied_impute_values():
+    """Stage 2 must impute with stage 1's constants, not its own medians.
+
+    ``zs_*`` priors are missing for the overwhelming majority of rows, so the
+    imputed constant is what the head mostly sees. Recomputing it per stage
+    silently shifts the feature the pretrained weights were fitted on.
+    """
+    df = _stage_df()
+    cols = prior_matrix(df)[1]
+    idx = cols.index("am_pathogenicity")
+    own_median = float(df["am_pathogenicity"].median())
+
+    # Sanity: without a supplied value, the frame's own median is used.
+    X_own, _ = prior_matrix(df)
+    assert np.isclose(X_own[2, idx], own_median)
+
+    # With one supplied, that exact value fills the gap instead.
+    pinned = own_median + 0.25
+    X_pinned, cols_pinned = prior_matrix(
+        df, impute_values={"am_pathogenicity": pinned})
+    assert cols_pinned == cols, "supplying fill values must not reorder columns"
+    assert np.isclose(X_pinned[2, idx], pinned)
+    # Observed values are untouched; only the missing cell moves.
+    observed = df["am_pathogenicity"].notna().to_numpy()
+    assert np.allclose(X_pinned[observed, idx], X_own[observed, idx])
+    # The missingness flag still marks it as imputed.
+    assert X_pinned[2, cols.index("is_missing_am_pathogenicity")] == 1.0
+
+    # Columns not mentioned keep falling back to their own median.
+    zidx = cols.index("zs_eve")
+    assert np.isclose(X_pinned[5, zidx], float(df["zs_eve"].median()))
+
+
+def test_prior_impute_values_round_trip():
+    """What a stage reports as its fill values must reproduce its matrix."""
+    df = _stage_df()
+    X_ref, cols = prior_matrix(df)
+    values = prior_impute_values(df, cols)
+    assert "am_pathogenicity" in values and "zs_eve" in values
+    assert not any(k.startswith("is_missing_") for k in values)
+    X_replay, cols_replay = prior_matrix(df, columns=cols, impute_values=values)
+    assert cols_replay == cols
+    assert np.allclose(X_ref, X_replay)
+
+
+def test_assemble_features_reports_impute_values():
+    from src.transfer import assemble_features
+    df = _stage_df()
+    bundle = assemble_features(
+        df, sequence_by_gene={}, model_name="unused",
+        processed_dir=Path(tempfile.gettempdir()), device=torch.device("cpu"),
+        features_mode="priors")
+    assert bundle.impute_values, "priors mode must report its fill values"
+    assert set(bundle.impute_values) <= set(bundle.prior_cols)
+
+
+def test_feature_cache_rejects_a_stale_hit():
+    """A rebuilt variant table with the same row count must not silently
+    reuse another table's cached embeddings."""
+    from src.esm_extractor import _assert_cache_matches
+    df = pd.DataFrame({"position": [10, 20, 30],
+                       "wt_aa": list("AAA"), "mut_aa": list("CDE")})
+    _assert_cache_matches(df.copy(), df, Path("cache.npz"))          # identical: fine
+
+    reordered = df.iloc[::-1].reset_index(drop=True)
+    for bad, why in [(reordered, "reordered rows"),
+                     (df.assign(position=[10, 20, 31]), "a different residue"),
+                     (df.assign(mut_aa=list("CDF")), "a different substitution")]:
+        try:
+            _assert_cache_matches(bad, df, Path("cache.npz"))
+        except RuntimeError as exc:
+            assert "overwrite_cache" in str(exc)
+        else:
+            raise AssertionError(f"stale cache with {why} was accepted")
+
+    # A row-count change is still caught, with the older message.
+    try:
+        _assert_cache_matches(df.iloc[:2], df, Path("cache.npz"))
+    except RuntimeError as exc:
+        assert "rows" in str(exc)
+    else:
+        raise AssertionError("row-count mismatch was accepted")
 
 
 def test_build_model_registry_covers_architectures():

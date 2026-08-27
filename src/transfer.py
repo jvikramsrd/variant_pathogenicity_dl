@@ -24,9 +24,9 @@ even when dimensions happen to match).
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -77,8 +77,27 @@ def prior_columns_of(df: pd.DataFrame) -> List[str]:
             if c in TRANSFER_PRIOR_COLS or c.startswith(ZS_PREFIX)]
 
 
-def prior_matrix(df: pd.DataFrame,
-                 columns: Optional[Sequence[str]] = None) -> Tuple[np.ndarray, List[str]]:
+def prior_impute_values(df: pd.DataFrame,
+                        columns: Optional[Sequence[str]] = None) -> Dict[str, float]:
+    """Per-column median fill values for the prior branch of *df*.
+
+    Split out from :func:`prior_matrix` so a stage can compute its fill values
+    once, persist them in a checkpoint, and hand the *same* values to a later
+    stage. Columns that are entirely missing get 0.0, matching the historical
+    ``.fillna(raw.median()).fillna(0.0)`` behaviour.
+    """
+    cols = list(columns) if columns is not None else prior_columns_of(df)
+    base_cols = [c for c in cols if not c.startswith("is_missing_") and c in df.columns]
+    raw = df[base_cols].apply(pd.to_numeric, errors="coerce")
+    medians = raw.median()
+    return {c: (float(medians[c]) if pd.notna(medians[c]) else 0.0) for c in base_cols}
+
+
+def prior_matrix(
+    df: pd.DataFrame,
+    columns: Optional[Sequence[str]] = None,
+    impute_values: Optional[Mapping[str, float]] = None,
+) -> Tuple[np.ndarray, List[str]]:
     """Median-imputed numeric prior matrix + missingness indicator flags.
 
     Parameters
@@ -89,6 +108,18 @@ def prior_matrix(df: pd.DataFrame,
         columns); everything else must exist in *df*.  When ``None``, all
         leakage-safe prior columns of *df* are used in values-then-flags
         order.
+    impute_values:
+        Fill value per source column, normally carried over from the stage
+        that fitted the model (see :func:`prior_impute_values`).  Columns
+        absent from the mapping fall back to *df*'s own median.
+
+        This matters more than it looks. Most ``zs_*`` prior columns are
+        missing for ~99% of rows, so the imputed constant *is* the column for
+        almost every variant. Recomputing the median per call meant stage 1
+        pretrained the head on the 80-gene panel's medians while stage 2
+        warm-started it onto the four MMR genes' medians -- the same weights
+        applied to a differently-centred feature. Passing the pretraining
+        values through keeps warm-starting meaningful.
 
     Returns ``(X, ordered_column_names_including_missing_flags)``.
     """
@@ -107,7 +138,16 @@ def prior_matrix(df: pd.DataFrame,
     raw = df[base_cols].apply(pd.to_numeric, errors="coerce")
     missing = raw.isna().astype(np.float32)
     missing.columns = [f"is_missing_{c}" for c in base_cols]
-    values = raw.fillna(raw.median()).fillna(0.0)
+    fill = raw.median()
+    if impute_values:
+        supplied = {c: float(v) for c, v in impute_values.items() if c in base_cols}
+        if supplied:
+            fill = fill.copy()
+            for c, v in supplied.items():
+                fill[c] = v
+            logger.info("Prior imputation: reused %d/%d fill values from the "
+                        "fitting stage.", len(supplied), len(base_cols))
+    values = raw.fillna(fill).fillna(0.0)
     combined = pd.concat([values, missing], axis=1)
     if columns is not None:
         # Enforce the stored ordering exactly; an unknown entry here means
@@ -360,6 +400,10 @@ class FeatureBundle:
     X_prior: np.ndarray
     prior_cols: List[str]
     meta: pd.DataFrame
+    #: Fill value actually used per prior source column. Persist this next to
+    #: ``prior_cols`` in a checkpoint and pass it back in at the next stage so
+    #: the head sees the same imputed constants it was fitted on.
+    impute_values: Dict[str, float] = field(default_factory=dict)
 
     @property
     def dims(self) -> List[int]:
@@ -386,8 +430,16 @@ def assemble_features(
     batch_size: int = 8,
     overwrite_cache: bool = False,
     fixed_prior_columns: Optional[Sequence[str]] = None,
+    fixed_impute_values: Optional[Mapping[str, float]] = None,
 ) -> FeatureBundle:
-    """Build the (ESM | prior) feature bundle for every labelled row in *df*."""
+    """Build the (ESM | prior) feature bundle for every labelled row in *df*.
+
+    ``fixed_prior_columns`` and ``fixed_impute_values`` both come from the
+    checkpoint being warm-started from: the first pins the feature *order*,
+    the second pins the imputed *values*. Pinning only the order still leaves
+    the head reading differently-centred columns across stages -- see
+    :func:`prior_matrix`.
+    """
     if features_mode == "esm+priors":
         X_esm_all, meta = esm_branch_matrix(
             df, sequence_by_gene, model_name, processed_dir, device,
@@ -398,15 +450,33 @@ def assemble_features(
         if len(df_aligned) != len(meta):
             raise RuntimeError("Row alignment failed between extraction pool "
                                "and labelled table.")
-        X_prior, prior_cols = prior_matrix(meta, columns=fixed_prior_columns)
+        X_prior, prior_cols = prior_matrix(meta, columns=fixed_prior_columns,
+                                           impute_values=fixed_impute_values)
         return FeatureBundle(X_esm=X_esm_all.astype(np.float32),
                              X_prior=X_prior.astype(np.float32),
-                             prior_cols=prior_cols, meta=meta)
+                             prior_cols=prior_cols, meta=meta,
+                             impute_values=_effective_impute_values(
+                                 meta, prior_cols, fixed_impute_values))
     if features_mode == "priors":
-        X_prior, prior_cols = prior_matrix(df, columns=fixed_prior_columns)
+        X_prior, prior_cols = prior_matrix(df, columns=fixed_prior_columns,
+                                           impute_values=fixed_impute_values)
         return FeatureBundle(X_esm=None, X_prior=X_prior.astype(np.float32),
-                             prior_cols=prior_cols, meta=df.reset_index(drop=True))
+                             prior_cols=prior_cols,
+                             meta=df.reset_index(drop=True),
+                             impute_values=_effective_impute_values(
+                                 df, prior_cols, fixed_impute_values))
     raise ValueError(f"Unknown --features mode '{features_mode}'.")
+
+
+def _effective_impute_values(
+    df: pd.DataFrame, prior_cols: Sequence[str],
+    fixed: Optional[Mapping[str, float]],
+) -> Dict[str, float]:
+    """The fill values :func:`prior_matrix` just used, for persisting."""
+    values = prior_impute_values(df, prior_cols)
+    if fixed:
+        values.update({c: float(v) for c, v in fixed.items() if c in values})
+    return values
 
 
 def stage_sample_weights(meta: pd.DataFrame, clinical_weight: float,
@@ -430,7 +500,8 @@ def stage_sample_weights(meta: pd.DataFrame, clinical_weight: float,
 __all__ = [
     "MMR_GENES", "TRANSFER_PRIOR_COLS",
     "TransferConfig", "FeatureBundle",
-    "prior_columns_of", "prior_matrix", "esm_branch_matrix", "align_rows",
+    "prior_columns_of", "prior_matrix", "prior_impute_values",
+    "esm_branch_matrix", "align_rows",
     "assemble_features", "stage_sample_weights",
     "build_model", "predict_logits", "fit_head", "select_stage_rows",
     "save_checkpoint", "load_checkpoint",

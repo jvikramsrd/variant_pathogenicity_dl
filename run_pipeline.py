@@ -59,7 +59,19 @@ def current_venv_python() -> Path | None:
 
 
 def ensure_environment(env: dict[str, str]) -> Path:
-    """Create/use a virtualenv and return the Python executable for stages."""
+    """Create/use a virtualenv and return the Python executable for stages.
+
+    Readiness is gated on a stamp file written only after ``pip install``
+    returns successfully, not on the interpreter existing. ``python -m venv``
+    finishes in a second while the install takes minutes, so an install that
+    fails or is interrupted (Ctrl-C, a dropped connection, a full disk) leaves
+    a venv whose interpreter exists but whose dependencies do not. Gating on
+    the interpreter alone made every later run silently adopt that broken
+    environment and fail deep inside a stage with an ImportError.
+
+    The stamp records which requirements file was installed, so switching
+    between the CPU and CUDA requirement sets also forces a reinstall.
+    """
 
     active_python = current_venv_python()
     if active_python is not None:
@@ -67,13 +79,21 @@ def ensure_environment(env: dict[str, str]) -> Path:
 
     venv_dir = ROOT / ".venv"
     python = venv_python(venv_dir)
-    if not python.exists():
-        launcher = os.environ.get("PYTHON", sys.executable)
-        banner("Stage 0/4 - creating virtualenv + installing requirements")
-        run([launcher, "-m", "venv", str(venv_dir)], env)
+    req = "requirements-cuda.txt" if shutil.which("nvidia-smi") else "requirements.txt"
+    stamp = venv_dir / ".requirements-installed"
+    ready = python.exists() and stamp.exists() and stamp.read_text().strip() == req
 
-        req = "requirements-cuda.txt" if shutil.which("nvidia-smi") else "requirements.txt"
+    if not ready:
+        launcher = os.environ.get("PYTHON", sys.executable)
+        banner(f"Stage 0 - creating virtualenv + installing {req}")
+        if not python.exists():
+            run([launcher, "-m", "venv", str(venv_dir)], env)
+        elif stamp.exists():
+            print(f"Requirements file changed to {req}; reinstalling.")
+        else:
+            print("Previous dependency install did not complete; reinstalling.")
         run([str(venv_pip(venv_dir)), "install", "-r", req], env)
+        stamp.write_text(req + "\n")
 
     return python
 
@@ -129,6 +149,9 @@ def main() -> None:
 
     banner("Stage 1/4 - unit tests")
     run([str(py), "tests/test_datasets.py"], env)
+    # This pipeline builds the same master table, so the merge invariants
+    # apply here too.
+    run([str(py), "tests/test_merge.py"], env)
 
     panel = ROOT / "data" / "raw" / "uniprot" / "expanded_panel.json"
     if not panel.exists():

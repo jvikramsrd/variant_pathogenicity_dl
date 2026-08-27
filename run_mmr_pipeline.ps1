@@ -10,9 +10,13 @@ param(
 # download -> clean/process -> train (Phases 0-3).
 #
 # Usage
-#   .\run_mmr_pipeline.ps1
-#   .\run_mmr_pipeline.ps1 --dry_run
-#   $env:FEATURES = "esm+priors"; .\run_mmr_pipeline.ps1 --all_sources --full_finetune
+#   .\run_mmr_pipeline.ps1 --dry_run                    # preview the sequence
+#   .\run_mmr_pipeline.ps1 --no-full_finetune           # CPU-friendly run
+#   $env:FEATURES = "esm+priors"; .\run_mmr_pipeline.ps1 --all_sources   # GPU box
+#
+# Backbone gradient fine-tuning (stage 2b) is ON by default and needs a
+# CUDA/MPS device; the pipeline stops before it on a CPU-only box unless you
+# pass --allow_cpu_finetune or --no-full_finetune.
 #
 # All positional/flag arguments are forwarded verbatim to
 # run_mmr_pipeline.py -- see `python run_mmr_pipeline.py --help` for the

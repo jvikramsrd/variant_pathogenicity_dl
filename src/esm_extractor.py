@@ -383,6 +383,47 @@ class ESM2Extractor:
         return features, meta
 
 
+_CACHE_KEY_COLS = ("position", "wt_aa", "mut_aa")
+
+
+def _assert_cache_matches(meta: pd.DataFrame, df: pd.DataFrame, path: Path) -> None:
+    """Reject a cache hit that is not row-for-row the table being requested.
+
+    Callers rely on the returned features being positionally aligned with
+    *df*, and downstream code reads prior columns straight off the cached
+    ``meta``. A row-count check alone cannot see a variant table that was
+    rebuilt with the same number of rows in a different order, or with
+    different variants at the same count -- both silently return features
+    belonging to other variants. Comparing the variant keys makes that a loud
+    failure with an actionable instruction instead.
+    """
+    if len(meta) != len(df):
+        raise RuntimeError(
+            f"Cached metadata ({len(meta)} rows) does not match current "
+            f"variant table ({len(df)} rows); re-run with --overwrite_cache.")
+    missing = [c for c in _CACHE_KEY_COLS if c not in meta.columns]
+    if missing:
+        raise RuntimeError(
+            f"Feature cache {path} predates key validation (no {missing}); "
+            "re-run with --overwrite_cache to rebuild it.")
+    for col in _CACHE_KEY_COLS:
+        cached = meta[col].to_numpy()
+        wanted = df[col].to_numpy()
+        if col == "position":
+            cached = cached.astype(np.int64)
+            wanted = wanted.astype(np.int64)
+        else:
+            cached = cached.astype(str)
+            wanted = wanted.astype(str)
+        if not np.array_equal(cached, wanted):
+            n_diff = int((cached != wanted).sum())
+            raise RuntimeError(
+                f"Feature cache {path} is stale: '{col}' differs from the "
+                f"current variant table in {n_diff} of {len(df)} rows (the "
+                "table was rebuilt or reordered since the cache was written). "
+                "Re-run with --overwrite_cache.")
+
+
 def extract_features_cached(
     df: pd.DataFrame,
     sequence: str,
@@ -418,11 +459,7 @@ def extract_features_cached(
         logger.info("Loading cached ESM-2 features from %s", feat_path)
         blob = np.load(feat_path)
         meta = pd.read_csv(meta_path)
-        if len(meta) != len(df):
-            raise RuntimeError(
-                f"Cached metadata ({len(meta)} rows) does not match current "
-                f"variant table ({len(df)} rows); re-run with --overwrite_cache."
-            )
+        _assert_cache_matches(meta, df, feat_path)
         return blob["features"].astype(np.float32), meta
 
     extractor = ESM2Extractor(model_name=model_name, device=device, batch_size=batch_size)

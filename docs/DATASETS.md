@@ -262,40 +262,107 @@ Files: `data/processed/{GENE}_labeled_variants.csv` and
 
 ## 8. Extended master dataset schema
 
+> How these columns reach the model -- row selection, feature matrices, scaling,
+> tensors and batching for all three training paths -- is documented separately
+> in `docs/DATA_TO_MODEL.md`. The merge that produces this table is walked
+> through in `docs/CODE_GUIDE.md` §4.
+
+
 `data/processed/extended/extended_dataset.csv` — one row per unique
 `(uniprot_id, position, mut_aa)` substitution across the panel.
 
 | Family | Columns | Notes |
 |--------|---------|-------|
-| keys/meta | `gene, uniprot_id, position, wt_aa, mut_aa, hgvs_p` | |
-| supervision | `label` | resolved per §9 |
-| | `clinvar_label, stars, review_status` | raw ClinVar assertion |
-| | `clinical_label, np_accession` | ProteinGym clinical benchmark |
-| DMS | `dms_score_median, dms_bin_median, n_dms_assays, dms_ids, dms_selection_types` | aggregated over covering assays |
+| keys/meta | `uniprot_id, position, wt_aa, mut_aa` | the identity of a variant (`MASTER_KEY`). `position` is nullable `Int64` and residues are upper-cased — normalised across every source frame before the merge, because a float position renders as `"A10.0C"` in string join keys and silently matches nothing |
+| | `gene, hgvs_p` | **derived, not source-supplied.** The panel owns the gene symbol; `hgvs_p` is always rendered canonically as `p.{Wt}{pos}{Mut}`, including non-standard residues (`Sec`, `Pyl`, `Asx`, `Glx`, `Xle`, `Xaa`). Both sit in the de-duplication key, so letting sources keep their own spellings split one variant into two rows |
+| supervision | `label` | resolved per §9; `NaN` for unlabelled and quarantined rows |
+| | `label_source` | `clinvar` / `pg_clinical` / `dms` / `""` — empty for unlabelled **and quarantined** rows |
+| | `label_weight` | evidence-quality weight, §9; `0.0` when quarantined |
+| | `label_conflict, cross_source_conflict` | quarantine flags, §9 |
+| | `clinvar_label, clinvar_conflict, stars, review_status` | raw ClinVar assertion |
+| | `clinical_label, clinical_conflict, np_accession` | ProteinGym clinical benchmark |
+| DMS | `dms_score_median, dms_bin_median, dms_bin_nunique, n_dms_assays, dms_ids, dms_selection_types` | aggregated over covering assays; `dms_bin_nunique > 1` marks assay disagreement |
 | AlphaMissense | `am_pathogenicity, am_class` | |
-| structure | `in_domain, domain_names` | from UniProt features |
+| structure | `in_domain, domain_names` | UniProt domain/region intervals, joined by position containment |
 | zero-shot | `zs_*` (17 columns) | §4 |
+| gnomAD *(opt-in)* | `gnomad_af_joint, gnomad_log10_af, acmg_ba1, acmg_bs1, acmg_pm2` | variant allele frequency + ACMG flags |
+| gene constraint *(opt-in)* | `gnomad_pli, gnomad_oe_lof, gnomad_oe_mis, gnomad_mis_z, gnomad_syn_z` | broadcast per gene |
+| AlphaFold *(opt-in)* | `af_plddt, af_plddt_bin, af_disordered` | per-residue structural confidence |
+| InterPro *(opt-in)* | `in_interpro_domain, interpro_names` | complements UniProt domains |
+| functional sites *(opt-in)* | `is_functional_site, functional_site_types` | active/binding site, PTM, disulfide |
 | provenance | `sources, n_sources` | pipe-joined tags |
 
-Auxiliary tables alongside: `dms_scores_long.csv`, `pg_clinical_panel.csv`,
-`zeroshot_scores_subset.csv`, `alphamissense_subset.csv`,
-`uniprot_domains.csv`, `panel_sequences.fasta`, `manifest.json`.
+**Rows that never appear:** substitutions with `wt_aa == mut_aa` (not missense)
+and rows with an incomplete key are dropped and counted in `manifest.json`
+(`master_dropped_synonymous`, `master_dropped_incomplete_key`).
+
+**Opt-in columns always exist.** Every optional source has an explicit `else`
+branch that creates its columns full of `NaN`, so the schema does not depend on
+which flags a build was given — only the values do. This is what lets a
+checkpoint's stored prior-column order stay meaningful across builds.
+
+**Which of these reach the model** is a separate decision, made once in
+`src.transfer.TRANSFER_PRIOR_COLS`. A column joined here but absent there is
+invisible to training. See `docs/DATA_TO_MODEL.md`.
+
+Auxiliary tables alongside: `dms_scores_long.csv` (full per-assay DMS detail),
+`pg_clinical_panel.csv`, `zeroshot_scores_subset.csv`,
+`alphamissense_subset.csv`, `gnomad_subset.csv`, `alphafold_plddt_subset.csv`,
+`interpro_intervals.csv`, `uniprot_domains.csv`,
+`uniprot_functional_sites.csv`, `panel_sequences.fasta|json`,
+`manifest.json` (provenance + SHA-256 + counts), `audit_report.json`.
 
 ## 9. Label precedence & conflict policy
 
 ```
 label = clinvar_label                      if present
       = pg_clinical_label                  else if present
-      = dms_bin_median                     else if n_dms_assays == 1
+      = 1 - dms_bin_median                 else if n_dms_assays == 1   # NOTE the flip
       = NaN                                otherwise (unsupervised row)
+
+label = NaN                                whenever label_conflict == 1
 ```
 
-Rationale: curated clinical assertions carry the strongest semantics; the
-ProteinGym clinical benchmark is an independent re-curation; DMS bins measure
-*functional* effect, which need not equal pathogenicity, hence only when there
-is exactly one assay (multi-assay disagreement keeps the row unlabelled).
-All raw columns remain available for custom training schemes (e.g. regression
-on `dms_score_median`).
+**The DMS flip is not optional.** ProteinGym's `DMS_score_bin = 1` marks the
+*top half of assay fitness*, i.e. **functionally tolerated**. Pathogenicity
+supervision is therefore `1 - dms_bin_median`, not `dms_bin_median`. Mapping it
+straight through once inverted ~185,000 labels, and cross-validated AUC did not
+move (AUC is flip-invariant once the head re-learns the mapping) — which is why
+this is asserted in code (`tests/test_merge.py::test_dms_bin_is_flipped_into_pathogenicity`)
+rather than trusted to review.
+
+Rationale for the ordering: curated clinical assertions carry the strongest
+semantics; the ProteinGym clinical benchmark is an independent re-curation; DMS
+bins measure *functional* effect, which need not equal pathogenicity, hence only
+when there is exactly one assay. All raw columns remain available for custom
+training schemes (e.g. regression on `dms_score_median`).
+
+**Conflict quarantine.** Contradictory evidence never resolves to a label:
+
+| Situation | Column set | Result |
+|---|---|---|
+| One source asserts both 0 and 1 for a key | `clinvar_conflict` / `clinical_conflict` = 1 | that source's raw label is `NaN` |
+| ClinVar and PG-clinical disagree | `cross_source_conflict` = 1 | both raw labels kept |
+| Any of the above | `label_conflict` = 1 | `label` = `NaN`, `label_weight` = 0.0, `label_source` = `""` |
+
+A quarantined row is structurally incapable of entering training, and
+`validate_master_for_export` refuses to write a table where one carries a label.
+
+**Confidence weights** (`label_weight`), combined at train time with the
+experiment's clinical/DMS weighting:
+
+| Source | Weight |
+|---|---|
+| ClinVar, 3–4 review stars | 1.00 |
+| ClinVar, 2 stars | 0.75 |
+| ClinVar, 0–1 stars | 0.50 |
+| ProteinGym clinical | 0.75 |
+| single-assay DMS | 0.20 |
+| any quarantined row | 0.00 |
+
+Note a 2-star ClinVar row deliberately *ties* a PG-clinical label: precedence
+and confidence are separate axes, and only expert-panel review outweighs an
+independent curated clinical label.
 
 ## 10. Leakage controls
 

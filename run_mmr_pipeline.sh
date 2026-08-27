@@ -3,10 +3,14 @@
 # download -> clean/process -> train (Phases 0-3).
 #
 # Usage
-#   bash run_mmr_pipeline.sh
-#   bash run_mmr_pipeline.sh --dry_run                 # preview the command sequence
-#   FEATURES="esm+priors" bash run_mmr_pipeline.sh --all_sources --full_finetune
+#   bash run_mmr_pipeline.sh --dry_run                  # preview the sequence
+#   bash run_mmr_pipeline.sh --no-full_finetune         # CPU-friendly run
+#   FEATURES="esm+priors" bash run_mmr_pipeline.sh --all_sources   # GPU box
 #   SKIP_BUILD=1 bash run_mmr_pipeline.sh               # re-run training only
+#
+# Backbone gradient fine-tuning (stage 2b) is ON by default and needs a
+# CUDA/MPS device; the pipeline stops before it on a CPU-only box unless you
+# pass --allow_cpu_finetune or --no-full_finetune.
 #
 # All flags are forwarded verbatim to run_mmr_pipeline.py -- see
 # `python run_mmr_pipeline.py --help` for the full list.

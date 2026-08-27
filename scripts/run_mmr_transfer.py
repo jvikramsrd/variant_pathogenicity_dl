@@ -50,6 +50,7 @@ from src.train import set_global_seed  # noqa: E402
 from src.transfer import (  # noqa: E402
     FeatureBundle,
     assemble_features,
+    prior_impute_values,
     build_model,
     fit_head,
     load_checkpoint,
@@ -186,12 +187,31 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
     # When warm-starting, force the pretrained checkpoint's exact prior-column
     # order so weight transfer stays valid (missing columns fail loudly here).
     fixed_prior_cols = (ckpt or {}).get("feature_columns")
+    # Pin the pretraining stage's imputation constants as well as its column
+    # order. Checkpoints written before this was persisted simply have no
+    # entry, and fall back to medians computed here.
+    fixed_impute = (ckpt or {}).get("prior_impute_values")
+    if not fixed_impute:
+        if ckpt is not None:
+            logger.warning(
+                "Checkpoint has no stored prior-imputation values (written by "
+                "an older pretrain run); deriving them from the fine-tune "
+                "partition instead. Re-run stage 1 to remove this source of "
+                "pretrain/fine-tune feature drift.")
+        # Derive fill values from the fine-tune partition ONLY. `pool` below
+        # deliberately contains the holdout gene so its features can be built
+        # in the same call, but letting the holdout influence the imputation
+        # constants would leak it into training -- and because most zs_*
+        # columns are ~99% missing, that constant is the feature for almost
+        # every row.
+        fixed_impute = prior_impute_values(ft_df)
     bundle: FeatureBundle = assemble_features(
         pool, sequence_by_gene, args.esm_model,
         processed_dir=args.feature_cache_dir, device=device,
         features_mode=args.features, batch_size=args.extract_batch_size,
         overwrite_cache=args.overwrite_cache,
-        fixed_prior_columns=fixed_prior_cols)
+        fixed_prior_columns=fixed_prior_cols,
+        fixed_impute_values=fixed_impute)
     meta = bundle.meta
     y_all = meta["label"].astype(int).to_numpy()
     is_holdout = (meta["gene"] == holdout).to_numpy()

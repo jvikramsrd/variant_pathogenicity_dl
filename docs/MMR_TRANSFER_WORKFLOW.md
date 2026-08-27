@@ -7,8 +7,14 @@ implemented and smoke-tested end-to-end.** The ClinVar ingestion code
 **One-command entrypoint**: `run_mmr_pipeline.py` (+ `.sh`/`.ps1` wrappers at
 the repo root) chains every stage documented in this file --
 download/clean the broad panel, download/clean the MMR-specific dataset,
-Stage-1 pretrain, Stage-2 fine-tune -- in one command, stopping at
-fine-tuning by design. Run `python run_mmr_pipeline.py --dry_run` first to
+Stage-1 pretrain, Stage-2 fine-tune, Stage-2b true ESM-2 backbone gradient
+fine-tuning -- in one command, stopping there by design. Stage-2b (the actual
+DL training stage, not a frozen-embedding linear probe) runs **by default**;
+pass `--no-full_finetune` to stop at the frozen-embedding stages instead
+(faster, CPU-friendly). Because that default is expensive, the pipeline probes
+for a CUDA/MPS device **before** the downloads and the frozen-embedding stages
+and stops there if none is visible -- pass `--allow_cpu_finetune` to run it on
+CPU anyway. Run `python run_mmr_pipeline.py --dry_run` first to
 preview the exact command sequence for your flags before committing to a
 multi-hour/GPU run. Everything below can also still be run stage-by-stage by
 hand for finer control.
@@ -60,7 +66,7 @@ python scripts/pretrain_esm_80.py --features priors # CPU fallback (minutes)
   claim).
 * The checkpoint stores its exact prior-column order and ESM block dimension.
 
-## Stage 2 — MMR fine-tuning + leave-one-gene-out evaluation
+## Stage 2 — MMR fine-tuning (frozen embeddings) + leave-one-gene-out evaluation
 
 `scripts/run_mmr_transfer.py` warm-starts from the Stage-1 checkpoint on
 clinical-label MMR rows only (ClinVar / PG-clinical sources; DMS-only labels

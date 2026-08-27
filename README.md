@@ -14,20 +14,39 @@ AlphaMissense and UniProt domain annotations into one leakage-audited table.
 
 One command runs the whole **download -> clean/process -> train** pipeline
 for the MLH1/MSH2/MSH6/PMS2 project end to end (PROJECT_PLAN.md Phases 0-3,
-stopping at fine-tuning by design -- no calibration/LLM/fusion stages here):
+stopping at fine-tuning by design -- no calibration/LLM/fusion stages here).
+By default this includes **true ESM-2 backbone gradient fine-tuning**
+(`src/esm_finetune.py`, ProPath's Siamese recipe) as the final training
+stage -- the actual deep-learning training, not just a linear probe over
+frozen embeddings. That stage is expensive and GPU strongly advised.
 
 ```bash
 python run_mmr_pipeline.py --dry_run      # preview every stage's command first
-python run_mmr_pipeline.py                # CPU-friendly default (priors-only features)
 
 # Full model on a GPU box: broad-panel structural/domain sources + ESM-2
-# embeddings + true backbone fine-tuning
+# embeddings + true backbone fine-tuning (all on by default)
 python run_mmr_pipeline.py --features esm+priors \
-    --esm_model facebook/esm2_t33_650M_UR50D --all_sources --full_finetune
+    --esm_model facebook/esm2_t33_650M_UR50D --all_sources
+
+# CPU-friendly / quick smoke test: priors-only features, skip the backbone
+# fine-tuning stage (stops at the frozen-embedding pretrain/fine-tune stages)
+python run_mmr_pipeline.py --no-full_finetune
 
 # Re-run training only, reusing already-downloaded/cleaned data
 python run_mmr_pipeline.py --skip_build
 ```
+
+No GPU? The pipeline checks for a CUDA/MPS device **before** the downloads and
+the frozen-embedding stages and stops there rather than starting a multi-day
+CPU fine-tune. Either pass `--no-full_finetune`, or force it with
+`--allow_cpu_finetune` alongside a tiny checkpoint and a shallow unfreeze:
+
+```bash
+python run_mmr_pipeline.py --allow_cpu_finetune \
+    --esm_model facebook/esm2_t12_35M_UR50D --n_unfrozen_layers 2 \
+    --eval holdout --holdout_gene MLH1
+```
+
 
 Cross-platform wrappers: `bash run_mmr_pipeline.sh [args...]` (macOS/Linux),
 `.\run_mmr_pipeline.ps1 [args...]` (Windows) -- both just forward every
@@ -229,6 +248,9 @@ forward passes under fp16 autocast on GPUs. Keep `--extract_batch_size` small
 | `scripts/eval_leave_one_protein_out.py` | leave-one-protein-out CV over the broad panel |
 | `scripts/build_cluster_split.py` | MMseqs2 sequence-cluster-disjoint split |
 | `tests/test_datasets.py`, `tests/test_mmr_modules.py`, `tests/test_new_data_sources.py` | unit tests |
+| `docs/PROJECT_DOCUMENTATION.md` | **start here** -- what was built, why, and what it improves on |
+| `docs/CODE_GUIDE.md` | **how it works** -- module mechanics, the data merge step by step, better alternatives |
+| `docs/DATA_TO_MODEL.md` | dataset schema + how the data is fed to the model (CSV row -> tensor), and what is verified |
 | `docs/DATASETS.md` | **full dataset documentation** (licences, schemas, rules) |
 | `docs/CODE_REVIEW.md` | issues found & fixed + complete changelog |
 | `data/raw/`, `data/processed/` | cached artefacts (never edit by hand) |
@@ -244,6 +266,13 @@ forward passes under fp16 autocast on GPUs. Keep `--extract_batch_size` small
   `data/processed/extended/manifest.json` with URL, version, size and date.
 * **Label precedence** — ClinVar > ProteinGym-clinical > single-assay DMS bin;
   raw columns are always preserved alongside.
+
+**Start here:** `docs/PROJECT_DOCUMENTATION.md` is the single entry point --
+what was built, why each design decision was made, and what it improves on
+relative to both the original code and the published methods it draws from.
+Then `docs/CODE_GUIDE.md` for the mechanics: how each module works, the merge
+walked through step by step, and the better alternative for every significant
+design decision.
 
 See `docs/DATASETS.md` for the exhaustive data reference and
 `docs/CODE_REVIEW.md` for what changed relative to the original pipeline.

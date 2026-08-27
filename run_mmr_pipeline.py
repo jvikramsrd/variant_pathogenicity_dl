@@ -15,11 +15,27 @@ Runs PROJECT_PLAN.md Phases 0-3 back to back as one command:
        features, MaveDB DMS and (optionally) CIMRA OddsPath, apply the PMS2
        pseudogene gate, emit the leave-one-gene-out split manifest.
     5. TRAIN, stage 1: pretrain the classification head on the broad panel's
-       frozen ESM-2 embeddings (leave-one-MMR-gene-out by default).
+       frozen ESM-2 embeddings (leave-one-MMR-gene-out by default). This is
+       feature-extraction + linear-probe warm-up, not the main DL training.
     6. TRAIN, stage 2: warm-start fine-tune on the MMR-specific data with
        leave-one-gene-out evaluation (frozen-embedding branch/fusion
-       ablations by default; add --full_finetune for true ESM-2 backbone
-       gradient fine-tuning -- ProPath/CSBJ recipes, src/esm_finetune.py).
+       ablations).
+    7. TRAIN, stage 2b: true ESM-2 backbone gradient fine-tuning -- ProPath's
+       Siamese recipe by default (or CSBJ's token classifier) via
+       src/esm_finetune.py. This is the actual deep-learning training stage
+       (gradients flow into the transformer, not just a head on frozen
+       embeddings) and runs by default; pass --no-full_finetune to skip it
+       and stop at the frozen-embedding stages.
+
+Steps 2-7 are the numbered "Stage i/N" banners printed at run time; N adapts
+to the flags you passed (--skip_tests, --skip_build, --no-full_finetune), so
+the banner sequence always matches what is actually going to run. Step 1
+(environment setup) happens before the first banner.
+
+Stage 2b needs an accelerator in practice. If no CUDA/MPS device is visible
+the pipeline stops before that stage with an explanation rather than starting
+a fine-tune that would take days on CPU; pass --allow_cpu_finetune to run it
+anyway, or --no-full_finetune to skip it.
 
 Stops there by design -- no calibration, no LLM branch, no fusion research
 beyond the ablations already built into stage 2. Those are separate,
@@ -33,13 +49,14 @@ than duplicating them; run_pipeline.py itself is untouched.
 
 Examples
 --------
-    # CPU-friendly full run (priors-only features, safe PMS2 default)
-    python run_mmr_pipeline.py
-
-    # Full model on a GPU box: broad-panel structural/domain sources +
-    # ESM-2 embeddings + true backbone fine-tuning
+    # Full run including real backbone fine-tuning (the default). On a GPU
+    # box, also raise the feature/model quality:
     python run_mmr_pipeline.py --features esm+priors \
-        --esm_model facebook/esm2_t33_650M_UR50D --all_sources --full_finetune
+        --esm_model facebook/esm2_t33_650M_UR50D --all_sources
+
+    # CPU-friendly / quick smoke test: skip the expensive backbone
+    # fine-tuning stage and stop at the frozen-embedding stages
+    python run_mmr_pipeline.py --no-full_finetune
 
     # Re-run training only, reusing already-downloaded/cleaned data
     python run_mmr_pipeline.py --skip_build
@@ -131,7 +148,9 @@ def parse_args() -> argparse.Namespace:
              "into training.")
     mmr.add_argument(
         "--min_stars", type=int, default=2, choices=[1, 2, 3, 4],
-        help="Minimum ClinVar review stars for labelled MMR rows.")
+        help="Minimum ClinVar review stars for a row to carry a label. "
+             "Applies to BOTH builds (broad panel and MMR); lowering it "
+             "trades label confidence for label count.")
 
     train1 = parser.add_argument_group("stage 5 -- pretrain (broad panel)")
     train1.add_argument(
@@ -149,22 +168,41 @@ def parse_args() -> argparse.Namespace:
         "--n_bootstrap", type=int, default=10_000,
         help="Bootstrap CI iterations (lower for a quick smoke run).")
     train2.add_argument(
-        "--full_finetune", action="store_true",
-        help="Also run true ESM-2 backbone gradient fine-tuning "
+        "--full_finetune", action=argparse.BooleanOptionalAction, default=True,
+        help="Run true ESM-2 backbone gradient fine-tuning "
              "(src/esm_finetune.py, scripts/finetune_esm_mmr.py) after the "
              "frozen-embedding stage -- ProPath's Siamese recipe by default. "
-             "Expensive; GPU strongly advised.")
+             "This is the actual DL training stage, not a linear probe over "
+             "frozen embeddings; it is the pipeline default. Expensive: the "
+             "pipeline refuses to start it without a CUDA/MPS device unless "
+             "--allow_cpu_finetune is given. Pass --no-full_finetune to skip "
+             "it and stop at the frozen-embedding stages (CPU-friendly).")
     train2.add_argument(
         "--finetune_mode", choices=FINETUNE_MODE_CHOICES, default="siamese",
-        help="Only used with --full_finetune: 'siamese'=ProPath-style WT+VT "
-             "forward passes; 'wt_site'=CSBJ-style single WT forward pass.")
+        help="Stage 2b recipe (ignored under --no-full_finetune): "
+             "'siamese'=ProPath-style WT+VT forward passes; "
+             "'wt_site'=CSBJ-style single WT forward pass.")
     train2.add_argument(
         "--n_unfrozen_layers", type=int, default=-1,
-        help="Only used with --full_finetune: -1 = full backbone fine-tune, "
-             "0 = frozen (ablation floor), N>0 = last N transformer layers.")
+        help="Stage 2b backbone depth (ignored under --no-full_finetune): "
+             "-1 = full backbone fine-tune, 0 = frozen (ablation floor), "
+             "N>0 = unfreeze the last N transformer layers only. A small N "
+             "is the cheapest way to get real backbone gradients.")
+    train2.add_argument(
+        "--allow_cpu_finetune", action="store_true",
+        help="Run stage 2b even when no CUDA/MPS device is visible. Without "
+             "this the pipeline stops before stage 2b on a CPU-only box, "
+             "because a full backbone fine-tune there takes days rather than "
+             "hours. Reasonable to pass with a tiny checkpoint "
+             "(--esm_model facebook/esm2_t12_35M_UR50D), a shallow unfreeze "
+             "(--n_unfrozen_layers 2) and one --holdout_gene, as a smoke "
+             "test that the stage runs at all.")
     train2.add_argument(
         "--gradient_checkpointing", action="store_true",
-        help="Only used with --full_finetune: trade compute for memory.")
+        help="Stage 2b memory/compute trade (ignored under "
+             "--no-full_finetune): recompute activations instead of storing "
+             "them. Roughly 30%% slower, and it is often what makes the "
+             "650M checkpoint fit on a consumer GPU.")
 
     parser.add_argument("--overwrite_cache", action="store_true",
                         help="Re-download/re-fetch every source instead of "
@@ -174,6 +212,56 @@ def parse_args() -> argparse.Namespace:
                              "it -- verify the planned sequence before "
                              "committing to a multi-hour/GPU run.")
     return parser.parse_args()
+
+
+def detect_accelerator(py: str) -> str:
+    """Return 'cuda', 'mps', 'cpu' or 'unknown' for the interpreter *py*.
+
+    Probed in the child interpreter rather than this one: after
+    ensure_environment() the stages run inside a virtualenv that may have a
+    different torch build (e.g. requirements-cuda.txt) from whatever is
+    importable here. 'unknown' means the probe itself failed -- torch missing
+    or not yet installed -- and is deliberately treated as "do not block".
+    """
+    import subprocess
+    probe = (
+        "import torch;"
+        "print('cuda' if torch.cuda.is_available() else "
+        "('mps' if getattr(torch.backends,'mps',None) and "
+        "torch.backends.mps.is_available() else 'cpu'))"
+    )
+    try:
+        out = subprocess.run([py, "-c", probe], capture_output=True,
+                             text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    if out.returncode != 0:
+        return "unknown"
+    device = out.stdout.strip().splitlines()[-1] if out.stdout.strip() else ""
+    return device if device in ("cuda", "mps", "cpu") else "unknown"
+
+
+class StageCounter:
+    """Numbered banners whose denominator matches the flags actually passed.
+
+    The stage list is fixed up front from the parsed arguments, so a run with
+    --skip_tests does not print "Stage 2/6" as its first line.
+    """
+
+    def __init__(self, total: int) -> None:
+        self.total = total
+        self.n = 0
+
+    def __call__(self, text: str) -> None:
+        self.n += 1
+        banner(f"Stage {self.n}/{self.total} - {text}")
+
+    @staticmethod
+    def skip(text: str) -> None:
+        """Announce a stage that will not run. Deliberately unnumbered: the
+        numbering counts stages that actually execute, so "Stage 3/4" always
+        means three of four real stages are done."""
+        banner(f"SKIPPED - {text}")
 
 
 def _make_runner(env: dict, dry_run: bool):
@@ -203,41 +291,86 @@ def main() -> None:
         py = sys.executable
     else:
         py = str(ensure_environment(env))
-    run = _make_runner(env, args.dry_run)
+    run_stage = _make_runner(env, args.dry_run)
     overwrite = ["--overwrite_cache"] if args.overwrite_cache else []
 
-    if not args.skip_tests:
-        banner("Stage 1/6 - unit tests")
-        run([py, "tests/test_datasets.py"], env)
-        run([py, "tests/test_mmr_modules.py"], env)
-        run([py, "tests/test_new_data_sources.py"], env)
+    # Stage 2b is the one stage that can silently turn a coffee break into a
+    # multi-day run, so decide whether it is viable BEFORE spending an hour on
+    # downloads and the frozen-embedding stages -- failing at the end of a
+    # long pipeline is the worst possible time to find out.
+    device = "unknown"
+    if args.full_finetune:
+        device = detect_accelerator(py)
+        if device == "cpu" and not args.allow_cpu_finetune:
+            msg = (
+                "Stage 2b (true ESM-2 backbone gradient fine-tuning) is on by "
+                "default, but no CUDA or MPS device is visible to "
+                f"{py}.\n"
+                f"  Fine-tuning {args.esm_model} on CPU is a multi-day job, "
+                "not a slow afternoon.\n"
+                "  Pick one:\n"
+                "    --no-full_finetune       stop at the frozen-embedding "
+                "stages (the CPU-friendly run)\n"
+                "    --allow_cpu_finetune     run it on CPU anyway (pair with "
+                "--esm_model facebook/esm2_t12_35M_UR50D\n"
+                "                             --n_unfrozen_layers 2 --eval "
+                "holdout --holdout_gene MLH1 for a smoke test)\n"
+                "    install a CUDA torch build (requirements-cuda.txt) and "
+                "re-run"
+            )
+            if args.dry_run:
+                banner("PREFLIGHT WARNING")
+                print(msg)
+                print("\n[dry-run] continuing anyway to show the full "
+                      "planned command sequence.")
+            else:
+                raise SystemExit("\n" + msg)
+
+    # Fixed up front so every banner's denominator matches this run's flags.
+    total_stages = (
+        (0 if args.skip_tests else 1)
+        + (0 if args.skip_build else 2)
+        + 2
+        + (1 if args.full_finetune else 0)
+    )
+    stage = StageCounter(total_stages)
+
+    if args.skip_tests:
+        stage.skip("unit tests (--skip_tests)")
+    else:
+        stage("unit tests")
+        run_stage([py, "tests/test_datasets.py"], env)
+        run_stage([py, "tests/test_merge.py"], env)
+        run_stage([py, "tests/test_mmr_modules.py"], env)
+        run_stage([py, "tests/test_new_data_sources.py"], env)
 
     panel_json = ROOT / "data" / "raw" / "uniprot" / "expanded_panel.json"
     extended_train_csv = ROOT / "data" / "processed" / "extended" / "extended_dataset_train.csv"
     mmr_csv = ROOT / "data" / "mmr" / "processed" / "extended" / "extended_dataset.csv"
 
     if args.skip_build:
-        banner("Stages 2-3/6 - SKIPPED (--skip_build): reusing on-disk data")
+        stage.skip("download + clean, both panels (--skip_build): reusing "
+                   "on-disk data")
         for path in (extended_train_csv, mmr_csv):
             if not path.exists():
                 raise SystemExit(f"--skip_build requires an existing {path}; "
                                  "run once without --skip_build first.")
     else:
-        banner("Stage 2/6 - download + clean: broad pretraining panel")
+        stage("download + clean: broad pretraining panel")
         if args.panel_genes:
             genes_args = ["--genes", args.panel_genes]
         else:
             if not panel_json.exists() or args.overwrite_cache:
-                run([py, "scripts/make_expanded_panel.py"], env)
+                run_stage([py, "scripts/make_expanded_panel.py"], env)
             genes_args = ["--panel_file", str(panel_json)]
         build_args = [py, "scripts/build_extended_dataset.py", *genes_args,
                      "--min_stars", str(args.min_stars)] + overwrite
         if args.all_sources:
             build_args.append("--all_sources")
-        run(build_args, env)
-        run([py, "scripts/audit_extended_dataset.py"], env)
+        run_stage(build_args, env)
+        run_stage([py, "scripts/audit_extended_dataset.py"], env)
 
-        banner("Stage 3/6 - download + clean: MMR-specific dataset (MLH1/MSH2/MSH6/PMS2)")
+        stage("download + clean: MMR-specific dataset (MLH1/MSH2/MSH6/PMS2)")
         mmr_args = [py, "scripts/build_mmr_dataset.py",
                    "--min_stars", str(args.min_stars)] + overwrite
         if args.pms2_homology_csv is not None:
@@ -249,10 +382,10 @@ def main() -> None:
             mmr_args.append("--exclude_pms2")
         if args.cimra_csv is not None:
             mmr_args += ["--cimra_csv", str(args.cimra_csv)]
-        run(mmr_args, env)
+        run_stage(mmr_args, env)
 
-    banner(f"Stage 4/6 - train, stage 1: pretrain on the broad panel "
-          f"({args.features} mode, {args.pretrain_mode})")
+    stage(f"train, stage 1: pretrain the head on the broad panel "
+          f"({args.features} mode, {args.pretrain_mode}) -- frozen embeddings")
     pretrain_args = [
         py, "scripts/pretrain_esm_80.py",
         "--features", args.features, "--mode", args.pretrain_mode,
@@ -260,10 +393,11 @@ def main() -> None:
     ] + overwrite
     if args.features == "esm+priors":
         pretrain_args += ["--esm_model", args.esm_model]
-    run(pretrain_args, env)
+    run_stage(pretrain_args, env)
     checkpoint_path = ROOT / "data" / "processed" / "transfer" / PRETRAIN_CHECKPOINT_NAME
 
-    banner(f"Stage 5/6 - train, stage 2: fine-tune on MMR data ({args.eval})")
+    stage(f"train, stage 2: warm-start fine-tune on MMR data ({args.eval}) "
+          f"-- still frozen embeddings")
     transfer_args = [
         py, "scripts/run_mmr_transfer.py",
         "--checkpoint", str(checkpoint_path),
@@ -274,11 +408,12 @@ def main() -> None:
         transfer_args += ["--esm_model", args.esm_model]
     if args.eval == "holdout":
         transfer_args += ["--holdout_gene", args.holdout_gene]
-    run(transfer_args, env)
+    run_stage(transfer_args, env)
 
     if args.full_finetune:
-        banner(f"Stage 6/6 - train, stage 2b: full ESM-2 backbone fine-tune "
-              f"({args.finetune_mode})")
+        stage(f"train, stage 2b: full ESM-2 backbone fine-tune "
+              f"({args.finetune_mode}, device={device}) -- the actual DL "
+              f"training stage")
         ft_args = [
             py, "scripts/finetune_esm_mmr.py",
             "--mode", args.finetune_mode, "--esm_model", args.esm_model,
@@ -289,10 +424,10 @@ def main() -> None:
             ft_args.append("--gradient_checkpointing")
         if args.eval == "holdout":
             ft_args += ["--holdout_gene", args.holdout_gene]
-        run(ft_args, env)
+        run_stage(ft_args, env)
     else:
-        banner("Stage 6/6 - SKIPPED (pass --full_finetune to also run true "
-              "ESM-2 backbone fine-tuning)")
+        stage.skip("train, stage 2b (--no-full_finetune): stopping at the "
+                   "frozen-embedding stages, no backbone gradient fine-tuning")
 
     banner("DONE")
     print("Broad panel  : data/processed/extended/extended_dataset_train.csv")
