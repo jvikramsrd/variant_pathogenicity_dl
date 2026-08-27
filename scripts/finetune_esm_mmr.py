@@ -251,12 +251,29 @@ def main() -> int:
     # state before building the next: the caching allocator would otherwise
     # carry that fragmentation across all four leave-one-gene-out models.
     rows = []
+    evaluated, skipped = [], []
+    available = set(master["gene"].unique())
     for g in splits:
-        if g not in set(master["gene"].unique()):
+        if g not in available:
+            # Most often PMS2: run_mmr_pipeline.py passes --exclude_pms2 to the
+            # dataset builder by default (PMS2CL pseudogene homology makes
+            # short-read clinical calls unreliable), so the gene never reaches
+            # this table. Say so -- a silently 3-row "leave-one-gene-out"
+            # result is indistinguishable from a crashed fourth split.
+            skipped.append(g)
             continue
         rows.append(run_one_split(args, master, sequence_by_gene, device, g))
+        evaluated.append(g)
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+    if skipped:
+        logger.warning("No rows in %s for %s -- excluded from this "
+                       "leave-one-gene-out run (%d/%d genes evaluated). For "
+                       "PMS2 this is run_mmr_pipeline.py's --exclude_pms2 "
+                       "default; pass --pms2_homology_csv or "
+                       "--pms2_codon_range to include it.",
+                       args.mmr_csv.name, ", ".join(skipped),
+                       len(evaluated), len(splits))
 
     results = pd.DataFrame(rows)
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -267,7 +284,8 @@ def main() -> int:
         "built_at_utc": datetime.now(timezone.utc).isoformat(),
         "mode": args.mode, "esm_model": args.esm_model,
         "n_unfrozen_layers": args.n_unfrozen_layers,
-        "splits_evaluated": splits, "results_csv": str(results_path),
+        "splits_requested": splits, "splits_evaluated": evaluated,
+        "splits_skipped_no_rows": skipped, "results_csv": str(results_path),
         "runtime_s": round(time.time() - t0, 1),
     }
     (args.out_dir / f"esm_finetune_summary_{tag}.json").write_text(json.dumps(summary, indent=2))

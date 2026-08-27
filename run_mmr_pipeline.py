@@ -236,6 +236,13 @@ def parse_args() -> argparse.Namespace:
              "validation ROC-AUC improvement. This, not --epochs, is what "
              "actually decides how long a split runs.")
     train2.add_argument(
+        "--clinical_weight", type=float, default=5.0,
+        help="Stage 2b per-sample loss weight for clinical-source rows. Note "
+             "that stage 2b already filters to clinvar/pg_clinical rows only, "
+             "so any value here applies uniformly -- it does not reweight one "
+             "class against another, it just scales the loss, which shifts "
+             "how often gradient clipping binds. Use 1.0 for an unscaled run.")
+    train2.add_argument(
         "--skip_vram_preflight", action="store_true",
         help="Run stage 2b even when the estimated peak VRAM exceeds the "
              "detected card. The estimate is approximate; pass this if you "
@@ -620,6 +627,7 @@ def main() -> None:
             "--max_residues", str(args.max_residues),
             "--epochs", str(args.epochs),
             "--patience", str(args.patience),
+            "--clinical_weight", str(args.clinical_weight),
         ]
         if args.gradient_checkpointing:
             ft_args.append("--gradient_checkpointing")
