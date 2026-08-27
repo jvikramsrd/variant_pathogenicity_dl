@@ -429,8 +429,11 @@ def main() -> None:
     # Stage 2b allocates and frees large, differently-shaped activation
     # buffers every step (padded batches vary in sequence length), which
     # fragments the default caching allocator badly enough to OOM with GiB
-    # still nominally free. Expandable segments is PyTorch's own remedy.
-    env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    # still nominally free. Expandable segments is PyTorch's own remedy --
+    # but it is a POSIX-only allocator backend, and setting it on Windows
+    # only earns a UserWarning on the first .to(device) of every run.
+    if sys.platform != "win32":
+        env.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     if args.dry_run:
         # Environment setup (possible venv creation + a multi-GB requirements
         # install) is a real side effect -- never trigger it just to preview
