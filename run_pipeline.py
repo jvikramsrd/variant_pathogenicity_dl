@@ -58,6 +58,27 @@ def current_venv_python() -> Path | None:
     return None
 
 
+def nvidia_gpu_available() -> bool:
+    """True only if ``nvidia-smi`` exists *and* can reach a driver.
+
+    The binary alone is not evidence of a usable GPU. Distributions ship it
+    with driver packages that end up installed on machines with no NVIDIA
+    hardware, where it exits non-zero with "NVIDIA-SMI has failed because it
+    couldn't communicate with the NVIDIA driver". Selecting the requirements
+    file on ``shutil.which`` alone therefore pulled the multi-GB CUDA wheel set
+    (cuDNN alone is ~707 MB) onto a CPU-only box, then left it with a torch
+    build whose ``cuda.is_available()`` is still False.
+    """
+
+    if shutil.which("nvidia-smi") is None:
+        return False
+    try:
+        probe = subprocess.run(["nvidia-smi"], capture_output=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return probe.returncode == 0
+
+
 def ensure_environment(env: dict[str, str]) -> Path:
     """Create/use a virtualenv and return the Python executable for stages.
 
@@ -79,7 +100,7 @@ def ensure_environment(env: dict[str, str]) -> Path:
 
     venv_dir = ROOT / ".venv"
     python = venv_python(venv_dir)
-    req = "requirements-cuda.txt" if shutil.which("nvidia-smi") else "requirements.txt"
+    req = "requirements-cuda.txt" if nvidia_gpu_available() else "requirements.txt"
     stamp = venv_dir / ".requirements-installed"
     ready = python.exists() and stamp.exists() and stamp.read_text().strip() == req
 

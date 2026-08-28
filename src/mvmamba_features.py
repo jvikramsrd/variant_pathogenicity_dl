@@ -39,7 +39,8 @@ import numpy as np
 import pandas as pd
 import torch
 
-from .esm_extractor import ESM2Extractor, MAX_RESIDUES, get_device, validate_and_align
+from .esm_extractor import (ESM2Extractor, MAX_RESIDUES, _assert_cache_matches,
+                             get_device, validate_and_align)
 
 logger = logging.getLogger(__name__)
 
@@ -292,9 +293,19 @@ def extract_mvmamba_cached(df: pd.DataFrame, sequence: str, gene: str,
     if feat_path.exists() and meta_path.exists() and not overwrite:
         blob = np.load(feat_path)
         meta = pd.read_csv(meta_path)
-        if len(meta) != len(df):
-            raise RuntimeError(f"Cached MVmamba metadata ({len(meta)} rows) != "
-                               f"variant table ({len(df)}); use overwrite=True.")
+        # Compare against the *aligned* table, not the raw one.
+        # :meth:`MVmambaFeatureExtractor.extract` runs ``validate_and_align``
+        # first, so the cached meta holds only the rows that survived it. A
+        # plain ``len(meta) != len(df)`` check against the raw table therefore
+        # rejected its own cache forever the moment a single variant failed
+        # alignment -- every later call raised "use overwrite=True" and
+        # re-ran the whole extraction. Re-aligning here reproduces exactly
+        # what was cached, and the shared key check catches the case a row
+        # count alone cannot: a table rebuilt or reordered underneath the
+        # cache. (:mod:`src.esm_extractor` does not align inside ``extract``,
+        # which is why only this cache needed the extra step.)
+        _assert_cache_matches(meta, validate_and_align(df.reset_index(drop=True),
+                                                       sequence), feat_path)
         return blob["features"].astype(np.float32), meta
 
     ext = MVmambaFeatureExtractor(model_name=model_name, device=device,

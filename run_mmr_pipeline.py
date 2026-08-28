@@ -139,8 +139,33 @@ def parse_args() -> argparse.Namespace:
     pms2.add_argument(
         "--pms2_codon_range", type=int, nargs=2, default=None,
         metavar=("START", "END"),
-        help="Explicit verified protein-coordinate span of the homology "
-             "region; overrides --exclude_pms2.")
+        help="Explicit protein-coordinate span of the homology region; "
+             "overrides --exclude_pms2. Use '--pms2_codon_range 382 862' for "
+             "exons 11-15 -- derived from the Ensembl exon table for MANE "
+             "Select ENST00000265849 by "
+             "scripts/derive_pms2_homology_range.py (which self-validates "
+             "against the 862 aa pinned for P54278). This is the preferred "
+             "way to include the fourth Lynch gene: it keeps PMS2 codons "
+             "1-381 instead of dropping the gene, at the cost of the 56%% of "
+             "residues that genuinely are unreliable on short-read calls.")
+    mmr.add_argument(
+        "--gene_constant_priors", choices=("auto", "drop", "keep"),
+        default="auto",
+        help="gnomAD gene-level constraint columns (pLI, oe_lof, oe_mis, "
+             "mis_z, syn_z). Constant within a gene, so under the "
+             "leave-one-gene-out evaluation they act as a gene identifier "
+             "rather than variant evidence -- keeping them collapsed MLH1 to "
+             "ROC-AUC 0.500 in every seed tried. 'auto' therefore passes "
+             "'drop' to BOTH training stages whenever --eval lopo, so the "
+             "warm-start schemas still match; 'keep' restores the old "
+             "behaviour.")
+    mmr.add_argument(
+        "--rank_normalize", choices=("off", "add", "replace"), default="off",
+        help="Give the head within-gene percentile ranks of the published "
+             "scores instead of (or alongside) their raw values. Measured on "
+             "this panel it did not beat --gene_constant_priors drop on its "
+             "own; 'add' helped MSH6 (0.971 -> 0.985 ROC-AUC) but "
+             "destabilised MLH1's threshold. Off by default.")
     mmr.add_argument(
         "--cimra_csv", type=Path, default=None,
         help="Optional CIMRA OddsPath CSV (src/cimra.py documents the "
@@ -587,12 +612,21 @@ def main() -> None:
             mmr_args += ["--cimra_csv", str(args.cimra_csv)]
         run_stage(mmr_args, env)
 
+    # Both stages must agree on the prior-column schema or the stage-2
+    # warm-start validation fails, so resolve 'auto' once here and pass the
+    # SAME literal setting to stage 1 and stage 2 rather than letting each
+    # script resolve it against its own defaults.
+    gene_const = args.gene_constant_priors
+    if gene_const == "auto":
+        gene_const = "drop" if args.eval == "lopo" else "keep"
+
     stage(f"train, stage 1: pretrain the head on the broad panel "
           f"({args.features} mode, {args.pretrain_mode}) -- frozen embeddings")
     pretrain_args = [
         py, "scripts/pretrain_esm_80.py",
         "--features", args.features, "--mode", args.pretrain_mode,
         "--checkpoint_name", PRETRAIN_CHECKPOINT_NAME,
+        "--gene_constant_priors", gene_const,
     ] + overwrite
     if args.features == "esm+priors":
         pretrain_args += ["--esm_model", args.esm_model]
@@ -606,6 +640,8 @@ def main() -> None:
         "--checkpoint", str(checkpoint_path),
         "--features", args.features, "--eval", args.eval,
         "--n_bootstrap", str(args.n_bootstrap),
+        "--gene_constant_priors", gene_const,
+        "--rank_normalize", args.rank_normalize,
     ] + overwrite
     if args.features == "esm+priors":
         transfer_args += ["--esm_model", args.esm_model]

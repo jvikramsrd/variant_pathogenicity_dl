@@ -47,6 +47,7 @@ from src.dataset import make_position_group_folds  # noqa: E402
 from src.esm_extractor import get_device  # noqa: E402
 from src.train import set_global_seed  # noqa: E402
 from src.transfer import (  # noqa: E402
+    GENE_CONSTANT_PRIOR_COLS,
     assemble_features,
     prior_impute_values,
     prior_matrix,
@@ -97,6 +98,17 @@ def parse_args(argv=None) -> argparse.Namespace:
     t.add_argument("--clinical_weight", type=float, default=5.0)
     t.add_argument("--dms_weight", type=float, default=1.0)
     t.add_argument("--seed", type=int, default=42)
+    p.add_argument(
+        "--gene_constant_priors", choices=("auto", "drop", "keep"),
+        default="auto",
+        help="Whether to keep the gnomAD gene-level constraint columns (pLI, "
+             "oe_lof, oe_mis, mis_z, syn_z). Across the broad 80-gene panel "
+             "these genuinely vary and carry signal, so 'auto' keeps them "
+             "here -- unlike scripts/run_mmr_transfer.py, where a cross-gene "
+             "split turns them into a gene identifier. **Set 'drop' whenever "
+             "the resulting checkpoint will warm-start a run that drops "
+             "them**: the two stages must agree on the prior-column schema "
+             "or the warm-start validation fails.")
     p.add_argument("--overwrite_cache", action="store_true")
     return p.parse_args(argv)
 
@@ -117,6 +129,13 @@ def main() -> int:
     device = get_device()
 
     df = pd.read_csv(args.train_csv, low_memory=False)
+    if args.gene_constant_priors == "drop":
+        drop = [c for c in GENE_CONSTANT_PRIOR_COLS if c in df.columns]
+        if drop:
+            df = df.drop(columns=drop)
+            logger.info("Dropped %d gene-constant constraint columns (%s) so "
+                        "this checkpoint's schema matches a fine-tuning stage "
+                        "that also drops them.", len(drop), drop)
     df["label"] = pd.to_numeric(df["label"], errors="coerce").astype("Int64")
     df = df[df["label"].notna()].reset_index(drop=True)
     if args.genes:

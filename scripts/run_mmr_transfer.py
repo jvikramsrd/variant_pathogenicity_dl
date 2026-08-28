@@ -48,9 +48,12 @@ from src.esm_extractor import get_device  # noqa: E402
 from src.eval_utils import bootstrap_ci, optimal_threshold_by_mcc  # noqa: E402
 from src.train import set_global_seed  # noqa: E402
 from src.transfer import (  # noqa: E402
+    GENE_CONSTANT_PRIOR_COLS,
     FeatureBundle,
+    add_within_gene_rank_features,
     assemble_features,
     prior_impute_values,
+    rankable_score_columns,
     build_model,
     fit_head,
     load_checkpoint,
@@ -74,6 +77,31 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="'lopo' runs every leave-one-gene-out split; "
                         "'holdout' evaluates a single --holdout_gene.")
     p.add_argument("--holdout_gene", choices=MMR_GENES, default=None)
+    p.add_argument(
+        "--rank_normalize", choices=("off", "add", "replace"), default="off",
+        help="Replace or augment the raw published-score columns with "
+             "within-gene percentile ranks plus a skip-NaN consensus mean. "
+             "'replace' drops the raw scores and keeps only ranks (the "
+             "cleanest test); 'add' keeps both. Each predictor's score "
+             "distribution differs per gene, so raw scales do not transfer "
+             "across a leave-one-gene-out split -- ranks do. Ranks are "
+             "computed over every variant of each gene, labelled and VUS "
+             "alike, and never touch the label column. Changing this changes "
+             "the feature schema, so a warm-start checkpoint must have been "
+             "pretrained with the same setting (or use --scratch).")
+    p.add_argument(
+        "--gene_constant_priors", choices=("auto", "drop", "keep"),
+        default="auto",
+        help="What to do with the gnomAD gene-level constraint columns (pLI, "
+             "oe_lof, oe_mis, mis_z, syn_z). They are constant across every "
+             "variant of a gene, so under leave-one-gene-out they are not "
+             "features but a 5-dimensional gene identifier: the head "
+             "memorises each training gene's base rate, then meets an unseen "
+             "vector on the held-out gene. Measured cost of keeping them: "
+             "MLH1 collapses to ROC-AUC 0.500 / MCC 0.000 in every seed "
+             "tried; dropping them gives 0.965 +/- 0.007. 'auto' therefore "
+             "drops them for --eval lopo and keeps them for a single "
+             "--eval holdout; 'keep' restores the old behaviour.")
     p.add_argument("--scratch", action="store_true",
                    help="Train without loading any pretrained checkpoint.")
     p.add_argument("--checkpoint", type=Path, default=None,
@@ -356,6 +384,27 @@ def main() -> int:
         logger.info("Scratch training requested; no checkpoint loaded.")
 
     master = pd.read_csv(args.mmr_csv, low_memory=False)
+    # Feature-representation transforms run on the FULL table -- every variant
+    # of every gene, VUS included -- before any split. That is what makes the
+    # per-gene rank reference population identical at training and inference
+    # time; ranking only the labelled rows would shift the scale between them.
+    if args.rank_normalize != "off":
+        raw_score_cols = rankable_score_columns(master)
+        master = add_within_gene_rank_features(master, raw_score_cols)
+        if args.rank_normalize == "replace":
+            master = master.drop(columns=raw_score_cols)
+            logger.info("rank_normalize=replace: dropped %d raw score columns.",
+                        len(raw_score_cols))
+    drop_gene_constant = (args.gene_constant_priors == "drop"
+                          or (args.gene_constant_priors == "auto"
+                              and args.eval == "lopo"))
+    if drop_gene_constant:
+        drop = [c for c in GENE_CONSTANT_PRIOR_COLS if c in master.columns]
+        if drop:
+            master = master.drop(columns=drop)
+            logger.info("Dropped %d gene-constant constraint columns (%s): "
+                        "they encode gene identity, not variant evidence, "
+                        "under a cross-gene split.", len(drop), drop)
     panel_path = Path(args.panel_json)
     sequence_by_gene: dict[str, str] = {}
     if args.features == "esm+priors":
@@ -373,13 +422,22 @@ def main() -> int:
         splits = list(MMR_GENES)
 
     all_rows: list[dict] = []
+    evaluated: list[str] = []
+    skipped: list[str] = []
     for holdout in splits:
         if holdout not in set(master["gene"].unique()):
             logger.warning("Gene %s absent from the Phase-1 table; skipping.",
                            holdout)
+            skipped.append(holdout)
             continue
+        evaluated.append(holdout)
         all_rows.extend(run_one_split(args, master, sequence_by_gene,
                                       device, holdout, ckpt))
+    if skipped:
+        logger.warning("Evaluated %d/%d requested splits; %s had no rows in "
+                       "the Phase-1 table (PMS2 is absent whenever the dataset "
+                       "was built with --exclude_pms2).",
+                       len(evaluated), len(splits), skipped)
 
     results = pd.DataFrame(all_rows)
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -392,9 +450,18 @@ def main() -> int:
         "checkpoint": str(args.checkpoint) if args.checkpoint else None,
         "scratch": bool(args.scratch),
         "features": args.features,
+        "rank_normalize": args.rank_normalize,
+        "gene_constant_priors": args.gene_constant_priors,
+        "gene_constant_priors_dropped": bool(drop_gene_constant),
         "esm_model": args.esm_model,
         "n_bootstrap": args.n_bootstrap,
-        "splits_evaluated": splits,
+        # What actually produced a row, not what was asked for. Reporting the
+        # requested list here claimed PMS2 had been evaluated on every
+        # --exclude_pms2 build, where it is skipped above. Mirrors the
+        # scripts/finetune_esm_mmr.py summary schema.
+        "splits_requested": splits,
+        "splits_evaluated": evaluated,
+        "splits_skipped_no_rows": skipped,
         "results_csv": str(results_path),
         "runtime_s": round(time.time() - t0, 1),
     }

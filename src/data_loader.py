@@ -162,30 +162,35 @@ def fetch_uniprot_sequence(accession: str, session: Optional[requests.Session] =
 def download_clinvar_summary(raw_dir: Path, overwrite: bool = False) -> Path:
     """Download the ClinVar tab-delimited summary table into *raw_dir*.
 
-    The archive is ~40 MB compressed and is only re-downloaded when missing or
-    when *overwrite* is requested.
+    Delegates to :func:`src.external_datasets.download_file` instead of
+    streaming the response here, so this transfer gets the same resume, retry
+    and atomic-promotion guarantees as every other remote artefact.
+
+    The previous inline implementation had neither. That mattered because the
+    table is ~442 MB (not the ~40 MB an earlier docstring claimed) and the NCBI
+    endpoint drops connections routinely, so a one-shot stream lost the whole
+    transfer every time. Worse, its ``dest.with_suffix(".part")`` *replaced*
+    the ``.gz`` rather than appending to it, writing ``variant_summary.txt.part``
+    while the resume logic elsewhere looks for ``variant_summary.txt.gz.part`` --
+    so even a surviving partial file could never be picked up.
+
+    ``external_datasets`` imports from this module at import time, so the
+    import is function-local to avoid a cycle.
     """
+
+    from .external_datasets import download_file
+
     raw_dir.mkdir(parents=True, exist_ok=True)
     dest = raw_dir / "variant_summary.txt.gz"
-    if dest.exists() and not overwrite:
-        logger.info("Using cached ClinVar summary: %s", dest)
-        return dest
+    if overwrite:
+        dest.unlink(missing_ok=True)
+        dest.with_suffix(dest.suffix + ".part").unlink(missing_ok=True)
 
-    logger.info("Downloading ClinVar variant summary (%s) ...", CLINVAR_SUMMARY_URL)
-    sess = make_session()
-    with sess.get(CLINVAR_SUMMARY_URL, stream=True, timeout=120) as resp:
-        resp.raise_for_status()
-        total = int(resp.headers.get("Content-Length", 0)) or None
-        progress = tqdm(total=total, unit="B", unit_scale=True, desc="ClinVar")
-        tmp = dest.with_suffix(".part")
-        with open(tmp, "wb") as fh:
-            for chunk in resp.iter_content(chunk_size=1 << 20):
-                fh.write(chunk)
-                progress.update(len(chunk))
-        progress.close()
-    tmp.rename(dest)
-    logger.info("Saved ClinVar summary to %s", dest)
-    return dest
+    logger.info("Fetching ClinVar variant summary (%s) ...", CLINVAR_SUMMARY_URL)
+    # ~442 MB from an endpoint that drops connections every few megabytes;
+    # each attempt resumes from the .part, so budget one per expected drop.
+    return download_file(CLINVAR_SUMMARY_URL, dest, min_bytes=1 << 20,
+                         max_attempts=60)
 
 
 # --------------------------------------------------------------------------- #

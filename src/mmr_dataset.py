@@ -67,6 +67,23 @@ MMR_UNIPROT: Dict[str, Tuple[str, int]] = {
     "PMS2": ("P54278", 862),
 }
 
+#: PMS2CL pseudogene-homology span (exons 11-15) in **protein coordinates**,
+#: derived from the Ensembl exon table for the MANE Select transcript
+#: ENST00000265849 (= RefSeq NM_000535.7) by
+#: ``scripts/derive_pms2_homology_range.py``: exon 11 opens at c.1145 (codon
+#: 382, which straddles the exon 10/11 boundary and is therefore included) and
+#: exon 15 closes the CDS at c.2589 (codon 863, the stop; the last residue is
+#: 862). The derivation self-validates -- the transcript's 2,589 bp CDS must
+#: imply the 862 aa pinned for P54278 above, or the script refuses to emit a
+#: range.
+#:
+#: This is NOT applied automatically. :func:`apply_pms2_homology_gate` stays
+#: fail-closed by design; pass it explicitly, e.g.
+#: ``--pms2_codon_range 382 862``. Note the cost: 481 of PMS2's 862 residues
+#: (56%) fall inside the region, leaving codons 1-381 usable without
+#: orthogonal confirmation.
+PMS2_PSEUDOGENE_CODON_RANGE: Tuple[int, int] = (382, 862)
+
 #: Star rating -> evidence-quality weight (matches extended_builder mapping).
 STAR_WEIGHT: Dict[int, float] = {1: 0.50, 2: 0.75, 3: 1.00, 4: 1.00}
 
@@ -386,6 +403,7 @@ def load_leave_one_gene_out_manifest(path: Path) -> List[Tuple[str, List[str]]]:
 
 __all__ = [
     "MMR_GENES", "MMR_UNIPROT", "STAR_WEIGHT",
+    "PMS2_PSEUDOGENE_CODON_RANGE",
     "resolve_mmr_panel", "panel_frame",
     "add_evidence_tiers", "apply_pms2_homology_gate", "variant_key",
     "FUNCTIONAL_ASSAY_VALIDATION_ONLY_COLS", "attach_cimra", "attach_mavedb",

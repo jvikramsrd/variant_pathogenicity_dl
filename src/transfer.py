@@ -64,6 +64,34 @@ TRANSFER_PRIOR_COLS: Tuple[str, ...] = (
     "is_functional_site",
 )
 ZS_PREFIX = "zs_"
+RANK_PREFIX = "rank_"
+CONSENSUS_COL = "consensus_rank"
+
+#: gnomAD **gene-level** constraint metrics. These are constant across every
+#: variant of a gene, so under leave-one-gene-out they are not features at all
+#: -- they are a 5-dimensional gene identifier. With three training genes a
+#: head can memorise "this constraint vector -> this gene's base rate" (MLH1 is
+#: 82% pathogenic, MSH2 40%) and exploit prevalence instead of variant-level
+#: evidence; on the held-out gene the vector takes a value never seen in
+#: training, so whatever was memorised maps arbitrarily. Drop them for
+#: cross-gene evaluation; they remain legitimate for within-gene work and for
+#: the broad panel, where they genuinely vary.
+GENE_CONSTANT_PRIOR_COLS: Tuple[str, ...] = (
+    "gnomad_pli", "gnomad_oe_lof", "gnomad_oe_mis", "gnomad_mis_z",
+    "gnomad_syn_z",
+)
+
+#: Sign applied before ranking so that every score reads "higher = more
+#: pathogenic". The four negated columns are likelihood-style scores where a
+#: higher value means *more fit*. Signs were fitted empirically on the broad
+#: panel's clinical labels with all four MMR genes removed (see
+#: ``scripts/benchmark_published_predictors.py::fit_orientations``); no
+#: column's calibration ROC-AUC sat closer to 0.5 than 0.21, so none of these
+#: is a coin flip. Sign only affects :data:`CONSENSUS_COL` -- for the
+#: individual ``rank_*`` features a monotone flip is irrelevant to the head.
+PRIOR_SCORE_SIGN: Dict[str, int] = {
+    "zs_eve": -1, "zs_gemme": -1, "zs_trancepteve_l": -1, "zs_esm1b": -1,
+}
 
 MMR_GENES: Tuple[str, ...] = ("MLH1", "MSH2", "MSH6", "PMS2")
 
@@ -71,10 +99,91 @@ MMR_GENES: Tuple[str, ...] = ("MLH1", "MSH2", "MSH6", "PMS2")
 # --------------------------------------------------------------------------- #
 # Feature construction
 # --------------------------------------------------------------------------- #
-def prior_columns_of(df: pd.DataFrame) -> List[str]:
-    """All leakage-safe prior columns present in *df*."""
+def rankable_score_columns(df: pd.DataFrame) -> List[str]:
+    """Continuous pathogenicity-score columns worth rank-normalising.
+
+    The published per-variant scores only: every ``zs_*`` column plus
+    AlphaMissense. Binary flags, gene-level constants and structural
+    annotations are excluded -- a percentile rank of a 0/1 flag is noise, and
+    ranking a gene-constant column collapses it to 0.5 everywhere.
+    """
     return [c for c in df.columns
-            if c in TRANSFER_PRIOR_COLS or c.startswith(ZS_PREFIX)]
+            if (c.startswith(ZS_PREFIX) or c == "am_pathogenicity")
+            and not c.startswith(RANK_PREFIX)]
+
+
+def add_within_gene_rank_features(
+    df: pd.DataFrame,
+    score_cols: Optional[Sequence[str]] = None,
+    add_consensus: bool = True,
+) -> pd.DataFrame:
+    """Add within-gene percentile ranks of each published score, + a consensus.
+
+    Why this exists
+    ---------------
+    Every published predictor has its own score scale, and — the part that
+    actually breaks leave-one-gene-out — *the same predictor has a different
+    score distribution in every gene*. A head fitted on two or three genes
+    therefore learns decision boundaries in units that do not exist in the
+    fourth. Measured on this panel, a plain skip-NaN mean of the ranked
+    scores, with no training whatsoever, out-scores the trained head on every
+    MMR gene; on MSH2 it also beats the best single published predictor
+    (0.916 vs 0.896 ROC-AUC). Converting each score to a within-gene
+    percentile puts every gene on one comparable scale and hands the head a
+    representation that transfers.
+
+    ``consensus_rank`` is the skip-NaN mean of the ranked scores. Skipping
+    rather than imputing matters: coverage runs 68-89% per predictor per gene,
+    and averaging only what was actually scored beats filling a median into
+    the gap.
+
+    Leakage contract
+    ----------------
+    Ranks are computed over **every variant of the gene in *df*** — labelled
+    and VUS alike — and never touch the label column. No label information
+    crosses the split. It is, deliberately, *transductive* in the score
+    distribution: scoring a held-out gene requires that gene's variant set to
+    rank against. That matches how the tool is actually used (a gene's VUS are
+    scored as a batch) and it is the same assumption gene-specific calibration
+    makes, but it must be stated in any write-up — pass the full per-gene
+    variant table, not just the labelled rows, or the ranks shift between
+    training and inference.
+    """
+    cols = list(score_cols) if score_cols is not None else rankable_score_columns(df)
+    cols = [c for c in cols if c in df.columns]
+    if not cols:
+        logger.warning("No rankable score columns found; returning unchanged.")
+        return df
+    out = df.copy()
+    ranked: Dict[str, pd.Series] = {}
+    for c in cols:
+        signed = PRIOR_SCORE_SIGN.get(c, 1) * pd.to_numeric(out[c], errors="coerce")
+        ranked[c] = signed.groupby(out["gene"]).rank(pct=True)
+        out[f"{RANK_PREFIX}{c}"] = ranked[c]
+    if add_consensus:
+        out[CONSENSUS_COL] = pd.DataFrame(ranked).mean(axis=1, skipna=True)
+    logger.info("Within-gene rank features: %d columns%s over genes %s.",
+                len(cols), " + consensus" if add_consensus else "",
+                sorted(out["gene"].unique()))
+    return out
+
+
+def prior_columns_of(df: pd.DataFrame,
+                     drop_gene_constant: bool = False) -> List[str]:
+    """All leakage-safe prior columns present in *df*.
+
+    *drop_gene_constant* removes :data:`GENE_CONSTANT_PRIOR_COLS` — set it for
+    any cross-gene (leave-one-gene-out) evaluation, where those columns encode
+    gene identity rather than variant evidence.
+    """
+    cols = [c for c in df.columns
+            if c in TRANSFER_PRIOR_COLS
+            or c.startswith(ZS_PREFIX)
+            or c.startswith(RANK_PREFIX)
+            or c == CONSENSUS_COL]
+    if drop_gene_constant:
+        cols = [c for c in cols if c not in GENE_CONSTANT_PRIOR_COLS]
+    return cols
 
 
 def prior_impute_values(df: pd.DataFrame,
@@ -498,6 +607,9 @@ def stage_sample_weights(meta: pd.DataFrame, clinical_weight: float,
 
 
 __all__ = [
+    "RANK_PREFIX", "CONSENSUS_COL", "GENE_CONSTANT_PRIOR_COLS",
+    "PRIOR_SCORE_SIGN", "rankable_score_columns",
+    "add_within_gene_rank_features",
     "MMR_GENES", "TRANSFER_PRIOR_COLS",
     "TransferConfig", "FeatureBundle",
     "prior_columns_of", "prior_matrix", "prior_impute_values",

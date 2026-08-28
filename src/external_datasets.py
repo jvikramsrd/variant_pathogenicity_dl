@@ -118,6 +118,7 @@ def download_file(
     expected_sha256: Optional[str] = None,
     min_bytes: int = 1024,
     timeout: int = 180,
+    max_attempts: int = 5,
 ) -> Path:
     """Download *url* into *dest* with resume + retry + optional checksum.
 
@@ -126,6 +127,12 @@ def download_file(
     bytes and
     passes *expected_sha256* (if provided); otherwise the transfer resumes via
     HTTP Range requests when the server supports them.
+
+    *max_attempts* bounds the resume loop. Five is fine for a small artefact,
+    but a multi-hundred-megabyte file on a link that drops every few megabytes
+    needs one attempt per drop -- each attempt continues from the ``.part``
+    rather than restarting, so a larger budget costs nothing when the link is
+    healthy.
     """
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists() and dest.stat().st_size >= min_bytes:
@@ -144,7 +151,7 @@ def download_file(
         mode = "ab"
 
     last_err: Optional[Exception] = None
-    for attempt in range(5):
+    for attempt in range(max_attempts):
         try:
             with sess.get(url, stream=True, timeout=timeout, headers=headers) as resp:
                 if resp.status_code == 416:  # range not satisfiable -> restart clean
@@ -189,7 +196,7 @@ def download_file(
             return dest
         except Exception as exc:  # noqa: BLE001 - retry any transport error
             last_err = exc
-            wait = 3.0 * (attempt + 1)
+            wait = min(3.0 * (attempt + 1), 30.0)
             logger.warning("Download attempt %d failed (%s); retrying in %.0fs",
                            attempt + 1, exc, wait)
             time.sleep(wait)
@@ -579,7 +586,10 @@ def download_alphamissense(raw_dir: Path, overwrite: bool = False) -> Path:
     dest = out_dir / "AlphaMissense_aa_substitutions.tsv.gz"
     if overwrite and dest.exists():
         dest.unlink()
-    return download_file(ALPHAMISSENSE_AA_URL, dest, min_bytes=100_000_000)
+    # ~1.2 GB; same reasoning as the ClinVar table -- budget one resume
+    # attempt per expected connection drop rather than the default five.
+    return download_file(ALPHAMISSENSE_AA_URL, dest, min_bytes=100_000_000,
+                         max_attempts=120)
 
 
 def stream_filter_alphamissense(gz_path: Path, out_path: Path,

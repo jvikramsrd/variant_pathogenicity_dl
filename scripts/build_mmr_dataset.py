@@ -23,7 +23,12 @@ Examples
     python scripts/build_mmr_dataset.py --exclude_pms2
     python scripts/build_mmr_dataset.py \
         --pms2_homology_csv data/raw/pms2/pms2_ex11_15_confirmed.csv
-    python scripts/build_mmr_dataset.py --pms2_codon_range 419 862
+    # Codon range for exons 11-15, derived (not guessed) from the Ensembl
+    # exon table for the MANE Select transcript -- run
+    # scripts/derive_pms2_homology_range.py to reproduce it, or read the
+    # derivation in src.mmr_dataset.PMS2_PSEUDOGENE_CODON_RANGE. This keeps
+    # PMS2's 381 pre-homology residues instead of dropping the gene.
+    python scripts/build_mmr_dataset.py --pms2_codon_range 382 862
 """
 from __future__ import annotations
 
@@ -99,7 +104,14 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--pms2_codon_range", type=int, nargs=2, default=None,
                    metavar=("START", "END"),
                    help="Explicit inclusive protein-coordinate span of the "
-                        "homology region (you verify this mapping yourself).")
+                        "homology region. Use 382 862 for exons 11-15 -- "
+                        "derived from the Ensembl exon table for MANE Select "
+                        "ENST00000265849 by "
+                        "scripts/derive_pms2_homology_range.py, which "
+                        "self-validates against the 862 aa pinned for P54278. "
+                        "Prefer this over --exclude_pms2: it keeps the 381 "
+                        "residues N-terminal to the region (21 labelled "
+                        "variants, 1,118 VUS) instead of dropping the gene.")
     p.add_argument("--exclude_pms2", action="store_true",
                    help="Build a three-gene set until a confirmation input "
                         "is available.")

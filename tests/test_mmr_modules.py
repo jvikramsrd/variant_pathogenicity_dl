@@ -19,6 +19,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 import torch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +39,8 @@ from src.gnomad import (  # noqa: E402
     validate_against_sequence,
 )
 from src.mmr_dataset import (  # noqa: E402
+    MMR_UNIPROT,
+    PMS2_PSEUDOGENE_CODON_RANGE,
     add_evidence_tiers,
     apply_pms2_homology_gate,
     make_balanced_subset,
@@ -47,6 +50,9 @@ from src.mmr_dataset import (  # noqa: E402
 )
 from src.mvmamba_features import centered_window_bounds  # noqa: E402
 from src.transfer import (  # noqa: E402
+    GENE_CONSTANT_PRIOR_COLS,
+    prior_columns_of,
+    add_within_gene_rank_features,
     FeatureBundle,
     align_rows,
     prior_impute_values,
@@ -203,6 +209,43 @@ def test_pms2_gate_confirmed_rows_keep_labels():
     kept = pms2[pms2["label"].notna()]
     assert len(kept) == 2                       # exactly the confirmed rows
     assert set(kept["label"]) == {0}
+
+
+def test_pms2_pseudogene_range_matches_pinned_reference():
+    """The published exon 11-15 span must stay inside the pinned protein.
+
+    ``PMS2_PSEUDOGENE_CODON_RANGE`` is derived from the Ensembl exon table by
+    ``scripts/derive_pms2_homology_range.py``, but it is checked in as a
+    literal so the offline gate does not need network access. This pins the
+    two invariants that make the literal safe to reuse: it ends exactly at
+    the canonical protein length recorded for P54278, and it leaves a
+    non-empty N-terminal region for variants that are usable without
+    orthogonal confirmation. A change to MMR_UNIPROT that silently
+    invalidated the range would otherwise go unnoticed until PMS2 rows were
+    already being trained on.
+    """
+    start, end = PMS2_PSEUDOGENE_CODON_RANGE
+    _acc, length = MMR_UNIPROT["PMS2"]
+    assert 1 < start < end, "range must be a non-degenerate interval"
+    assert end == length, (
+        f"exon 15 closes the CDS, so the range must end at PMS2's {length} aa")
+    assert start == 382, "exon 11 opens at c.1145 -> codon 382"
+
+
+def test_pms2_gate_with_derived_range_keeps_n_terminal_labels():
+    """Using the derived range must gate the region and nothing else."""
+    master = _mmr_master()
+    safe = pd.DataFrame([{
+        "gene": "PMS2", "position": 100, "wt_aa": "A", "mut_aa": "T",
+        "label": 1.0, "label_weight": 1.0}])
+    master = pd.concat([master, safe], ignore_index=True)
+    gated = apply_pms2_homology_gate(
+        master, codon_range=PMS2_PSEUDOGENE_CODON_RANGE)
+    pms2 = gated[gated["gene"] == "PMS2"]
+    kept = pms2[pms2["label"].notna()]
+    assert len(kept) == 1 and int(kept.iloc[0]["position"]) == 100
+    assert (pms2[pms2["position"] >= 382]["label"].isna()).all()
+    assert (gated[gated["gene"] == "MSH2"]["label"].notna()).all()
 
 
 def test_evidence_tiers():
@@ -364,6 +407,63 @@ def _stage_df():
         "label_weight": [1.0, 1.0, 1.0, 0.0, 0.0, 1.0],
         "label": [1.0, 0.0, 1.0, np.nan, 0.0, 1.0],
     })
+
+
+def test_gene_constant_priors_are_droppable():
+    """The gnomAD gene-level constraint columns must be removable by name.
+
+    They hold one value per gene, so under leave-one-gene-out they are a gene
+    identifier rather than variant evidence: a head can memorise each training
+    gene's base rate and then meets an unseen vector on the held-out gene.
+    Measured cost of leaving them in a scratch-trained run: MLH1 collapsed to
+    ROC-AUC 0.500 / MCC 0.000 in every seed tried, against 0.965 +/- 0.007
+    with them dropped.
+    """
+    df = pd.DataFrame({
+        "gene": ["MLH1", "MLH1", "MSH2", "MSH2"],
+        "am_pathogenicity": [0.9, 0.1, 0.8, 0.2],
+        "zs_revel": [0.9, 0.1, 0.7, 0.3],
+        "gnomad_pli": [1.0, 1.0, 0.99, 0.99],      # constant within gene
+        "gnomad_mis_z": [3.1, 3.1, 2.7, 2.7],
+        "dms_score_median": [0.5, 0.4, 0.3, 0.2],  # must never be a prior
+    })
+    kept = prior_columns_of(df)
+    assert "gnomad_pli" in kept and "gnomad_mis_z" in kept
+
+    dropped = prior_columns_of(df, drop_gene_constant=True)
+    assert not (set(GENE_CONSTANT_PRIOR_COLS) & set(dropped))
+    assert "am_pathogenicity" in dropped and "zs_revel" in dropped
+    # The non-circularity contract still holds either way.
+    assert "dms_score_median" not in kept
+    assert "dms_score_median" not in dropped
+
+    # Every listed column really is gene-constant in this fixture, which is
+    # the property that makes dropping them correct rather than arbitrary.
+    for col in ("gnomad_pli", "gnomad_mis_z"):
+        assert (df.groupby("gene")[col].nunique() == 1).all()
+
+
+def test_within_gene_rank_features_use_no_labels():
+    """Ranks must depend only on scores and gene, never on the label column."""
+    base = pd.DataFrame({
+        "gene": ["MLH1"] * 4 + ["MSH2"] * 4,
+        "am_pathogenicity": [0.1, 0.4, 0.6, 0.9, 0.2, 0.3, 0.7, 0.8],
+        "zs_gemme": [-1.0, -2.0, -3.0, -4.0, -1.5, -2.5, -3.5, -4.5],
+    })
+    a = add_within_gene_rank_features(base.assign(label=[0, 0, 1, 1] * 2))
+    b = add_within_gene_rank_features(base.assign(label=[1, 1, 0, 0] * 2))
+    for col in ("rank_am_pathogenicity", "rank_zs_gemme", "consensus_rank"):
+        pd.testing.assert_series_equal(a[col], b[col], check_names=False)
+
+    # Ranks are per gene, so each gene spans the full 0-1 range independently.
+    for gene in ("MLH1", "MSH2"):
+        sub = a[a["gene"] == gene]["rank_am_pathogenicity"]
+        assert sub.min() == pytest.approx(0.25) and sub.max() == pytest.approx(1.0)
+
+    # GEMME is sign-flipped (higher raw = more fit), so its most negative raw
+    # value must rank as the MOST pathogenic within its gene.
+    mlh1 = a[a["gene"] == "MLH1"]
+    assert mlh1.loc[mlh1["zs_gemme"].idxmin(), "rank_zs_gemme"] == pytest.approx(1.0)
 
 
 def test_prior_matrix_excludes_dms_and_adds_missingness():
