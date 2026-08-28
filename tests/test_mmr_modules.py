@@ -19,7 +19,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 import torch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -456,14 +455,16 @@ def test_within_gene_rank_features_use_no_labels():
         pd.testing.assert_series_equal(a[col], b[col], check_names=False)
 
     # Ranks are per gene, so each gene spans the full 0-1 range independently.
+    # np.isclose keeps this file runnable as a plain script: the suite is
+    # invoked directly by run_mmr_pipeline.py and pytest is not a dependency.
     for gene in ("MLH1", "MSH2"):
         sub = a[a["gene"] == gene]["rank_am_pathogenicity"]
-        assert sub.min() == pytest.approx(0.25) and sub.max() == pytest.approx(1.0)
+        assert np.isclose(sub.min(), 0.25) and np.isclose(sub.max(), 1.0)
 
     # GEMME is sign-flipped (higher raw = more fit), so its most negative raw
     # value must rank as the MOST pathogenic within its gene.
     mlh1 = a[a["gene"] == "MLH1"]
-    assert mlh1.loc[mlh1["zs_gemme"].idxmin(), "rank_zs_gemme"] == pytest.approx(1.0)
+    assert np.isclose(mlh1.loc[mlh1["zs_gemme"].idxmin(), "rank_zs_gemme"], 1.0)
 
 
 def test_prior_matrix_excludes_dms_and_adds_missingness():

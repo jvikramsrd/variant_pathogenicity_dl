@@ -119,9 +119,12 @@ def main(argv=None) -> int:
         if not r["coding_bp"]:
             print(f"{r['exon']:>5} {0:>10}   (untranslated)")
             continue
-        print(f"{r['exon']:>5} {r['coding_bp']:>10} "
-              f"{f'c.{r['c_start']}-{r['c_end']}':>16} "
-              f"{f'{r['codon_start']}-{r['codon_end']}':>14}")
+        # Built with .format rather than nested same-quote f-strings, which
+        # only parse on Python 3.12+; this repo also runs on 3.11 venvs.
+        cdna = "c.{}-{}".format(r["c_start"], r["c_end"])
+        codons = "{}-{}".format(r["codon_start"], r["codon_end"])
+        print("{:>5} {:>10} {:>16} {:>14}".format(
+            r["exon"], r["coding_bp"], cdna, codons))
 
     first, last = HOMOLOGY_EXONS
     by_exon = {r["exon"]: r for r in coding}
