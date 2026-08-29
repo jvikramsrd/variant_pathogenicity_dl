@@ -408,6 +408,91 @@ def _stage_df():
     })
 
 
+def test_masked_marginal_pathogenicity_score_is_oriented():
+    """`pathogenicity_score` must run higher-is-worse; `score` must not.
+
+    The raw PLLR is negative for damaging substitutions, so feeding it
+    straight into a metric against a pathogenic=1 label yields ``1 - AUC``.
+    That is how the backbone comparison came to report ROC-AUC 0.03-0.18 for
+    two strong 650M models -- numbers that read as "the protein language model
+    is useless here" when the real figures were 0.82-0.97.
+    """
+    from src.mvmamba_features import MaskedMarginalScorer
+
+    scorer = MaskedMarginalScorer.__new__(MaskedMarginalScorer)
+    raw = np.array([-8.0, -1.0, 0.5])          # first is the most damaging
+    scorer.score = lambda df, sequence: raw    # type: ignore[method-assign]
+
+    oriented = MaskedMarginalScorer.pathogenicity_score(scorer, None, "")
+    assert np.allclose(oriented, -raw)
+    # The most damaging variant must rank highest once oriented, and lowest
+    # before orientation -- that flip is the whole point.
+    assert int(np.argmax(oriented)) == 0
+    assert int(np.argmax(raw)) == 2
+
+
+def test_mvmamba_local_features_differ_between_wt_and_vt():
+    """The windowed local WT/VT contrast must not be identically zero.
+
+    For chains longer than the model's positional capacity the local features
+    come from a mutation-centred window. Slicing that window out of the
+    wild-type chain for both sides makes ``l_vt`` equal ``l_wt``, which zeroes
+    the ``l_vt - l_wt`` and ``|l_vt - l_wt|`` blocks -- a quarter of the
+    MVmamba feature vector, and the part the recipe is actually built around.
+    Only MSH6 (1360 aa) crosses the limit on this panel, so the failure showed
+    up as one gene having a different feature space from the other three.
+
+    Uses a stub backend so no checkpoint download is needed: hidden states are
+    a deterministic function of the residues, which is all this contract needs.
+    """
+    from src.mvmamba_features import MVmambaFeatureExtractor
+
+    seq_len, dim = 1100, 8               # > MAX_RESIDUES, so windowing applies
+    rng = np.random.default_rng(0)
+    sequence = "".join(rng.choice(list("ACDEFGHIKLMNPQRSTVWY"), seq_len))
+
+    def encode(s: str) -> np.ndarray:
+        # One distinct row per residue identity, so a substitution genuinely
+        # changes the local window and nothing else does.
+        return np.stack([np.full(dim, float(ord(c)), dtype=np.float32) for c in s])
+
+    class StubBackend:
+        hidden_dim = dim
+        _aa_to_id = {a: i for i, a in enumerate("ACDEFGHIKLMNPQRSTVWY")}
+
+        def embed_sequences(self, seqs):
+            longest = max(len(x) for x in seqs)
+            h = np.zeros((len(seqs), longest, dim), dtype=np.float32)
+            for i, x in enumerate(seqs):
+                h[i, :len(x)] = encode(x)
+            lp = np.zeros((len(seqs), longest, len(self._aa_to_id)), dtype=np.float32)
+            return h, lp
+
+        def _embed_spans(self, jobs):
+            return [encode(sub) for _, sub in jobs], [None] * len(jobs)
+
+    ext = MVmambaFeatureExtractor.__new__(MVmambaFeatureExtractor)
+    ext.backend = StubBackend()
+    ext.local_window = 3
+    ext.include_deltas = True
+    ext.vt_chunk_size = 4
+
+    positions = [5, 400, 900, 1098]
+    df = pd.DataFrame({
+        "gene": ["X"] * len(positions), "position": positions,
+        "wt_aa": [sequence[p - 1] for p in positions],
+        "mut_aa": ["W" if sequence[p - 1] != "W" else "Y" for p in positions],
+    })
+    feats, _ = ext.extract(df, sequence)
+
+    d = feats.shape[1] // 8
+    l_wt, l_vt = feats[:, 2 * d:3 * d], feats[:, 3 * d:4 * d]
+    delta, abs_delta = feats[:, 5 * d:6 * d], feats[:, 7 * d:8 * d]
+    assert not np.allclose(l_wt, l_vt), "VT local window collapsed onto the WT one"
+    assert np.abs(delta).max() > 0, "l_vt - l_wt is identically zero"
+    assert np.abs(abs_delta).max() > 0, "|l_vt - l_wt| is identically zero"
+
+
 def test_gene_constant_priors_are_droppable():
     """The gnomAD gene-level constraint columns must be removable by name.
 

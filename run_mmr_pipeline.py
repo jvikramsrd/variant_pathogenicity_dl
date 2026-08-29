@@ -160,6 +160,17 @@ def parse_args() -> argparse.Namespace:
              "warm-start schemas still match; 'keep' restores the old "
              "behaviour.")
     mmr.add_argument(
+        "--use_pllr", action=argparse.BooleanOptionalAction, default=True,
+        help="Stage 2b only. Feed the zero-shot PLLR term "
+             "log P(mut|X) - log P(wt|X) -- read off the same wild-type "
+             "forward pass, so it costs nothing extra -- into the "
+             "classification head. That score alone reaches ROC-AUC 0.834 "
+             "pooled across these genes with no training, so including it "
+             "lets the backbone learn a residual rather than rediscover it "
+             "from a few hundred labels. Run the pipeline once with each "
+             "setting: that pair is the experiment establishing whether the "
+             "fine-tune earns its cost.")
+    mmr.add_argument(
         "--rank_normalize", choices=("off", "add", "replace"), default="off",
         help="Give the head within-gene percentile ranks of the published "
              "scores instead of (or alongside) their raw values. Measured on "
@@ -665,6 +676,7 @@ def main() -> None:
             "--patience", str(args.patience),
             "--clinical_weight", str(args.clinical_weight),
         ]
+        ft_args.append("--use_pllr" if args.use_pllr else "--no-use_pllr")
         if args.gradient_checkpointing:
             ft_args.append("--gradient_checkpointing")
         if not args.amp:

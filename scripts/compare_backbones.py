@@ -90,7 +90,9 @@ def main() -> int:
             seq = sequence_by_gene.get(gene)
             if sub.empty or not seq:
                 continue
-            scores = scorer.score(sub, seq)
+            # Higher must mean more pathogenic to match the label convention;
+            # the raw PLLR runs the other way (see pathogenicity_score()).
+            scores = scorer.pathogenicity_score(sub, seq)
             y = sub["label"].astype(int).to_numpy()
             if len(set(y)) < 2:
                 logger.warning("%s/%s: single-class labels, skipping.", name, gene)

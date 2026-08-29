@@ -47,6 +47,12 @@ logger = logging.getLogger(__name__)
 #: Default half-width for the local window (MVmamba Table I optimum: +-3).
 DEFAULT_LOCAL_WINDOW = 3
 
+#: Variant-type sequences embedded per batch before being reduced to pooled
+#: vectors. Bounds peak memory at ``chunk x L x hidden_dim`` floats rather than
+#: the whole variant set at once -- see the note in
+#: :meth:`MVmambaFeatureExtractor.extract`.
+DEFAULT_VT_CHUNK = 64
+
 
 def centered_window_bounds(seq_len: int, pos0: int,
                            max_residues: int = MAX_RESIDUES) -> Tuple[int, int]:
@@ -75,11 +81,13 @@ class MVmambaFeatureExtractor:
     def __init__(self, model_name: str = "facebook/esm2_t33_650M_UR50D",
                  device: Optional[torch.device] = None, batch_size: int = 8,
                  local_window: int = DEFAULT_LOCAL_WINDOW,
-                 include_deltas: bool = True) -> None:
+                 include_deltas: bool = True,
+                 vt_chunk_size: int = DEFAULT_VT_CHUNK) -> None:
         self.backend = ESM2Extractor(model_name=model_name, device=device,
                                      batch_size=batch_size)
         self.local_window = int(local_window)
         self.include_deltas = bool(include_deltas)
+        self.vt_chunk_size = int(vt_chunk_size)
 
     # ------------------------------------------------------------------ #
     def _pool(self, hidden: np.ndarray, mask: Optional[np.ndarray] = None) -> np.ndarray:
@@ -128,49 +136,91 @@ class MVmambaFeatureExtractor:
         g_vt_by_key: Dict[Tuple[int, str], np.ndarray] = {}
         l_vt_by_key: Dict[Tuple[int, str], np.ndarray] = {}
         l_wt_by_pos: Dict[int, np.ndarray] = {}
+        l_wt_by_span: Dict[Tuple[int, int], np.ndarray] = {}
 
         mut_seqs = [
             sequence[:p - 1] + m + sequence[p:]
             for p, m in zip(uniq["position"], uniq["mut_aa"])
         ]
-        # Full-length VT pass (overlap-averaged for chains beyond capacity).
-        h_mut_full, _ = self.backend.embed_sequences(mut_seqs)
+        long_rows = {k for k, s in enumerate(mut_seqs) if len(s) > MAX_RESIDUES}
 
-        long_rows = [k for k, s in enumerate(mut_seqs) if len(s) > MAX_RESIDUES]
-        centered_hidden: Dict[int, np.ndarray] = {}
-        centered_spans: Dict[int, Tuple[int, int]] = {}
+        # --- Full-length VT passes, CHUNKED -------------------------------- #
+        # Both outputs wanted from the variant-type pass are reductions (a
+        # full-sequence mean and a +/-w window mean), so the [N, L, d] hidden
+        # tensor never needs to exist all at once. Building it did: scoring
+        # MSH6's 3,886 VUS at 1360 aa x 1280 dims is a single 25 GiB float32
+        # allocation, which is an immediate OOM on any ordinary machine -- and
+        # VUS scoring is the task this pipeline exists to perform. Reducing
+        # each chunk on arrival caps the peak at chunk_size x L x d instead
+        # (~0.4 GiB at the default 64), and leaves the arithmetic unchanged.
+        chunk = max(1, int(self.vt_chunk_size))
+        n_uniq = len(mut_seqs)
+        if n_uniq > chunk:
+            logger.info("MVmamba: %d VT sequences in chunks of %d "
+                        "(peak ~%.2f GiB per chunk).", n_uniq, chunk,
+                        chunk * seq_len * self.backend.hidden_dim * 4 / 2**30)
+        for start in range(0, n_uniq, chunk):
+            stop = min(start + chunk, n_uniq)
+            h_chunk, _ = self.backend.embed_sequences(mut_seqs[start:stop])
+            for offset, k in enumerate(range(start, stop)):
+                p, m = uniq["position"].iloc[k], uniq["mut_aa"].iloc[k]
+                key = (int(p), str(m))
+                p0 = int(p) - 1
+                h_mut = h_chunk[offset][:len(mut_seqs[k])]
+                g_vt_by_key[key] = self._pool(h_mut)
+                if k not in long_rows:
+                    l_vt_by_key[key] = self._local_pool(h_mut, p0, (0, seq_len))
+            del h_chunk
+
+        # --- Mutation-centred windows for over-length chains --------------- #
+        # Local features for chains past the positional capacity come from a
+        # window centred on the mutation (VariPred recipe) rather than from the
+        # overlap-averaged full-length pass.
+        #
+        # The variant-type window is sliced from ``mut_seqs[k]``, NOT from
+        # ``sequence``. Slicing the wild-type chain here -- as this branch
+        # previously did -- made the "variant-type" local vector literally the
+        # wild-type one, so ``l_vt - l_wt`` and ``|l_vt - l_wt|`` were
+        # identically zero for every chain over the capacity: two of the eight
+        # feature blocks dead, and precisely the windowed WT/VT contrast the
+        # MVmamba recipe is built around (their Table I window sweep tunes
+        # exactly this term). On the MMR panel only MSH6 (1360 aa) exceeds the
+        # limit, so the defect silently gave one gene a different feature
+        # space from the other three -- inside a leave-one-gene-out design.
         if long_rows:
             logger.info("MVmamba: %d VT chains exceed %d aa -> extra "
                         "mutation-centred window passes (VariPred recipe).",
                         len(long_rows), MAX_RESIDUES)
-            jobs: List[Tuple[int, str]] = []
-            spans: List[Tuple[int, int]] = []
-            for k in long_rows:
-                p0 = int(uniq.iloc[k]["position"]) - 1
-                s, e = centered_window_bounds(len(sequence), p0)
-                spans.append((s, e))
-                jobs.append((k, sequence[s:e]))
-            span_hidden, _ = self.backend._embed_spans(jobs)
-            for (k, _sub), (s, e), h in zip(jobs, spans, span_hidden):
-                centered_hidden[k] = h
-                centered_spans[k] = (s, e)
+            order = sorted(long_rows)
+            spans = {k: centered_window_bounds(
+                len(sequence), int(uniq["position"].iloc[k]) - 1)
+                for k in order}
+            # The wild-type window depends only on the position, so distinct
+            # substitutions at one residue share it. Collect the distinct
+            # windows and batch them, instead of one forward pass per variant
+            # inside the loop.
+            wt_spans = sorted({spans[k] for k in order})
+            for wstart in range(0, len(wt_spans), chunk):
+                batch = wt_spans[wstart:wstart + chunk]
+                h_wc, _ = self.backend.embed_sequences(
+                    [sequence[s:e] for s, e in batch])
+                for i, (s, e) in enumerate(batch):
+                    l_wt_by_span[(s, e)] = h_wc[i][:e - s]
+                del h_wc
 
-        for k, (p, m) in enumerate(zip(uniq["position"], uniq["mut_aa"])):
-            key = (int(p), str(m))
-            p0 = int(p) - 1
-            h_mut = h_mut_full[k][:len(mut_seqs[k])]
-            g_vt_by_key[key] = self._pool(h_mut)
-            if k in centered_hidden:
-                h_c = centered_hidden[k]
-                s, e = centered_spans[k]
-                l_vt_by_key[key] = self._local_pool(h_c, p0, (s, e))
-                if p0 not in l_wt_by_pos:
-                    h_wc_full = self.backend.embed_sequences(
-                        [sequence[s:e]])[0][0]
-                    h_wc = h_wc_full[:e - s]
-                    l_wt_by_pos[p0] = self._local_pool(h_wc, p0, (s, e))
-            else:
-                l_vt_by_key[key] = self._local_pool(h_mut, p0, (0, seq_len))
+            for kstart in range(0, len(order), chunk):
+                ks = order[kstart:kstart + chunk]
+                jobs = [(k, mut_seqs[k][spans[k][0]:spans[k][1]]) for k in ks]
+                span_hidden, _ = self.backend._embed_spans(jobs)
+                for (k, _sub), h in zip(jobs, span_hidden):
+                    p, m = uniq["position"].iloc[k], uniq["mut_aa"].iloc[k]
+                    p0 = int(p) - 1
+                    s, e = spans[k]
+                    l_vt_by_key[(int(p), str(m))] = self._local_pool(h, p0, (s, e))
+                    if p0 not in l_wt_by_pos:
+                        l_wt_by_pos[p0] = self._local_pool(
+                            l_wt_by_span[(s, e)], p0, (s, e))
+                del span_hidden
 
         # ---- Assemble per-variant rows ------------------------------------- #
         rows_g_vt, rows_l_vt, rows_l_wt = [], [], []
@@ -244,6 +294,21 @@ class MaskedMarginalScorer:
         mut_ids = df["mut_aa"].map(self._aa_to_id).to_numpy()
         return (site[np.arange(len(df)), mut_ids]
                 - site[np.arange(len(df)), wt_ids]).astype(np.float64)
+
+    def pathogenicity_score(self, df: pd.DataFrame, sequence: str) -> np.ndarray:
+        """:meth:`score` negated, so that **higher = more pathogenic**.
+
+        :meth:`score` returns the raw PLLR, ``log P(mut) - log P(wt)``, which
+        is *negative* when the substitution is unlikely under the language
+        model -- i.e. the more damaging a variant, the lower its PLLR. That
+        orientation is fine when the value is consumed as a learned feature
+        (the head fits its own sign), but it is backwards for anything that
+        compares the score directly against a pathogenic=1 label: ROC-AUC
+        silently comes out as ``1 - AUC``, so a genuinely strong backbone
+        reports as far worse than random. Use this method for any direct
+        evaluation, ranking, or threshold; use :meth:`score` for features.
+        """
+        return -self.score(df, sequence)
 
     def model_logprobs(self, sequence: str) -> np.ndarray:
         """Sliding-window per-residue log-probs ``[L, V]`` for one sequence."""

@@ -106,12 +106,13 @@ class ESMFineTuneClassifier(nn.Module):
     def __init__(self, model_name: str = "facebook/esm2_t12_35M_UR50D",
                  mode: str = "wt_site", n_unfrozen_layers: int = -1,
                  hidden_dim: int = 256, dropout: float = 0.15,
-                 gradient_checkpointing: bool = False) -> None:
+                 gradient_checkpointing: bool = False,
+                 use_pllr: bool = True) -> None:
         super().__init__()
         if mode not in FINETUNE_MODES:
             raise ValueError(f"mode must be one of {FINETUNE_MODES}; got {mode!r}")
         try:
-            from transformers import AutoModel, AutoTokenizer
+            from transformers import AutoModelForMaskedLM, AutoTokenizer
         except ImportError as exc:  # pragma: no cover - environment guard
             raise ImportError(
                 "transformers is required for ESM-2 fine-tuning. "
@@ -119,25 +120,47 @@ class ESMFineTuneClassifier(nn.Module):
 
         self.model_name = model_name
         self.mode = mode
+        self.use_pllr = bool(use_pllr)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.backbone = AutoModel.from_pretrained(model_name, add_pooling_layer=False)
+        # AutoModelForMaskedLM, not AutoModel: the masked-LM head is what makes
+        # the PLLR term below computable. Loading the encoder alone was the
+        # reason this module could not see the one ESM-derived signal that
+        # already works -- see the class docstring.
+        lm = AutoModelForMaskedLM.from_pretrained(model_name)
+        self.backbone = lm.esm
+        self.lm_head = lm.lm_head
         self.hidden_size = int(self.backbone.config.hidden_size)
 
         for p in self.backbone.parameters():
             p.requires_grad = False
+        for p in self.lm_head.parameters():
+            p.requires_grad = False
         if n_unfrozen_layers == -1:
             for p in self.backbone.parameters():
+                p.requires_grad = True
+            for p in self.lm_head.parameters():
                 p.requires_grad = True
         elif n_unfrozen_layers > 0:
             layers = self.backbone.encoder.layer
             for layer in layers[-n_unfrozen_layers:]:
                 for p in layer.parameters():
                     p.requires_grad = True
+            # The LM head reads the last layer, so it moves with it.
+            for p in self.lm_head.parameters():
+                p.requires_grad = True
         self.n_unfrozen_layers = n_unfrozen_layers
         if gradient_checkpointing:
             self.backbone.gradient_checkpointing_enable()
 
-        in_dim = self.hidden_size * (4 if mode == "siamese" else 1)
+        emb_dim = self.hidden_size * (4 if mode == "siamese" else 1)
+        # LayerNorm BEFORE the first Linear. Raw ESM hidden states have large,
+        # position-dependent norms, and in siamese mode half the concatenated
+        # vector (site_wt, site_mut) is near-duplicate while the informative
+        # part (their difference at a single substituted residue) is small --
+        # so an unnormalised input made the head spend its capacity on scale
+        # rather than on the signal.
+        self.feat_norm = nn.LayerNorm(emb_dim)
+        in_dim = emb_dim + (1 if self.use_pllr else 0)
         self.head = nn.Sequential(
             nn.Linear(in_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
@@ -145,6 +168,13 @@ class ESMFineTuneClassifier(nn.Module):
             nn.Dropout(dropout),
         )
         self.out = nn.Linear(hidden_dim, 1)
+        #: PLLR is a log-ratio, typically within about [-20, +5]. Dividing by a
+        #: fixed constant puts it on roughly the same scale as the LayerNorm'd
+        #: embedding block so neither term dominates the first Linear at
+        #: initialisation. A constant (not a learned or batch statistic) keeps
+        #: the feature identical between training and single-variant
+        #: inference, and keeps it comparable across genes and batch sizes.
+        self.register_buffer("pllr_scale", torch.tensor(10.0))
 
     def trainable_backbone_params(self) -> List[torch.nn.Parameter]:
         return [p for p in self.backbone.parameters() if p.requires_grad]
@@ -158,7 +188,9 @@ class ESMFineTuneClassifier(nn.Module):
     def forward(self, wt_ids: torch.Tensor, wt_mask: torch.Tensor, wt_pos: torch.Tensor,
                 mut_ids: Optional[torch.Tensor] = None,
                 mut_mask: Optional[torch.Tensor] = None,
-                mut_pos: Optional[torch.Tensor] = None) -> torch.Tensor:
+                mut_pos: Optional[torch.Tensor] = None,
+                wt_tok_id: Optional[torch.Tensor] = None,
+                mut_tok_id: Optional[torch.Tensor] = None) -> torch.Tensor:
         h_wt = self._encode(wt_ids, wt_mask)
         batch_idx = torch.arange(h_wt.shape[0], device=h_wt.device)
         # +1: token index 0 is <cls>; wt_pos is 0-based within the raw window.
@@ -172,6 +204,36 @@ class ESMFineTuneClassifier(nn.Module):
             feat = torch.cat([site_wt, site_mut, diff, diff.abs()], dim=-1)
         else:
             feat = site_wt
+        feat = self.feat_norm(feat)
+
+        if self.use_pllr:
+            if wt_tok_id is None or mut_tok_id is None:
+                raise ValueError(
+                    "use_pllr=True requires wt_tok_id/mut_tok_id. Pass "
+                    "tokenizer=model.tokenizer to build_examples().")
+            if bool((wt_tok_id == mut_tok_id).any()):
+                # Synonymous substitutions are dropped upstream, so wt and mut
+                # ids can never legitimately coincide. Equal ids mean
+                # build_examples() ran without a tokenizer and left them at the
+                # default 0, which would make PLLR a constant zero read off a
+                # special token -- silently disabling the very term this path
+                # exists to supply.
+                raise ValueError(
+                    "wt_tok_id == mut_tok_id for at least one example; "
+                    "build_examples() was called without tokenizer=..., so "
+                    "residue ids were never resolved.")
+            # delta = log P(mut | X) - log P(wt | X), read off the SAME wild-type
+            # forward pass that produced site_wt (Meier et al. 2021: both
+            # pseudo-likelihoods share one context, so no extra pass is needed).
+            # This is the zero-shot ESM score -- on its own it reaches ROC-AUC
+            # 0.834 pooled across these genes. Feeding it in makes the head
+            # learn a *residual* on top of a working predictor instead of
+            # rediscovering it from 662 labels.
+            site_logits = self.lm_head(h_wt[batch_idx, wt_pos + 1].unsqueeze(1))
+            log_probs = torch.log_softmax(site_logits.float().squeeze(1), dim=-1)
+            pllr = (log_probs.gather(1, mut_tok_id.view(-1, 1))
+                    - log_probs.gather(1, wt_tok_id.view(-1, 1)))
+            feat = torch.cat([feat, pllr / self.pllr_scale], dim=-1)
         return self.out(self.head(feat)).squeeze(-1)
 
 
@@ -186,11 +248,15 @@ class FineTuneExample:
     mut_pos0: Optional[int]
     label: float
     weight: float
+    #: Vocabulary ids of the wild-type and substituted residues, needed for the
+    #: PLLR term. Resolved once at example-build time rather than per batch.
+    wt_tok_id: int = 0
+    mut_tok_id: int = 0
 
 
 def build_examples(
     df: pd.DataFrame, sequence_by_gene: Dict[str, str], mode: str,
-    max_residues: int = 1022,
+    max_residues: int = 1022, tokenizer=None,
 ) -> List[FineTuneExample]:
     """Crop each variant to a mutation-centred window and prepare WT/VT text.
 
@@ -203,6 +269,12 @@ def build_examples(
     examples: List[FineTuneExample] = []
     n_dropped = 0
     has_weight = "label_weight" in df.columns
+    # Residue -> vocabulary id, resolved once. Without a tokenizer the ids stay
+    # 0 and the caller must not enable the PLLR term.
+    aa_to_id: Dict[str, int] = {}
+    if tokenizer is not None:
+        aa_to_id = {aa: int(tokenizer.convert_tokens_to_ids(aa))
+                    for aa in "ACDEFGHIKLMNPQRSTVWY"}
     for row in df.itertuples(index=False):
         gene = str(getattr(row, "gene"))
         seq = sequence_by_gene.get(gene)
@@ -223,7 +295,8 @@ def build_examples(
         weight = float(getattr(row, "label_weight")) if has_weight else 1.0
         examples.append(FineTuneExample(
             wt_seq=wt_window, wt_pos0=local_pos, mut_seq=mut_seq, mut_pos0=mut_pos0,
-            label=float(getattr(row, "label")), weight=weight))
+            label=float(getattr(row, "label")), weight=weight,
+            wt_tok_id=aa_to_id.get(wt_aa, 0), mut_tok_id=aa_to_id.get(mut_aa, 0)))
     if n_dropped:
         logger.warning("build_examples: dropped %d/%d rows (unknown gene or "
                        "wt/position mismatch against the canonical sequence).",
@@ -251,6 +324,8 @@ def make_collate_fn(tokenizer, mode: str):
             "wt_pos": torch.tensor([b.wt_pos0 for b in batch], dtype=torch.long),
             "labels": torch.tensor([b.label for b in batch], dtype=torch.float32),
             "weights": torch.tensor([b.weight for b in batch], dtype=torch.float32),
+            "wt_tok_id": torch.tensor([b.wt_tok_id for b in batch], dtype=torch.long),
+            "mut_tok_id": torch.tensor([b.mut_tok_id for b in batch], dtype=torch.long),
         }
         if mode == "siamese":
             mut_tok = tokenizer([b.mut_seq for b in batch], return_tensors="pt", padding=True)
@@ -266,10 +341,12 @@ def _to_device(batch: Dict[str, torch.Tensor], device: torch.device) -> Dict[str
 
 
 def _forward(model: ESMFineTuneClassifier, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
+    tok = {"wt_tok_id": batch.get("wt_tok_id"),
+           "mut_tok_id": batch.get("mut_tok_id")}
     if model.mode == "siamese":
         return model(batch["wt_ids"], batch["wt_mask"], batch["wt_pos"],
-                     batch["mut_ids"], batch["mut_mask"], batch["mut_pos"])
-    return model(batch["wt_ids"], batch["wt_mask"], batch["wt_pos"])
+                     batch["mut_ids"], batch["mut_mask"], batch["mut_pos"], **tok)
+    return model(batch["wt_ids"], batch["wt_mask"], batch["wt_pos"], **tok)
 
 
 # --------------------------------------------------------------------------- #

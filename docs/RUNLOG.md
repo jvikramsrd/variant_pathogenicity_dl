@@ -5,6 +5,85 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-08-28 (night, CPU box) — fixing the ESM branch
+
+The ESM branch was the weakest part of the project (siamese LOGO mean ROC-AUC
+0.895 against the priors probe's 0.944, early-stopping at epoch 1/3/1). Four
+defects found, all in the branch itself rather than in the data.
+
+### 1. The fine-tuned model could not see PLLR *(root cause)*
+
+`ESMFineTuneClassifier` was built on `AutoModel` — the encoder alone, no
+masked-LM head — so `log P(mut|X) - log P(wt|X)` was structurally
+uncomputable. That term is the zero-shot ESM score, which on this panel
+reaches **ROC-AUC 0.834 pooled with no training at all**. A 650M-parameter
+backbone on 662 labels was being asked to rediscover it from scratch, and
+early-stopped before it could.
+
+Now loads `AutoModelForMaskedLM`, keeps `.esm` + `.lm_head`, and reads PLLR off
+the **same** wild-type forward pass that already produces `site_wt` (Meier et
+al. 2021 — one shared context, so no extra compute). Verified identical to
+`src/esm_extractor.py`'s existing PLLR to **2.4e-06**. `--no-use_pllr` runs the
+ablation. The LM head follows the backbone's freeze state.
+
+### 2. Unnormalised head input
+
+`feat` went straight into `nn.Linear`; the LayerNorm sat *after* it. Raw ESM
+hidden states have large position-dependent norms, and in siamese mode half the
+concatenated vector (`site_wt`, `site_mut`) is near-duplicate while the
+informative part — their difference at one substituted residue — is small. A
+`LayerNorm` now precedes the head. PLLR is scaled by a fixed constant (10.0,
+a registered buffer, not a batch statistic) so it stays identical between
+training and single-variant inference.
+
+### 3. MVmamba's variant-type local window was the *wild-type* window
+
+For chains over the positional capacity the branch sliced the centred window
+out of `sequence` (wild type) and assigned it to `l_vt`. So `l_vt == l_wt`
+exactly, and `l_vt - l_wt` / `|l_vt - l_wt|` were **identically zero** — two of
+eight feature blocks dead, and precisely the windowed WT/VT contrast the
+MVmamba recipe is built around. On this panel only **MSH6** (1360 aa) exceeds
+the limit, so one gene silently had a different feature space from the other
+three, inside a leave-one-gene-out design.
+
+### 4. `compare_backbones.py` reported 1 - AUC
+
+Raw PLLR is *negative* for damaging variants, but it was compared directly
+against a pathogenic=1 label. Every cell came out below 0.5 (ROC-AUC
+0.03-0.18 for two strong 650M models) — output that reads as "the protein
+language model is useless on our data". Added
+`MaskedMarginalScorer.pathogenicity_score()` (negated, higher = more
+pathogenic) and switched the script to it. **Any earlier reading of that
+script's output should be discarded.**
+
+### Also fixed
+
+The MVmamba extractor materialised the full `[N, L, d]` hidden tensor:
+**25.2 GiB** for MSH6's 3,886 VUS at 1360 aa x 1280 dims — an immediate OOM on
+a 14 GiB box, on exactly the VUS-scoring task the pipeline exists to perform.
+Both outputs wanted from that pass are reductions, so it now embeds in chunks
+(`vt_chunk_size`, default 64) and reduces on arrival: peak ~0.4 GiB. Verified
+bit-identical to the old implementation on the short-sequence path at chunk
+sizes 1/3/64; the long-sequence path differs only by defect 3 above.
+
+### Verification
+
+- In-model vs extractor PLLR: max abs diff 2.4e-06 across 6 variants.
+- Chunked vs original MVmamba features: max diff 0.00e+00 (short path).
+- End-to-end `finetune_esm_mmr.py` on CPU (esm2_t6_8M, frozen backbone,
+  holdout MSH6): validation AUC now **rises across epochs** — 0.8813, 0.8829,
+  0.8895 — instead of peaking at epoch 1. Holdout ROC-AUC 0.847. That is an
+  8M-parameter smoke test, **not** a result to compare against the 650M runs.
+- 86 tests pass under pytest; 37/37 in `test_mmr_modules.py` standalone. Three
+  regression tests added (PLLR orientation, WT/VT local contrast, chunking).
+
+### Still owed on the GPU box
+
+- Re-run stage 2b with PLLR on 650M, plus the `--no-use_pllr` ablation. That
+  pair is the experiment that establishes whether the fix works at scale.
+- `--n_unfrozen_layers 0` ablation floor (still owed from 2026-08-27).
+- Seed averaging.
+
 ## 2026-08-28 (evening, CPU box) — closing the gap to the published bar
 
 **Result: mean ROC-AUC 0.9229 -> 0.9445, mean MCC 0.4626 -> 0.6894** over the

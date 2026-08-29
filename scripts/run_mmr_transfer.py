@@ -291,6 +291,7 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
         specs += [("priors_only", [X_prior], "priors", init_state is not None)]
 
     rows: list[dict] = []
+    prediction_rows: list[pd.DataFrame] = []
     for name, mats, kind, warm in specs:
         t_arch = time.time()
         this_init = None
@@ -337,12 +338,29 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
             **rep,
         }
         rows.append(row)
+        # Persist the per-variant probabilities, not just the aggregates.
+        # Calibration (PROJECT_PLAN.md Phase 6) needs the raw held-out scores
+        # per variant, and no downstream stage can reconstruct them from a
+        # metrics row. Both partitions are kept and tagged: the held-out gene
+        # is what gets calibrated and reported, while the inner-validation
+        # rows are the only label-bearing scores a calibrator may be *fitted*
+        # on without touching the evaluation set.
+        for split_name, idx, probs in (("holdout", ho_idx, ho_probs),
+                                       ("inner_val", va_idx, val_probs)):
+            block = meta.iloc[idx][
+                ["gene", "position", "wt_aa", "mut_aa"]].copy()
+            block["label"] = y_all[idx]
+            block["prob"] = probs
+            block["split"] = split_name
+            block["holdout_gene"] = holdout
+            block["arch"] = name
+            prediction_rows.append(block)
         logger.info("[holdout=%s | %-17s] ROC-AUC %.3f [%.3f-%.3f] | PR-AUC %.3f "
                     "| MCC %.3f @thr %.3f",
                     holdout, name, rep["roc_auc"], rep["roc_auc_ci_low"],
                     rep["roc_auc_ci_high"], rep["pr_auc"], rep["mcc"],
                     rep["threshold"])
-    return rows
+    return rows, prediction_rows
 
 
 def expit_np(x: np.ndarray) -> np.ndarray:
@@ -422,6 +440,7 @@ def main() -> int:
         splits = list(MMR_GENES)
 
     all_rows: list[dict] = []
+    all_predictions: list[pd.DataFrame] = []
     evaluated: list[str] = []
     skipped: list[str] = []
     for holdout in splits:
@@ -431,8 +450,10 @@ def main() -> int:
             skipped.append(holdout)
             continue
         evaluated.append(holdout)
-        all_rows.extend(run_one_split(args, master, sequence_by_gene,
-                                      device, holdout, ckpt))
+        split_rows, split_preds = run_one_split(
+            args, master, sequence_by_gene, device, holdout, ckpt)
+        all_rows.extend(split_rows)
+        all_predictions.extend(split_preds)
     if skipped:
         logger.warning("Evaluated %d/%d requested splits; %s had no rows in "
                        "the Phase-1 table (PMS2 is absent whenever the dataset "
@@ -444,6 +465,13 @@ def main() -> int:
     tag = "lopo" if args.eval == "lopo" else f"holdout_{args.holdout_gene}"
     results_path = args.out_dir / f"mmr_transfer_results_{tag}.csv"
     results.to_csv(results_path, index=False)
+    predictions_path = args.out_dir / f"mmr_transfer_predictions_{tag}.csv"
+    if all_predictions:
+        pd.concat(all_predictions, ignore_index=True).to_csv(
+            predictions_path, index=False)
+        logger.info("Per-variant predictions -> %s", predictions_path)
+    else:
+        predictions_path = None
 
     summary = {
         "built_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -463,6 +491,7 @@ def main() -> int:
         "splits_evaluated": evaluated,
         "splits_skipped_no_rows": skipped,
         "results_csv": str(results_path),
+        "predictions_csv": str(predictions_path) if all_predictions else None,
         "runtime_s": round(time.time() - t0, 1),
     }
     (args.out_dir / f"mmr_transfer_summary_{tag}.json").write_text(

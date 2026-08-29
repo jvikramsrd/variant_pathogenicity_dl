@@ -171,9 +171,12 @@ def run_esm_finetune(args, mode, ft_df, ho_df, sequence_by_gene, device) -> dict
     model = ESMFineTuneClassifier(
         model_name=args.esm_model, mode=mode, n_unfrozen_layers=args.n_unfrozen_layers,
         hidden_dim=args.hidden_dim, dropout=args.dropout)
-    train_ex = build_examples(ft_df.iloc[tr_local], sequence_by_gene, mode)
-    val_ex = build_examples(ft_df.iloc[va_local], sequence_by_gene, mode)
-    ho_ex = build_examples(ho_df, sequence_by_gene, mode)
+    tok = model.tokenizer
+    train_ex = build_examples(ft_df.iloc[tr_local], sequence_by_gene, mode,
+                              tokenizer=tok)
+    val_ex = build_examples(ft_df.iloc[va_local], sequence_by_gene, mode,
+                            tokenizer=tok)
+    ho_ex = build_examples(ho_df, sequence_by_gene, mode, tokenizer=tok)
 
     model, best_epoch, _ = fit_esm_finetune(
         model, train_ex, val_ex, device, backbone_lr=args.backbone_lr,

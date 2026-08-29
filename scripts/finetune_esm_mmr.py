@@ -78,6 +78,15 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--eval", choices=("lopo", "holdout"), default="lopo")
     p.add_argument("--holdout_gene", choices=MMR_GENES, default=None)
     p.add_argument("--max_residues", type=int, default=1022)
+    p.add_argument("--use_pllr", action=argparse.BooleanOptionalAction, default=True,
+                   help="Feed the zero-shot PLLR term "
+                        "log P(mut|X) - log P(wt|X), read off the same "
+                        "wild-type forward pass, into the classification head. "
+                        "On its own that score reaches ROC-AUC 0.834 pooled "
+                        "across these genes with no training at all, so "
+                        "including it lets the head learn a residual instead "
+                        "of rediscovering it from a few hundred labels. "
+                        "Use --no-use_pllr for the ablation.")
     t = p.add_argument_group("training (ProPath defaults)")
     t.add_argument("--backbone_lr", type=float, default=1e-5)
     t.add_argument("--head_lr", type=float, default=3e-4)
@@ -161,13 +170,19 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
     model = ESMFineTuneClassifier(
         model_name=args.esm_model, mode=args.mode,
         n_unfrozen_layers=args.n_unfrozen_layers, hidden_dim=args.hidden_dim,
-        dropout=args.dropout, gradient_checkpointing=args.gradient_checkpointing)
+        dropout=args.dropout, gradient_checkpointing=args.gradient_checkpointing,
+        use_pllr=args.use_pllr)
 
+    # The tokenizer is required so each example carries its wild-type and
+    # substituted residue vocabulary ids; without them the PLLR term would
+    # silently read the logit of token 0.
+    tok = model.tokenizer
     train_ex = build_examples(ft_df.iloc[tr_local], sequence_by_gene, args.mode,
-                              max_residues=args.max_residues)
+                              max_residues=args.max_residues, tokenizer=tok)
     val_ex = build_examples(ft_df.iloc[va_local], sequence_by_gene, args.mode,
-                            max_residues=args.max_residues)
-    ho_ex = build_examples(ho_df, sequence_by_gene, args.mode, max_residues=args.max_residues)
+                            max_residues=args.max_residues, tokenizer=tok)
+    ho_ex = build_examples(ho_df, sequence_by_gene, args.mode,
+                           max_residues=args.max_residues, tokenizer=tok)
     logger.info("Fine-tune train=%d val=%d holdout=%d", len(train_ex), len(val_ex), len(ho_ex))
 
     t0 = time.time()
@@ -198,6 +213,7 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
     row = {
         "holdout_gene": holdout, "mode": args.mode, "esm_model": args.esm_model,
         "n_unfrozen_layers": args.n_unfrozen_layers,
+        "use_pllr": bool(args.use_pllr),
         "batch_size": args.batch_size, "grad_accum": args.grad_accum,
         "effective_batch": args.batch_size * args.grad_accum, "amp": args.amp,
         "n_finetune": len(train_ex), "n_inner_val": len(val_ex), "n_holdout": len(ho_ex),
