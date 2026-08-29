@@ -8,10 +8,35 @@ venv/
 
 # --- Data artefacts (large / derivable - never commit) ---
 data/raw/
-data/processed/
-data/mmr/
+data/mmr/raw/
 *.npz
 *.pt
+*.pdb
+*.csv.gz
+
+# Ignore everything the pipeline generates under these trees ...
+data/processed/**
+data/mmr/processed/**
+
+# ... but keep the small text run-records so results stay under version
+# control even though the datasets and checkpoints they came from do not.
+# Directories must be re-included first (git cannot un-ignore a file whose
+# parent dir is excluded); the large / regenerable files are re-excluded after.
+!data/processed/**/
+!data/mmr/processed/**/
+!data/processed/**/*_results_*.csv
+!data/processed/**/*_summary_*.json
+!data/processed/**/*_summary.json
+!data/processed/**/*comparison*.csv
+!data/processed/**/*comparison*.json
+!data/processed/**/audit_report.json
+!data/processed/**/manifest.json
+!data/mmr/processed/**/*_summary*.json
+!data/mmr/processed/**/manifest.json
+!data/mmr/processed/leave_one_gene_out_splits.json
+# Per-variant prediction dumps regenerate from the heads and can be large.
+data/processed/**/*_predictions_*.csv
+data/mmr/processed/**/*_predictions_*.csv
 
 # Downloadable source bundles accidentally placed at repo root
 *.zip

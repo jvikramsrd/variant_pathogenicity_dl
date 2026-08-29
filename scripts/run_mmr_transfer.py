@@ -58,6 +58,7 @@ from src.transfer import (  # noqa: E402
     fit_head,
     load_checkpoint,
     predict_logits,
+    save_transfer_head,
     stage_sample_weights,
 )
 
@@ -137,6 +138,15 @@ def parse_args(argv=None) -> argparse.Namespace:
                    help="Plan-mandated bootstrap iterations (lower for smoke runs).")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--overwrite_cache", action="store_true")
+    p.add_argument("--save_checkpoints", action=argparse.BooleanOptionalAction,
+                   default=True,
+                   help="Persist every trained head (one per holdout gene x "
+                        "architecture) with its per-view feature scalers and "
+                        "MCC threshold (default: on). These are small MLP "
+                        "heads -- a full 4-gene esm+priors run writes ~20 "
+                        "files of a few hundred KB each -- but without them "
+                        "no held-out probability can be reproduced for "
+                        "calibration. Pass --no-save_checkpoints to skip.")
     return p.parse_args(argv)
 
 
@@ -186,14 +196,20 @@ def evaluate_predictions(y_true: np.ndarray, probs: np.ndarray,
 
 def scale_views(mats: list[np.ndarray], tr_idx: np.ndarray,
                 va_idx: np.ndarray, ho_idx: np.ndarray):
-    """Per-view StandardScaler fitted strictly on the fine-tune train slice."""
-    scaled_tr, scaled_va, scaled_ho = [], [], []
+    """Per-view StandardScaler fitted strictly on the fine-tune train slice.
+
+    Returns ``(scaled_tr, scaled_va, scaled_ho, scalers)`` where ``scalers`` is
+    the fitted ``(mean_, scale_)`` per view -- persisted alongside the head so
+    a reloaded model can standardise raw features the same way.
+    """
+    scaled_tr, scaled_va, scaled_ho, scalers = [], [], [], []
     for m in mats:
         sc = StandardScaler().fit(m[tr_idx])
         scaled_tr.append(sc.transform(m[tr_idx]).astype(np.float32))
         scaled_va.append(sc.transform(m[va_idx]).astype(np.float32))
         scaled_ho.append(sc.transform(m[ho_idx]).astype(np.float32))
-    return scaled_tr, scaled_va, scaled_ho
+        scalers.append((sc.mean_.copy(), sc.scale_.copy()))
+    return scaled_tr, scaled_va, scaled_ho, scalers
 
 
 # --------------------------------------------------------------------------- #
@@ -311,7 +327,8 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
                     f"Checkpoint incompatible with '{name}' architecture: {exc}"
                 ) from exc
 
-        scaled_tr, scaled_va, scaled_ho = scale_views(mats, tr_idx, va_idx, ho_idx)
+        scaled_tr, scaled_va, scaled_ho, scalers = scale_views(
+            mats, tr_idx, va_idx, ho_idx)
         model, best_epoch = fit_head(
             model, scaled_tr, y_all[tr_idx], scaled_va, y_all[va_idx],
             sample_weights=weights_all[tr_idx],
@@ -337,6 +354,22 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
             "runtime_s": round(time.time() - t_arch, 1),
             **rep,
         }
+        if args.save_checkpoints:
+            ckpt_path = args.out_dir / f"mmr_transfer_head_{holdout}_{name}.pt"
+            save_transfer_head(
+                ckpt_path, model, arch=kind, dims=dims,
+                hidden_dim=args.hidden_dim, dropout=args.dropout,
+                scalers=scalers, prior_cols=bundle.prior_cols,
+                feature_mode=args.features, esm_model=args.esm_model,
+                esm_dim=d_esm, threshold=rep["threshold"],
+                metrics={k: row[k] for k in
+                         ("roc_auc", "pr_auc", "mcc", "best_epoch", "n_holdout")
+                         if k in row},
+                extra={"holdout_gene": holdout, "arch_name": name,
+                       "warm_started": bool(this_init is not None),
+                       "seed": args.seed,
+                       "built_at_utc": datetime.now(timezone.utc).isoformat()})
+            row["checkpoint"] = str(ckpt_path)
         rows.append(row)
         # Persist the per-variant probabilities, not just the aggregates.
         # Calibration (PROJECT_PLAN.md Phase 6) needs the raw held-out scores
@@ -461,6 +494,7 @@ def main() -> int:
                        len(evaluated), len(splits), skipped)
 
     results = pd.DataFrame(all_rows)
+    checkpoints = [r["checkpoint"] for r in all_rows if r.get("checkpoint")]
     args.out_dir.mkdir(parents=True, exist_ok=True)
     tag = "lopo" if args.eval == "lopo" else f"holdout_{args.holdout_gene}"
     results_path = args.out_dir / f"mmr_transfer_results_{tag}.csv"
@@ -492,6 +526,7 @@ def main() -> int:
         "splits_skipped_no_rows": skipped,
         "results_csv": str(results_path),
         "predictions_csv": str(predictions_path) if all_predictions else None,
+        "checkpoints": checkpoints,
         "runtime_s": round(time.time() - t0, 1),
     }
     (args.out_dir / f"mmr_transfer_summary_{tag}.json").write_text(
@@ -504,6 +539,11 @@ def main() -> int:
           .to_string(index=False, float_format=lambda v: f"{v:.4f}"))
     print("=" * 74)
     print(f"Results -> {results_path}")
+    if checkpoints:
+        print(f"Trained heads -> {len(checkpoints)} checkpoint(s) in {args.out_dir}/ "
+              "(reload with src.transfer.load_transfer_head)")
+    elif not args.save_checkpoints:
+        print("Trained heads -> not saved (--no-save_checkpoints)")
     return 0
 
 

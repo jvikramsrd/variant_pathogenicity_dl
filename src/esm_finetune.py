@@ -39,6 +39,7 @@ import logging
 import random
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -121,6 +122,11 @@ class ESMFineTuneClassifier(nn.Module):
         self.model_name = model_name
         self.mode = mode
         self.use_pllr = bool(use_pllr)
+        # Kept as attributes (not just consumed below) so a fine-tuned model
+        # can be rebuilt from a checkpoint without the original CLI args --
+        # see config() / save_finetuned() / load_finetuned_model().
+        self.hidden_dim = int(hidden_dim)
+        self.dropout = float(dropout)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         # AutoModelForMaskedLM, not AutoModel: the masked-LM head is what makes
         # the PLLR term below computable. Loading the encoder alone was the
@@ -181,6 +187,18 @@ class ESMFineTuneClassifier(nn.Module):
 
     def head_params(self) -> List[torch.nn.Parameter]:
         return list(self.head.parameters()) + list(self.out.parameters())
+
+    def config(self) -> Dict[str, object]:
+        """Constructor kwargs needed to rebuild this model before loading a
+        fine-tuned state dict back into it (see :func:`load_finetuned_model`)."""
+        return {
+            "model_name": self.model_name,
+            "mode": self.mode,
+            "n_unfrozen_layers": self.n_unfrozen_layers,
+            "hidden_dim": self.hidden_dim,
+            "dropout": self.dropout,
+            "use_pllr": self.use_pllr,
+        }
 
     def _encode(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         return self.backbone(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
@@ -517,9 +535,79 @@ def fit_esm_finetune(
     return model, max(best_epoch, 0), float(best_auc)
 
 
+# --------------------------------------------------------------------------- #
+# Persistence
+# --------------------------------------------------------------------------- #
+#: Bumped if the checkpoint payload layout changes incompatibly.
+FINETUNE_CHECKPOINT_FORMAT = "esm_finetune/v1"
+
+
+def save_finetuned(
+    path, model: ESMFineTuneClassifier, *,
+    threshold: Optional[float] = None,
+    metrics: Optional[Dict[str, object]] = None,
+    max_residues: Optional[int] = None,
+    extra: Optional[Dict[str, object]] = None,
+) -> Path:
+    """Persist a fine-tuned model so its backbone weights survive the run.
+
+    :func:`fit_esm_finetune` restores the best epoch's weights *in memory* and
+    returns the model; nothing on disk changes. Without this call the
+    fine-tuned backbone -- the actual output of stage 2b -- is gone the moment
+    the process exits, leaving only the metrics CSV.
+
+    The payload is self-describing: it carries every constructor argument
+    (:meth:`ESMFineTuneClassifier.config`), the MCC-optimal ``threshold``, and
+    the holdout ``metrics``, so :func:`load_finetuned_model` can rebuild and
+    score with it without the original CLI arguments.
+    """
+    from .transfer import save_checkpoint
+
+    cfg = dict(model.config())
+    if max_residues is not None:
+        cfg["max_residues"] = int(max_residues)
+    payload_extra: Dict[str, object] = {"format": FINETUNE_CHECKPOINT_FORMAT}
+    if threshold is not None:
+        payload_extra["threshold"] = float(threshold)
+    if metrics:
+        payload_extra["metrics"] = dict(metrics)
+    if extra:
+        payload_extra.update(extra)
+    return save_checkpoint(Path(path), model, None, None,
+                           feature_columns=[], cfg_dict=cfg, extra=payload_extra)
+
+
+def load_finetuned_model(path, device: Optional[torch.device] = None, *,
+                         strict: bool = True) -> Tuple[ESMFineTuneClassifier, Dict]:
+    """Rebuild an :class:`ESMFineTuneClassifier` from :func:`save_finetuned`
+    output and load its fine-tuned weights.
+
+    Returns ``(model, payload)``; ``payload`` is the full checkpoint dict
+    (``config``, ``threshold``, ``metrics``). The base ESM checkpoint named in
+    the config is loaded fresh for its architecture, then every weight is
+    overwritten by the fine-tuned state dict, so the base download only has to
+    still be resolvable -- it does not affect the result.
+    """
+    from .transfer import load_checkpoint
+
+    payload = load_checkpoint(Path(path))
+    cfg = payload["config"]
+    model = ESMFineTuneClassifier(
+        model_name=cfg["model_name"], mode=cfg["mode"],
+        n_unfrozen_layers=cfg.get("n_unfrozen_layers", -1),
+        hidden_dim=cfg.get("hidden_dim", 256),
+        dropout=cfg.get("dropout", 0.15),
+        use_pllr=cfg.get("use_pllr", True))
+    model.load_state_dict(payload["model_state_dict"], strict=strict)
+    if device is not None:
+        model.to(device)
+    model.eval()
+    return model, payload
+
+
 __all__ = [
-    "FINETUNE_MODES", "PROPATH_DEFAULTS",
+    "FINETUNE_MODES", "PROPATH_DEFAULTS", "FINETUNE_CHECKPOINT_FORMAT",
     "ESMFineTuneClassifier", "FineTuneExample", "FineTuneDataset",
     "build_examples", "make_collate_fn", "predict_proba", "fit_esm_finetune",
-    "set_seed", "amp_dtype_for",
+    "set_seed", "amp_dtype_for", "save_finetuned", "load_finetuned_model",
 ]

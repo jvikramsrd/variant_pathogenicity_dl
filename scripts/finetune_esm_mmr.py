@@ -50,9 +50,9 @@ from src.esm_finetune import (  # noqa: E402
     build_examples,
     fit_esm_finetune,
     predict_proba,
+    save_finetuned,
 )
 from src.eval_utils import bootstrap_ci, optimal_threshold_by_mcc  # noqa: E402
-from src.transfer import save_checkpoint  # noqa: E402
 
 logger = logging.getLogger("finetune_esm_mmr")
 
@@ -113,9 +113,16 @@ def parse_args(argv=None) -> argparse.Namespace:
     e = p.add_argument_group("evaluation")
     e.add_argument("--n_bootstrap", type=int, default=10_000)
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--save_checkpoints", action="store_true",
-                   help="Persist the fine-tuned model per split (large: full "
-                        "backbone state dict per gene).")
+    p.add_argument("--save_checkpoints", action=argparse.BooleanOptionalAction,
+                   default=True,
+                   help="Persist the fine-tuned model per split so the "
+                        "backbone weights survive the run (default: on). "
+                        "fit_esm_finetune restores the best epoch in memory "
+                        "only -- without this the fine-tuned backbone is gone "
+                        "on exit and just the metrics CSV remains. A "
+                        "full-unfreeze esm2_t33_650M state dict is ~2.6 GiB "
+                        "per gene (~10 GiB for a 4-gene leave-one-gene-out "
+                        "sweep); pass --no-save_checkpoints to skip it.")
     return p.parse_args(argv)
 
 
@@ -227,9 +234,14 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
     if args.save_checkpoints:
         args.out_dir.mkdir(parents=True, exist_ok=True)
         ckpt_path = args.out_dir / f"esm_finetune_{args.mode}_holdout_{holdout}.pt"
-        save_checkpoint(ckpt_path, model, None, None, feature_columns=[],
-                        cfg_dict={"mode": args.mode, "esm_model": args.esm_model,
-                                  "n_unfrozen_layers": args.n_unfrozen_layers})
+        save_finetuned(
+            ckpt_path, model,
+            threshold=float(thr), max_residues=args.max_residues,
+            metrics={k: row[k] for k in
+                     ("roc_auc", "pr_auc", "mcc", "best_epoch",
+                      "inner_val_roc_auc", "n_holdout") if k in row},
+            extra={"holdout_gene": holdout, "seed": args.seed,
+                   "built_at_utc": datetime.now(timezone.utc).isoformat()})
         row["checkpoint"] = str(ckpt_path)
     return row
 
@@ -296,12 +308,14 @@ def main() -> int:
     tag = f"{args.mode}_{'lopo' if args.eval == 'lopo' else 'holdout_' + args.holdout_gene}"
     results_path = args.out_dir / f"esm_finetune_results_{tag}.csv"
     results.to_csv(results_path, index=False)
+    checkpoints = [r["checkpoint"] for r in rows if r.get("checkpoint")]
     summary = {
         "built_at_utc": datetime.now(timezone.utc).isoformat(),
         "mode": args.mode, "esm_model": args.esm_model,
         "n_unfrozen_layers": args.n_unfrozen_layers,
         "splits_requested": splits, "splits_evaluated": evaluated,
         "splits_skipped_no_rows": skipped, "results_csv": str(results_path),
+        "checkpoints": checkpoints,
         "runtime_s": round(time.time() - t0, 1),
     }
     (args.out_dir / f"esm_finetune_summary_{tag}.json").write_text(json.dumps(summary, indent=2))
@@ -313,6 +327,12 @@ def main() -> int:
           .to_string(index=False, float_format=lambda v: f"{v:.4f}"))
     print("=" * 74)
     print(f"Results -> {results_path}")
+    if checkpoints:
+        print(f"Fine-tuned models -> {len(checkpoints)} checkpoint(s) in {args.out_dir}/")
+        for c in checkpoints:
+            print(f"  {c}")
+    elif not args.save_checkpoints:
+        print("Fine-tuned models -> not saved (--no-save_checkpoints)")
     return 0
 
 

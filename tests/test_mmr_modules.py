@@ -694,6 +694,61 @@ def test_build_model_registry_covers_architectures():
     assert build_model("gatewave", [16, 8]).__class__ is GateWaveFusionHead
 
 
+def test_transfer_head_checkpoint_roundtrips_weights_scalers_and_threshold():
+    """A saved stage-2 head must reload to bit-identical predictions.
+
+    Before save_transfer_head existed, run_mmr_transfer.py kept only the
+    metrics row -- the trained head and its per-view StandardScaler were both
+    lost on exit, so no held-out probability could be reproduced.
+    """
+    import numpy as np
+    import torch
+    from src.transfer import (
+        build_model, load_transfer_head, predict_logits, save_transfer_head,
+    )
+
+    torch.manual_seed(0)
+    rng = np.random.default_rng(0)
+    dev = torch.device("cpu")
+    d_esm, d_prior = 6, 4
+    model = build_model("concat", dims=[d_esm, d_prior], hidden_dim=8, dropout=0.1)
+    with torch.no_grad():                         # perturb off the init
+        for p in model.parameters():
+            p.add_(torch.randn_like(p) * 0.05)
+
+    raws = [rng.normal(2.0, 3.0, size=(5, d_esm)).astype(np.float32),
+            rng.normal(-1.0, 0.5, size=(5, d_prior)).astype(np.float32)]
+    scalers = [(x.mean(0), x.std(0) + 1e-6) for x in raws]
+    scaled = [(x - m) / s for x, (m, s) in zip(raws, scalers)]
+    before = predict_logits(model, scaled, dev)
+
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "head.pt"
+        save_transfer_head(
+            path, model, arch="concat", dims=[d_esm, d_prior], hidden_dim=8,
+            dropout=0.1, scalers=scalers, prior_cols=["a", "b", "c", "d"],
+            feature_mode="esm+priors", esm_model="stub", esm_dim=d_esm,
+            threshold=0.42, metrics={"roc_auc": 0.9},
+            extra={"holdout_gene": "MSH2"})
+        model2, scale_views, payload = load_transfer_head(path, device=dev)
+
+    after = predict_logits(model2, scale_views(raws), dev)
+    assert np.allclose(before, after, atol=1e-6)
+    assert payload["threshold"] == 0.42
+    assert payload["metrics"] == {"roc_auc": 0.9}
+    assert payload["holdout_gene"] == "MSH2"
+    assert payload["config"]["arch"] == "concat"
+    assert payload["feature_columns"] == ["a", "b", "c", "d"]
+
+    # Wrong number of feature views is a loud error, not a silent misalign.
+    try:
+        scale_views(raws[:1])
+    except ValueError as exc:
+        assert "views" in str(exc)
+    else:
+        raise AssertionError("mismatched view count was accepted")
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = []

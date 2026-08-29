@@ -204,6 +204,14 @@ def parse_args() -> argparse.Namespace:
         "--n_bootstrap", type=int, default=10_000,
         help="Bootstrap CI iterations (lower for a quick smoke run).")
     train2.add_argument(
+        "--save_transfer_checkpoints", action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Stage 2 (frozen-embedding warm-start): persist each trained "
+             "head -- one per holdout gene x architecture -- with its feature "
+             "scalers and MCC threshold (default: on). Small MLP heads (a few "
+             "hundred KB each); needed to reproduce a held-out probability "
+             "for calibration. Pass --no-save_transfer_checkpoints to skip.")
+    train2.add_argument(
         "--full_finetune", action=argparse.BooleanOptionalAction, default=True,
         help="Run true ESM-2 backbone gradient fine-tuning "
              "(src/esm_finetune.py, scripts/finetune_esm_mmr.py) after the "
@@ -283,6 +291,17 @@ def parse_args() -> argparse.Namespace:
         help="Run stage 2b even when the estimated peak VRAM exceeds the "
              "detected card. The estimate is approximate; pass this if you "
              "believe it is wrong for your setup.")
+    train2.add_argument(
+        "--save_finetune_checkpoints", action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Stage 2b: persist the fine-tuned ESM-2 model for each "
+             "leave-one-gene-out split (default: on). The training loop only "
+             "restores the best epoch in memory, so without this the "
+             "fine-tuned backbone -- the actual output of this stage -- is "
+             "discarded on exit. A full-unfreeze 650M run writes ~2.6 GiB per "
+             "gene (~10 GiB for the 4-gene sweep) to "
+             "data/processed/esm_finetune/; pass "
+             "--no-save_finetune_checkpoints to keep only the metrics CSV.")
 
     parser.add_argument("--overwrite_cache", action="store_true",
                         help="Re-download/re-fetch every source instead of "
@@ -653,6 +672,8 @@ def main() -> None:
         "--n_bootstrap", str(args.n_bootstrap),
         "--gene_constant_priors", gene_const,
         "--rank_normalize", args.rank_normalize,
+        "--save_checkpoints" if args.save_transfer_checkpoints
+        else "--no-save_checkpoints",
     ] + overwrite
     if args.features == "esm+priors":
         transfer_args += ["--esm_model", args.esm_model]
@@ -677,6 +698,8 @@ def main() -> None:
             "--clinical_weight", str(args.clinical_weight),
         ]
         ft_args.append("--use_pllr" if args.use_pllr else "--no-use_pllr")
+        ft_args.append("--save_checkpoints" if args.save_finetune_checkpoints
+                       else "--no-save_checkpoints")
         if args.gradient_checkpointing:
             ft_args.append("--gradient_checkpointing")
         if not args.amp:
@@ -693,8 +716,15 @@ def main() -> None:
     print("MMR dataset  : data/mmr/processed/extended/extended_dataset.csv")
     print("Pretrain ckpt: " + str(checkpoint_path))
     print("Fine-tune out: data/processed/mmr_transfer/mmr_transfer_results_*.csv")
+    if args.save_transfer_checkpoints:
+        print("Stage 2 heads: data/processed/mmr_transfer/mmr_transfer_head_*.pt "
+              "(reload with src.transfer.load_transfer_head)")
     if args.full_finetune:
         print("Full FT out  : data/processed/esm_finetune/esm_finetune_results_*.csv")
+        if args.save_finetune_checkpoints:
+            print("Full FT ckpts: data/processed/esm_finetune/esm_finetune_"
+                  f"{args.finetune_mode}_holdout_*.pt "
+                  "(reload with src.esm_finetune.load_finetuned_model)")
     print("Run log      : append a dated entry to docs/RUNLOG.md")
 
 

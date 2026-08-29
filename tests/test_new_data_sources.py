@@ -31,7 +31,16 @@ from src.cimra import (  # noqa: E402
     load_cimra_oddspath,
 )
 from src.mmr_dataset import FUNCTIONAL_ASSAY_VALIDATION_ONLY_COLS  # noqa: E402
-from src.esm_finetune import FineTuneExample, build_examples  # noqa: E402
+import src.esm_finetune as esm_finetune  # noqa: E402
+import src.transfer as transfer  # noqa: E402
+from src.esm_finetune import (  # noqa: E402
+    FINETUNE_CHECKPOINT_FORMAT,
+    ESMFineTuneClassifier,
+    FineTuneExample,
+    build_examples,
+    load_finetuned_model,
+    save_finetuned,
+)
 from scripts.build_cluster_split import (  # noqa: E402
     assign_cluster_split,
     parse_cluster_tsv,
@@ -184,6 +193,109 @@ def test_build_examples_drops_wt_mismatch_and_unknown_gene():
     ])
     examples = build_examples(df, {"TEST": seq}, mode="wt_site")
     assert len(examples) == 1
+
+
+# --------------------------------------------------------------------------- #
+# Fine-tuned model persistence (stage 2b): the backbone weights must be
+# saved, not discarded on process exit. Stubs stand in for the ESM download.
+# --------------------------------------------------------------------------- #
+def _stub_finetune_model(**overrides):
+    """An ESMFineTuneClassifier shell with just the attributes config() reads."""
+    m = ESMFineTuneClassifier.__new__(ESMFineTuneClassifier)
+    m.model_name = overrides.get("model_name", "facebook/esm2_t6_8M_UR50D")
+    m.mode = overrides.get("mode", "siamese")
+    m.n_unfrozen_layers = overrides.get("n_unfrozen_layers", -1)
+    m.hidden_dim = overrides.get("hidden_dim", 256)
+    m.dropout = overrides.get("dropout", 0.15)
+    m.use_pllr = overrides.get("use_pllr", True)
+    return m
+
+
+def test_config_roundtrips_every_constructor_arg():
+    cfg = _stub_finetune_model(mode="wt_site", n_unfrozen_layers=4,
+                               use_pllr=False).config()
+    assert cfg == {
+        "model_name": "facebook/esm2_t6_8M_UR50D", "mode": "wt_site",
+        "n_unfrozen_layers": 4, "hidden_dim": 256, "dropout": 0.15,
+        "use_pllr": False,
+    }
+
+
+def test_save_finetuned_payload_is_self_describing():
+    captured = {}
+
+    def fake_save_checkpoint(path, model, mean, scale, feature_columns,
+                             cfg_dict, extra=None):
+        captured.update(path=path, cfg=cfg_dict, extra=extra)
+        return path
+
+    orig = transfer.save_checkpoint
+    transfer.save_checkpoint = fake_save_checkpoint
+    try:
+        save_finetuned(Path("x.pt"), _stub_finetune_model(use_pllr=False),
+                       threshold=0.37, max_residues=1022,
+                       metrics={"roc_auc": 0.9, "mcc": 0.5},
+                       extra={"holdout_gene": "MSH2", "seed": 42})
+    finally:
+        transfer.save_checkpoint = orig
+
+    # Every constructor arg needed to rebuild the model, plus the crop width.
+    assert captured["cfg"]["hidden_dim"] == 256
+    assert captured["cfg"]["use_pllr"] is False
+    assert captured["cfg"]["max_residues"] == 1022
+    # Threshold + metrics + provenance travel with the weights.
+    assert captured["extra"]["format"] == FINETUNE_CHECKPOINT_FORMAT
+    assert captured["extra"]["threshold"] == 0.37
+    assert captured["extra"]["metrics"] == {"roc_auc": 0.9, "mcc": 0.5}
+    assert captured["extra"]["holdout_gene"] == "MSH2"
+
+
+def test_load_finetuned_model_rebuilds_from_stored_config():
+    payload = {
+        "config": {"model_name": "facebook/esm2_t6_8M_UR50D", "mode": "wt_site",
+                   "n_unfrozen_layers": 2, "hidden_dim": 128, "dropout": 0.2,
+                   "use_pllr": False, "max_residues": 512},
+        "model_state_dict": {"sentinel": 1},
+        "threshold": 0.41,
+    }
+    seen = {}
+
+    class FakeModel:
+        def __init__(self, **kw):
+            seen["init"] = kw
+
+        def load_state_dict(self, sd, strict=True):
+            seen["state_dict"], seen["strict"] = sd, strict
+
+        def to(self, dev):
+            seen["device"] = dev
+            return self
+
+        def eval(self):
+            seen["eval"] = True
+            return self
+
+    orig_load = transfer.load_checkpoint
+    orig_cls = esm_finetune.ESMFineTuneClassifier
+    transfer.load_checkpoint = lambda p: payload
+    esm_finetune.ESMFineTuneClassifier = FakeModel
+    try:
+        model, got = load_finetuned_model(Path("x.pt"), device="cpu")
+    finally:
+        transfer.load_checkpoint = orig_load
+        esm_finetune.ESMFineTuneClassifier = orig_cls
+
+    assert isinstance(model, FakeModel)
+    assert got is payload
+    # Rebuilt with the checkpoint's own config, not defaults.
+    assert seen["init"] == {
+        "model_name": "facebook/esm2_t6_8M_UR50D", "mode": "wt_site",
+        "n_unfrozen_layers": 2, "hidden_dim": 128, "dropout": 0.2,
+        "use_pllr": False,
+    }
+    assert seen["state_dict"] == {"sentinel": 1}
+    assert seen["device"] == "cpu"
+    assert seen["eval"] is True
 
 
 # --------------------------------------------------------------------------- #

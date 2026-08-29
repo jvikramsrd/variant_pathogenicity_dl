@@ -492,6 +492,89 @@ def load_checkpoint(path: Path) -> Dict:
     return torch.load(path, map_location="cpu", weights_only=False)
 
 
+#: Bumped if the stage-2 head payload layout changes incompatibly.
+TRANSFER_HEAD_FORMAT = "mmr_transfer_head/v1"
+
+
+def save_transfer_head(
+    path: Path, model: torch.nn.Module, *,
+    arch: str, dims: Sequence[int], hidden_dim: int, dropout: float,
+    scalers: Sequence[Tuple[np.ndarray, np.ndarray]],
+    prior_cols: Sequence[str], feature_mode: str, esm_model: str, esm_dim: int,
+    threshold: Optional[float] = None,
+    metrics: Optional[Dict[str, object]] = None,
+    extra: Optional[Dict[str, object]] = None,
+) -> Path:
+    """Persist one benchmarked stage-2 head so it can score raw features again.
+
+    ``scripts/run_mmr_transfer.py`` trains one head per (holdout gene x
+    architecture) and, before this existed, kept only the metrics row -- the
+    trained head and the per-view :class:`~sklearn.preprocessing.StandardScaler`
+    fitted on its train slice were both lost on exit, so no downstream stage
+    (calibration especially) could reproduce a single held-out probability.
+
+    The payload carries the architecture config, one ``(mean, scale)`` pair per
+    feature view, the prior-column schema, and the MCC threshold -- everything
+    :func:`load_transfer_head` needs.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload: Dict[str, object] = {
+        "format": TRANSFER_HEAD_FORMAT,
+        "model_state_dict": model.state_dict(),
+        "config": {
+            "arch": arch, "dims": [int(d) for d in dims],
+            "hidden_dim": int(hidden_dim), "dropout": float(dropout),
+            "feature_mode": feature_mode, "esm_model": esm_model,
+            "esm_dim": int(esm_dim),
+        },
+        "scalers": [
+            {"mean": np.asarray(m, dtype=np.float64),
+             "scale": np.asarray(s, dtype=np.float64)}
+            for m, s in scalers
+        ],
+        "feature_columns": list(prior_cols),
+    }
+    if threshold is not None:
+        payload["threshold"] = float(threshold)
+    if metrics:
+        payload["metrics"] = dict(metrics)
+    if extra:
+        payload.update(extra)
+    torch.save(payload, path)
+    logger.info("Transfer head saved -> %s", path)
+    return path
+
+
+def load_transfer_head(path: Path, device: Optional[torch.device] = None):
+    """Rebuild a stage-2 head written by :func:`save_transfer_head`.
+
+    Returns ``(model, scale_views, payload)`` where ``scale_views`` maps a list
+    of raw feature matrices (one per view, same order as training) to their
+    standardised form using the persisted per-view statistics.
+    """
+    payload = load_checkpoint(Path(path))
+    cfg = payload["config"]
+    model = build_model(cfg["arch"], dims=cfg["dims"],
+                        hidden_dim=cfg["hidden_dim"], dropout=cfg["dropout"])
+    model.load_state_dict(payload["model_state_dict"])
+    if device is not None:
+        model.to(device)
+    model.eval()
+
+    stats = [(np.asarray(s["mean"]), np.asarray(s["scale"]))
+             for s in payload["scalers"]]
+
+    def scale_views(mats: Sequence[np.ndarray]) -> List[np.ndarray]:
+        if len(mats) != len(stats):
+            raise ValueError(
+                f"{len(mats)} feature views given but the checkpoint stored "
+                f"{len(stats)} scalers.")
+        return [((np.asarray(m, dtype=np.float64) - mean) / scale).astype(np.float32)
+                for m, (mean, scale) in zip(mats, stats)]
+
+    return model, scale_views, payload
+
+
 # --------------------------------------------------------------------------- #
 # Shared feature-block assembly used by both stage CLIs
 # --------------------------------------------------------------------------- #
@@ -617,4 +700,5 @@ __all__ = [
     "assemble_features", "stage_sample_weights",
     "build_model", "predict_logits", "fit_head", "select_stage_rows",
     "save_checkpoint", "load_checkpoint",
+    "TRANSFER_HEAD_FORMAT", "save_transfer_head", "load_transfer_head",
 ]
