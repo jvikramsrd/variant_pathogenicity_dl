@@ -54,7 +54,7 @@ from src.esm_finetune import (  # noqa: E402
     save_finetuned,
 )
 from src.eval_utils import bootstrap_ci, optimal_threshold_by_mcc  # noqa: E402
-from src.finetune_grid import GridCell  # noqa: E402
+from src.finetune_grid import GridCell, output_tag  # noqa: E402
 from src.transfer import (  # noqa: E402
     assert_af_quarantine,
     prior_columns_of,
@@ -439,9 +439,8 @@ def main() -> int:
     # Every filename carries the cell slug: a grid sweep writes a dozen of
     # these into one directory, and an untagged name would make each run
     # silently overwrite the last.
-    tag = (f"{args.mode}_"
-           f"{'lopo' if args.eval == 'lopo' else 'holdout_' + args.holdout_gene}_"
-           f"{args.cell_slug}")
+    tag = output_tag(args.mode, args.eval, args.cell_slug,
+                     args.holdout_gene)
     results_path = args.out_dir / f"esm_finetune_results_{tag}.csv"
     predictions_path = args.out_dir / f"esm_finetune_predictions_{tag}.csv"
     results.to_csv(results_path, index=False)

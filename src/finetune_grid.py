@@ -98,6 +98,24 @@ TIERS: Dict[str, List[GridCell]] = {
 }
 
 
+def output_tag(mode: str, eval_mode: str, cell_slug: str,
+               holdout_gene: str | None = None) -> str:
+    """Filename stem shared by the fine-tune script and the grid driver.
+
+    Both sides must derive the name here rather than build their own. When
+    they drifted -- the driver omitted the held-out gene the script puts in
+    the name -- ``cell_is_complete`` looked for files that never existed, so
+    every ``--eval holdout`` cell re-ran on restart instead of being skipped.
+    """
+    if eval_mode == "holdout":
+        if not holdout_gene:
+            raise ValueError("holdout_gene is required when eval_mode='holdout'")
+        split = f"holdout_{holdout_gene}"
+    else:
+        split = eval_mode
+    return f"{mode}_{split}_{cell_slug}"
+
+
 def cells_for(tiers: Sequence[str]) -> List[GridCell]:
     """Cells for *tiers*, in tier order, de-duplicated by slug."""
     seen, out = set(), []
@@ -111,4 +129,4 @@ def cells_for(tiers: Sequence[str]) -> List[GridCell]:
     return out
 
 
-__all__ = ["BRANCHES", "GridCell", "TIERS", "cells_for"]
+__all__ = ["BRANCHES", "GridCell", "TIERS", "cells_for", "output_tag"]

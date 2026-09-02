@@ -34,7 +34,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.finetune_grid import TIERS, GridCell, cells_for  # noqa: E402
+from src.finetune_grid import TIERS, GridCell, cells_for, output_tag  # noqa: E402
 
 logger = logging.getLogger("run_stage2b_grid")
 
@@ -66,17 +66,19 @@ def parse_args(argv=None) -> argparse.Namespace:
     return p.parse_args(argv)
 
 
-def cell_tag(cell: GridCell, mode: str, eval_mode: str) -> str:
-    return f"{mode}_{eval_mode}_{cell.slug()}"
+def cell_tag(cell: GridCell, mode: str, eval_mode: str,
+             holdout_gene: str | None = None) -> str:
+    return output_tag(mode, eval_mode, cell.slug(), holdout_gene)
 
 
-def cell_is_complete(out_dir, cell: GridCell, mode: str, eval_mode: str) -> bool:
+def cell_is_complete(out_dir, cell: GridCell, mode: str, eval_mode: str,
+                     holdout_gene: str | None = None) -> bool:
     """True only when every artefact of this cell exists.
 
     All three are required: a run that died between writing the summary and
     writing the predictions must re-run, not be silently skipped.
     """
-    tag = cell_tag(cell, mode, eval_mode)
+    tag = cell_tag(cell, mode, eval_mode, holdout_gene)
     return all((Path(out_dir) / f"esm_finetune_{kind}_{tag}.{ext}").exists()
                for kind, ext in (("summary", "json"), ("results", "csv"),
                                  ("predictions", "csv")))
@@ -138,7 +140,8 @@ def main() -> int:
 
     pending = [c for c in cells
                if args.force or not cell_is_complete(args.out_dir, c, args.mode,
-                                                     args.eval_mode)]
+                                                     args.eval_mode,
+                                                     args.holdout_gene)]
     logger.info("Grid: %d cells in tiers %s | %d already complete | %d to run",
                 len(cells), ",".join(args.tiers), len(cells) - len(pending),
                 len(pending))

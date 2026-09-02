@@ -258,3 +258,31 @@ def test_aggregate_merges_every_cell_result(tmp_path):
 def test_aggregate_of_an_empty_dir_is_empty(tmp_path):
     mod = load_grid_script()
     assert mod.aggregate(tmp_path).empty
+
+
+def test_output_tag_includes_the_holdout_gene():
+    """A holdout tag without the gene collides across genes, and -- because
+    the driver's resume check looks for these exact filenames -- made every
+    `--eval holdout` cell re-run on restart instead of being skipped."""
+    from src.finetune_grid import output_tag
+    cell = GridCell("esm+priors", 0, "off", 42)
+    assert output_tag("siamese", "lopo", cell.slug()) == f"siamese_lopo_{cell.slug()}"
+    assert output_tag("siamese", "holdout", cell.slug(), "MSH2") == \
+        f"siamese_holdout_MSH2_{cell.slug()}"
+    with pytest.raises(ValueError, match="holdout_gene"):
+        output_tag("siamese", "holdout", cell.slug())
+
+
+@pytest.mark.parametrize("eval_mode,gene", [("lopo", None), ("holdout", "MSH2")])
+def test_cell_is_complete_matches_the_names_the_finetune_script_writes(
+        tmp_path, eval_mode, gene):
+    """Anti-drift: the driver's resume check and the script's output naming
+    must be the same construction, not two that happen to agree under lopo."""
+    grid, fine = load_grid_script(), load_finetune_script()
+    cell = GridCell("esm+priors", 0, "off", 42)
+    tag = fine.output_tag("siamese", eval_mode, cell.slug(), gene)
+    for kind, ext, body in (("summary", "json", "{}"),
+                            ("results", "csv", "holdout_gene\nMSH2\n"),
+                            ("predictions", "csv", "label,prob\n1,0.9\n")):
+        (tmp_path / f"esm_finetune_{kind}_{tag}.{ext}").write_text(body)
+    assert grid.cell_is_complete(tmp_path, cell, "siamese", eval_mode, gene)
