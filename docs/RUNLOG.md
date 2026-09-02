@@ -388,9 +388,10 @@ the learned head still has to justify itself against.
       (`esm` vs `esm+priors`), 16 cells in 5 tiers, ~31 h. One resumable command;
       see `docs/GPU_RUN_PLAYBOOK.md`. Every filename is cell-tagged, so the old
       "move the results CSV aside between cells" step is gone. Subsumes the old
-      "ablation floor" and "seed averaging" line items; supersedes the narrower
-      grid described in PAPER_DRAFT.md §6.12, which varies freeze depth alone and
-      therefore cannot separate it from feature set.
+      "ablation floor" and "seed averaging" line items. `PAPER_DRAFT.md` §6.12
+      and `PAPER.md` §7.2/Table 6 now describe *this* grid; the earlier
+      freeze-depth-only design they carried could not separate freeze depth from
+      feature set.
 - [ ] Remaining recipes on the same splits: `wt_site`, VariPred probe, MVmamba pooled
 - [ ] Full model: `train_extended.py --features esm+priors --esm_model facebook/esm2_t33_650M_UR50D --no_dms_features`
 - [ ] Leave-one-**protein**-out CV on the broad 80-gene panel (still owed; distinct from the MMR gene-out above)

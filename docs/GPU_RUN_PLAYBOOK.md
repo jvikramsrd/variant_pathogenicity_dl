@@ -11,13 +11,14 @@ Grid definition in code: `src/finetune_grid.py`.
 
 ## 0. Why this grid, in one paragraph
 
-`docs/PAPER_DRAFT.md` §6.12 proposes a freeze-depth × PLLR ablation and a
-decision rule: if the frozen floor matches the full fine-tune, backbone
-gradients bought nothing. That comparison could not have settled the question,
-because Stage 2b read **none** of the 27 prior columns the frozen probe reads —
-so the measured 6.5-point gap (0.880 vs 0.945) confounded freeze depth with
-feature set. This grid adds a **branch** axis (`esm` vs `esm+priors`) so freeze
-depth is measured with the feature set held constant.
+`docs/PAPER_DRAFT.md` §6.12 proposed, until 2026-09-02, a freeze-depth × PLLR
+ablation and a decision rule: if the frozen floor matches the full fine-tune,
+backbone gradients bought nothing. That comparison could not have settled the
+question, because Stage 2b read **none** of the 27 prior columns the frozen
+probe reads — so the measured 6.5-point gap (0.880 vs 0.945) confounded freeze
+depth with feature set. This grid adds a **branch** axis (`esm` vs
+`esm+priors`) so freeze depth is measured with the feature set held constant.
+§6.12 and `PAPER.md` §7.2/Table 6 now describe the grid below.
 
 ---
 
@@ -48,7 +49,7 @@ Expect ~74,328 rows, of which 683 carry a clinical label
 Confirm the tests pass on this machine before spending GPU hours:
 
 ```bash
-.venv/bin/python -m pytest tests/ -q      # expect 146 passed
+.venv/bin/python -m pytest tests/ -q      # expect 149 passed
 ```
 
 ---
