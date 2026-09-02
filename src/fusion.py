@@ -63,12 +63,24 @@ class ConcatFusionHead(nn.Module):
     """
 
     def __init__(self, dims: tuple[int, ...], shared_dim: int = 128,
-                 dropout: float = 0.2) -> None:
+                 dropout: float = 0.2, norm: str = "batch") -> None:
         super().__init__()
         self.branches = nn.ModuleList(
             [BranchProjection(d, shared_dim) for d in dims])
-        self.bn = nn.BatchNorm1d(shared_dim * len(dims))
-        self.fc1 = nn.Linear(shared_dim * len(dims), shared_dim)
+        width = shared_dim * len(dims)
+        # The attribute stays named `bn` whichever norm it holds: renaming it
+        # would change every existing Stage-2 checkpoint's state-dict keys.
+        # "layer" exists for the Stage-2b fine-tune, which runs at micro-batch
+        # 1 on a 15 GiB card -- BatchNorm1d cannot compute batch statistics
+        # over a single sample and raises in train mode.
+        if norm == "batch":
+            self.bn: nn.Module = nn.BatchNorm1d(width)
+        elif norm == "layer":
+            self.bn = nn.LayerNorm(width)
+        else:
+            raise ValueError(f"norm must be 'batch' or 'layer'; got {norm!r}")
+        self.norm_kind = norm
+        self.fc1 = nn.Linear(width, shared_dim)
         self.act = nn.ReLU()
         self.drop = nn.Dropout(dropout)
         self.fc2 = nn.Linear(shared_dim, 1)
@@ -160,11 +172,15 @@ class GateWaveFusionHead(nn.Module):
 
 
 def build_fusion_head(name: str, dims: tuple[int, ...], shared_dim: int = 128,
-                      dropout: float = 0.2) -> nn.Module:
-    """Factory used by the transfer/fusion benchmark CLI."""
+                      dropout: float = 0.2, norm: str = "batch") -> nn.Module:
+    """Factory used by the transfer/fusion benchmark CLI.
+
+    ``norm`` applies to the concat head only -- GateWave already normalises
+    with :class:`~torch.nn.LayerNorm`, so it is safe at micro-batch 1 as-is.
+    """
     name = name.lower().strip()
     if name == "concat":
-        return ConcatFusionHead(dims, shared_dim, dropout)
+        return ConcatFusionHead(dims, shared_dim, dropout, norm=norm)
     if name == "gatewave":
         return GateWaveFusionHead(dims, shared_dim, dropout)
     raise ValueError(f"Unknown fusion head '{name}' (expected concat|gatewave).")
