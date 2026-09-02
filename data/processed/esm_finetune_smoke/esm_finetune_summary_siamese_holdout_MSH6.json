@@ -1,0 +1,15 @@
+{
+  "built_at_utc": "2026-08-28T15:09:11.566365+00:00",
+  "mode": "siamese",
+  "esm_model": "facebook/esm2_t6_8M_UR50D",
+  "n_unfrozen_layers": 0,
+  "splits_requested": [
+    "MSH6"
+  ],
+  "splits_evaluated": [
+    "MSH6"
+  ],
+  "splits_skipped_no_rows": [],
+  "results_csv": "data/processed/esm_finetune_smoke/esm_finetune_results_siamese_holdout_MSH6.csv",
+  "runtime_s": 623.7
+}

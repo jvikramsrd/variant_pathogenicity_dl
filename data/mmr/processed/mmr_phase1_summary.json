@@ -1,5 +1,9 @@
 {
+<<<<<<< HEAD
   "built_at_utc": "2026-08-29T02:22:09.151053+00:00",
+=======
+  "built_at_utc": "2026-08-28T12:51:59.234360+00:00",
+>>>>>>> d94684080054700bf62e7e15ca09c3c2d95f31fe
   "genes": [
     "MLH1",
     "MSH2",
@@ -14,7 +18,11 @@
     "MSH6": 119,
     "PMS2": 21
   },
+<<<<<<< HEAD
   "vus": 9588,
+=======
+  "vus": 9589,
+>>>>>>> d94684080054700bf62e7e15ca09c3c2d95f31fe
   "expert_panel_calls": 277,
   "balanced_subset_rows": 4936,
   "pms2_homology_excluded_labels": 9139,

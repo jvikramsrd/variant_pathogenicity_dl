@@ -207,17 +207,22 @@ def _stub_finetune_model(**overrides):
     m.n_unfrozen_layers = overrides.get("n_unfrozen_layers", -1)
     m.hidden_dim = overrides.get("hidden_dim", 256)
     m.dropout = overrides.get("dropout", 0.15)
-    m.use_pllr = overrides.get("use_pllr", True)
+    m.pllr_mode = overrides.get("pllr_mode", "residual")
+    m.use_pllr = m.pllr_mode != "off"
+    m.n_prior_features = overrides.get("n_prior_features", 0)
+    m.fusion = overrides.get("fusion", "concat")
+    m.shared_dim = overrides.get("shared_dim", 128)
     return m
 
 
 def test_config_roundtrips_every_constructor_arg():
     cfg = _stub_finetune_model(mode="wt_site", n_unfrozen_layers=4,
-                               use_pllr=False).config()
+                               pllr_mode="off", n_prior_features=27).config()
     assert cfg == {
         "model_name": "facebook/esm2_t6_8M_UR50D", "mode": "wt_site",
         "n_unfrozen_layers": 4, "hidden_dim": 256, "dropout": 0.15,
-        "use_pllr": False,
+        "pllr_mode": "off", "n_prior_features": 27, "fusion": "concat",
+        "shared_dim": 128,
     }
 
 
@@ -232,7 +237,7 @@ def test_save_finetuned_payload_is_self_describing():
     orig = transfer.save_checkpoint
     transfer.save_checkpoint = fake_save_checkpoint
     try:
-        save_finetuned(Path("x.pt"), _stub_finetune_model(use_pllr=False),
+        save_finetuned(Path("x.pt"), _stub_finetune_model(pllr_mode="off"),
                        threshold=0.37, max_residues=1022,
                        metrics={"roc_auc": 0.9, "mcc": 0.5},
                        extra={"holdout_gene": "MSH2", "seed": 42})
@@ -241,7 +246,7 @@ def test_save_finetuned_payload_is_self_describing():
 
     # Every constructor arg needed to rebuild the model, plus the crop width.
     assert captured["cfg"]["hidden_dim"] == 256
-    assert captured["cfg"]["use_pllr"] is False
+    assert captured["cfg"]["pllr_mode"] == "off"
     assert captured["cfg"]["max_residues"] == 1022
     # Threshold + metrics + provenance travel with the weights.
     assert captured["extra"]["format"] == FINETUNE_CHECKPOINT_FORMAT
@@ -288,14 +293,53 @@ def test_load_finetuned_model_rebuilds_from_stored_config():
     assert isinstance(model, FakeModel)
     assert got is payload
     # Rebuilt with the checkpoint's own config, not defaults.
+    # Rebuilt with the checkpoint's own config, and the legacy `use_pllr:
+    # False` is migrated to pllr_mode="off". A pre-pllr_mode checkpoint
+    # described the concat behaviour, never the residual one, so mapping a
+    # legacy True to "residual" would silently change the loaded architecture.
     assert seen["init"] == {
         "model_name": "facebook/esm2_t6_8M_UR50D", "mode": "wt_site",
         "n_unfrozen_layers": 2, "hidden_dim": 128, "dropout": 0.2,
-        "use_pllr": False,
+        "pllr_mode": "off", "n_prior_features": 0, "fusion": "concat",
+        "shared_dim": 128,
     }
     assert seen["state_dict"] == {"sentinel": 1}
     assert seen["device"] == "cpu"
     assert seen["eval"] is True
+
+
+def test_load_finetuned_model_migrates_legacy_use_pllr_true_to_concat():
+    """A checkpoint predating pllr_mode described the concat architecture."""
+    payload = {
+        "config": {"model_name": "facebook/esm2_t6_8M_UR50D", "mode": "siamese",
+                   "n_unfrozen_layers": -1, "hidden_dim": 256, "dropout": 0.15,
+                   "use_pllr": True},
+        "model_state_dict": {},
+    }
+    seen = {}
+
+    class FakeModel:
+        def __init__(self, **kw):
+            seen["init"] = kw
+
+        def load_state_dict(self, sd, strict=True):
+            pass
+
+        def eval(self):
+            pass
+
+    orig_load = transfer.load_checkpoint
+    orig_cls = esm_finetune.ESMFineTuneClassifier
+    transfer.load_checkpoint = lambda p: payload
+    esm_finetune.ESMFineTuneClassifier = FakeModel
+    try:
+        load_finetuned_model(Path("x.pt"))
+    finally:
+        transfer.load_checkpoint = orig_load
+        esm_finetune.ESMFineTuneClassifier = orig_cls
+
+    assert seen["init"]["pllr_mode"] == "concat"
+    assert "use_pllr" not in seen["init"]
 
 
 # --------------------------------------------------------------------------- #

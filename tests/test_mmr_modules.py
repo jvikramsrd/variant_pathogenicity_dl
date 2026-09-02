@@ -345,6 +345,37 @@ def test_gatewave_forward_and_ablations():
     assert isinstance(build_fusion_head("gatewave", (4, 4)), GateWaveFusionHead)
 
 
+def test_concat_fusion_layer_norm_works_at_batch_size_one():
+    """Micro-batch 1 is the only config that fits a 650M full fine-tune on a
+    15 GiB card, and BatchNorm1d cannot compute batch statistics there."""
+    batch_head = ConcatFusionHead((8, 4), shared_dim=6, norm="batch")
+    batch_head.train()
+    try:
+        batch_head(torch.randn(1, 8), torch.randn(1, 4))
+        raise AssertionError("BatchNorm1d should reject batch size 1 in train mode")
+    except ValueError:
+        pass
+
+    layer_head = ConcatFusionHead((8, 4), shared_dim=6, norm="layer")
+    layer_head.train()
+    out = layer_head(torch.randn(1, 8), torch.randn(1, 4))
+    assert out.shape == (1,)
+    assert torch.isfinite(out).all()
+
+
+def test_build_fusion_head_passes_norm_through():
+    head = build_fusion_head("concat", (8, 4), shared_dim=6, norm="layer")
+    assert isinstance(head.bn, torch.nn.LayerNorm)
+
+
+def test_concat_fusion_rejects_unknown_norm():
+    try:
+        ConcatFusionHead((8, 4), shared_dim=6, norm="group")
+        raise AssertionError("expected ValueError for unknown norm")
+    except ValueError:
+        pass
+
+
 # --------------------------------------------------------------------------- #
 # mvmamba windowing math (no model download needed)
 # --------------------------------------------------------------------------- #

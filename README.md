@@ -140,10 +140,21 @@ python scripts/build_extended_dataset.py --panel_file data/raw/uniprot/expanded_
     --all_sources   # = --include_gnomad --include_structure --include_interpro --include_functional_sites
 
 # 7. Full ESM-2 fine-tuning (backbone gradients, not a frozen linear probe) --
-#    ProPath's Siamese/PLLR recipe or a CSBJ-style token classifier:
+#    ProPath's Siamese/PLLR recipe or a CSBJ-style token classifier.
+#    --branch esm+priors also feeds the head the published-prior columns the
+#    frozen Stage-2 probe reads; without it the two are not comparable:
 python scripts/finetune_esm_mmr.py --mode siamese --n_unfrozen_layers -1 \
-    --esm_model facebook/esm2_t33_650M_UR50D --eval lopo \
+    --esm_model facebook/esm2_t33_650M_UR50D --eval lopo --branch esm+priors \
     --backbone_lr 1e-5 --batch_size 8 --epochs 10 --gradient_checkpointing
+
+# 7b. The whole Stage-2b ablation grid (branch x freeze depth x PLLR term,
+#     16 cells in 5 tiers, ~31 h on a 15 GiB card) as ONE resumable command.
+#     Artefacts are cell-tagged and completed cells are skipped on restart;
+#     --dry_run prints the plan and every per-cell command line first.
+#     Operator's guide: docs/GPU_RUN_PLAYBOOK.md
+python scripts/run_stage2b_grid.py --tiers 1 2 3 4 5 \
+    --esm_model facebook/esm2_t33_650M_UR50D --mode siamese --eval lopo \
+    --batch_size 1 --grad_accum 8 --gradient_checkpointing --n_bootstrap 10000
 
 # 8. Benchmark all four Phase-3 fine-tuning strategies on identical MMR splits
 #    (mvmamba recipe / VariPred linear probe / ProPath siamese / CSBJ token
@@ -165,9 +176,8 @@ python scripts/build_cluster_split.py \
     --out_dir data/processed/extended
 
 # 12. Unit tests for parsing / splitting / MMR-gnomAD / MaveDB / CIMRA / ESM
-#     fine-tuning logic
-python tests/test_datasets.py && python tests/test_mmr_modules.py \
-    && python tests/test_new_data_sources.py
+#     fine-tuning / ablation-grid logic (149 tests)
+python -m pytest tests/ -q
 ```
 
 ## NVIDIA GPU support
@@ -242,17 +252,20 @@ forward passes under fp16 autocast on GPUs. Keep `--extract_batch_size` small
 | `src/model.py` | residual MLP head |
 | `src/loss.py` | focal loss, weighted BCE |
 | `src/calibration.py` | ECE/MCE/Brier, temperature & isotonic calibrators, plots |
+| `src/finetune_grid.py` | Stage-2b ablation-grid cells, tiers, and deterministic cell slugs |
 | `scripts/finetune_esm_mmr.py` | full backbone fine-tuning + leave-one-gene-out eval CLI |
+| `scripts/run_stage2b_grid.py` | runs the Stage-2b ablation grid, one cell at a time, resumably |
 | `scripts/compare_finetune_strategies.py` | benchmarks all 4 Phase-3 fine-tuning strategies |
 | `scripts/compare_backbones.py` | ESM-1b vs ESM2-650M masked-marginal comparison |
 | `scripts/eval_leave_one_protein_out.py` | leave-one-protein-out CV over the broad panel |
 | `scripts/build_cluster_split.py` | MMseqs2 sequence-cluster-disjoint split |
-| `tests/test_datasets.py`, `tests/test_mmr_modules.py`, `tests/test_new_data_sources.py` | unit tests |
+| `tests/` (`test_datasets.py`, `test_merge.py`, `test_mmr_modules.py`, `test_new_data_sources.py`, `test_esm_finetune.py`, `test_finetune_grid.py`) | unit tests -- `python -m pytest tests/ -q` |
 | `docs/PROJECT_DOCUMENTATION.md` | **start here** -- what was built, why, and what it improves on |
 | `docs/CODE_GUIDE.md` | **how it works** -- module mechanics, the data merge step by step, better alternatives |
 | `docs/DATA_TO_MODEL.md` | dataset schema + how the data is fed to the model (CSV row -> tensor), and what is verified |
 | `docs/DATASETS.md` | **full dataset documentation** (licences, schemas, rules) |
 | `docs/CODE_REVIEW.md` | issues found & fixed + complete changelog |
+| `docs/GPU_RUN_PLAYBOOK.md` | operator's guide for the Stage-2b ablation grid on a CUDA box |
 | `data/raw/`, `data/processed/` | cached artefacts (never edit by hand) |
 
 ## Key design guarantees

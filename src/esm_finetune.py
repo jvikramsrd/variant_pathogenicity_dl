@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
 import random
 import time
 from dataclasses import dataclass
@@ -48,11 +49,21 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
+from .fusion import build_fusion_head
 from .mvmamba_features import centered_window_bounds
 
 logger = logging.getLogger(__name__)
 
 FINETUNE_MODES = ("wt_site", "siamese")
+
+#: How the zero-shot term log P(mut|X) - log P(wt|X) reaches the classifier.
+#: "residual" adds it as a learnable-gain skip connection past a
+#: zero-initialised output layer, so an untrained model reproduces the
+#: zero-shot ESM ranking (ROC-AUC ~0.834 on the MMR panel) and training learns
+#: a correction on top of a working predictor. "concat" is the historical
+#: behaviour: one more input dimension with a random init weight. "off" is the
+#: ablation.
+PLLR_MODES = ("residual", "concat", "off")
 
 #: PROJECT_PLAN.md Phase 3 step 4's ProPath-recipe defaults.
 PROPATH_DEFAULTS: Dict[str, object] = {
@@ -86,6 +97,24 @@ def _autocast(device: torch.device, dtype: Optional[torch.dtype]):
     return torch.autocast(device_type=device.type, dtype=dtype)
 
 
+def _zero_init_scalar_output(module: nn.Module) -> None:
+    """Zero the last ``Linear(..., 1)`` in *module*.
+
+    Used by the PLLR residual mode so the untrained model's logit is exactly
+    the scaled zero-shot term. Works for the plain head and for both fusion
+    heads, which all end in a scalar projection.
+    """
+    last = None
+    for m in module.modules():
+        if isinstance(m, nn.Linear) and m.out_features == 1:
+            last = m
+    if last is None:
+        raise ValueError("no scalar output Linear found to zero-initialise")
+    nn.init.zeros_(last.weight)
+    if last.bias is not None:
+        nn.init.zeros_(last.bias)
+
+
 # --------------------------------------------------------------------------- #
 # Model
 # --------------------------------------------------------------------------- #
@@ -108,7 +137,11 @@ class ESMFineTuneClassifier(nn.Module):
                  mode: str = "wt_site", n_unfrozen_layers: int = -1,
                  hidden_dim: int = 256, dropout: float = 0.15,
                  gradient_checkpointing: bool = False,
-                 use_pllr: bool = True) -> None:
+                 pllr_mode: Optional[str] = None,
+                 n_prior_features: int = 0,
+                 fusion: str = "concat",
+                 shared_dim: int = 128,
+                 use_pllr: Optional[bool] = None) -> None:
         super().__init__()
         if mode not in FINETUNE_MODES:
             raise ValueError(f"mode must be one of {FINETUNE_MODES}; got {mode!r}")
@@ -121,7 +154,24 @@ class ESMFineTuneClassifier(nn.Module):
 
         self.model_name = model_name
         self.mode = mode
-        self.use_pllr = bool(use_pllr)
+        if use_pllr is not None:
+            # Legacy callers passed a bool. Honour it, but not alongside the
+            # richer flag -- silently preferring one would make an ablation
+            # cell run a configuration its name does not describe. Both
+            # parameters default to None so that an *explicitly* passed
+            # pllr_mode is distinguishable from the default.
+            if pllr_mode is not None:
+                raise ValueError(
+                    "pass either pllr_mode or use_pllr, not both "
+                    f"(got pllr_mode={pllr_mode!r}, use_pllr={use_pllr!r})")
+            pllr_mode = "concat" if use_pllr else "off"
+        if pllr_mode is None:
+            pllr_mode = "residual"
+        if pllr_mode not in PLLR_MODES:
+            raise ValueError(f"pllr_mode must be one of {PLLR_MODES}; got {pllr_mode!r}")
+        self.pllr_mode = pllr_mode
+        #: Retained for backwards compatibility with existing callers.
+        self.use_pllr = pllr_mode != "off"
         # Kept as attributes (not just consumed below) so a fine-tuned model
         # can be rebuilt from a checkpoint without the original CLI args --
         # see config() / save_finetuned() / load_finetuned_model().
@@ -158,7 +208,7 @@ class ESMFineTuneClassifier(nn.Module):
         if gradient_checkpointing:
             self.backbone.gradient_checkpointing_enable()
 
-        emb_dim = self.hidden_size * (4 if mode == "siamese" else 1)
+        emb_dim = self.esm_block_dim
         # LayerNorm BEFORE the first Linear. Raw ESM hidden states have large,
         # position-dependent norms, and in siamese mode half the concatenated
         # vector (site_wt, site_mut) is near-duplicate while the informative
@@ -166,14 +216,30 @@ class ESMFineTuneClassifier(nn.Module):
         # so an unnormalised input made the head spend its capacity on scale
         # rather than on the signal.
         self.feat_norm = nn.LayerNorm(emb_dim)
-        in_dim = emb_dim + (1 if self.use_pllr else 0)
-        self.head = nn.Sequential(
-            nn.Linear(in_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-        )
-        self.out = nn.Linear(hidden_dim, 1)
+        in_dim = emb_dim + (1 if self.pllr_mode == "concat" else 0)
+        self.n_prior_features = int(n_prior_features)
+        self.fusion = fusion
+        self.shared_dim = int(shared_dim)
+        if self.n_prior_features > 0:
+            # Reuse the Stage-2 fusion heads rather than a second
+            # implementation, so Stage-2b architectures stay directly
+            # comparable to Stage-2's concat_fusion / gatewave_fusion cells.
+            # norm="layer": the fine-tune runs at micro-batch 1 on a 15 GiB
+            # card, where BatchNorm1d cannot compute batch statistics.
+            self.fusion_head: Optional[nn.Module] = build_fusion_head(
+                fusion, (in_dim, self.n_prior_features),
+                shared_dim=self.shared_dim, dropout=dropout, norm="layer")
+            self.head = None
+            self.out = None
+        else:
+            self.fusion_head = None
+            self.head = nn.Sequential(
+                nn.Linear(in_dim, hidden_dim),
+                nn.LayerNorm(hidden_dim),
+                nn.GELU(),
+                nn.Dropout(dropout),
+            )
+            self.out = nn.Linear(hidden_dim, 1)
         #: PLLR is a log-ratio, typically within about [-20, +5]. Dividing by a
         #: fixed constant puts it on roughly the same scale as the LayerNorm'd
         #: embedding block so neither term dominates the first Linear at
@@ -181,12 +247,37 @@ class ESMFineTuneClassifier(nn.Module):
         #: the feature identical between training and single-variant
         #: inference, and keeps it comparable across genes and batch sizes.
         self.register_buffer("pllr_scale", torch.tensor(10.0))
+        if self.pllr_mode == "residual":
+            #: Learnable gain on the zero-shot term. Negative at init because
+            #: raw PLLR is negative for damaging variants while pathogenic is
+            #: the positive class.
+            self.pllr_gain = nn.Parameter(torch.tensor(-1.0))
+            # Zero-init the scalar projection so the untrained model is exactly
+            # the zero-shot predictor. Its weight still receives a non-zero
+            # gradient on the first backward, so it leaves zero immediately --
+            # nothing is frozen out.
+            _zero_init_scalar_output(self._scoring_module())
 
     def trainable_backbone_params(self) -> List[torch.nn.Parameter]:
         return [p for p in self.backbone.parameters() if p.requires_grad]
 
+    def _scoring_module(self) -> nn.Module:
+        """Whichever submodule turns features into a logit."""
+        return self.fusion_head if self.fusion_head is not None else self.out
+
     def head_params(self) -> List[torch.nn.Parameter]:
-        return list(self.head.parameters()) + list(self.out.parameters())
+        if self.fusion_head is not None:
+            params = list(self.fusion_head.parameters())
+        else:
+            params = list(self.head.parameters()) + list(self.out.parameters())
+        if self.pllr_mode == "residual":
+            params.append(self.pllr_gain)
+        return params
+
+    @property
+    def esm_block_dim(self) -> int:
+        """Width of the ESM feature block that :meth:`encode` returns."""
+        return self.hidden_size * (4 if self.mode == "siamese" else 1)
 
     def config(self) -> Dict[str, object]:
         """Constructor kwargs needed to rebuild this model before loading a
@@ -197,18 +288,29 @@ class ESMFineTuneClassifier(nn.Module):
             "n_unfrozen_layers": self.n_unfrozen_layers,
             "hidden_dim": self.hidden_dim,
             "dropout": self.dropout,
-            "use_pllr": self.use_pllr,
+            "pllr_mode": self.pllr_mode,
+            "n_prior_features": self.n_prior_features,
+            "fusion": self.fusion,
+            "shared_dim": self.shared_dim,
         }
 
     def _encode(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         return self.backbone(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
 
-    def forward(self, wt_ids: torch.Tensor, wt_mask: torch.Tensor, wt_pos: torch.Tensor,
-                mut_ids: Optional[torch.Tensor] = None,
-                mut_mask: Optional[torch.Tensor] = None,
-                mut_pos: Optional[torch.Tensor] = None,
-                wt_tok_id: Optional[torch.Tensor] = None,
-                mut_tok_id: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def encode(self, wt_ids: torch.Tensor, wt_mask: torch.Tensor, wt_pos: torch.Tensor,
+               mut_ids: Optional[torch.Tensor] = None,
+               mut_mask: Optional[torch.Tensor] = None,
+               mut_pos: Optional[torch.Tensor] = None,
+               wt_tok_id: Optional[torch.Tensor] = None,
+               mut_tok_id: Optional[torch.Tensor] = None,
+               ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Backbone pass -> ``(esm_block [B, esm_block_dim], pllr [B])``.
+
+        Separated from :meth:`classify` so that (a) the prior branch and the
+        PLLR residual are head-local concerns, and (b) when the backbone is
+        frozen this output is constant across epochs and can be computed once
+        (see :func:`fit_esm_finetune`'s precompute path).
+        """
         h_wt = self._encode(wt_ids, wt_mask)
         batch_idx = torch.arange(h_wt.shape[0], device=h_wt.device)
         # +1: token index 0 is <cls>; wt_pos is 0-based within the raw window.
@@ -219,40 +321,70 @@ class ESMFineTuneClassifier(nn.Module):
             h_mut = self._encode(mut_ids, mut_mask)
             site_mut = h_mut[batch_idx, mut_pos + 1]
             diff = site_mut - site_wt
-            feat = torch.cat([site_wt, site_mut, diff, diff.abs()], dim=-1)
+            block = torch.cat([site_wt, site_mut, diff, diff.abs()], dim=-1)
         else:
-            feat = site_wt
-        feat = self.feat_norm(feat)
+            block = site_wt
 
-        if self.use_pllr:
-            if wt_tok_id is None or mut_tok_id is None:
+        if self.pllr_mode == "off":
+            return block, torch.zeros(block.shape[0], device=block.device,
+                                      dtype=torch.float32)
+        if wt_tok_id is None or mut_tok_id is None:
+            raise ValueError(
+                "PLLR is enabled but wt_tok_id/mut_tok_id are missing. Pass "
+                "tokenizer=model.tokenizer to build_examples().")
+        if bool((wt_tok_id == mut_tok_id).any()):
+            # Synonymous substitutions are dropped upstream, so wt and mut ids
+            # can never legitimately coincide. Equal ids mean build_examples()
+            # ran without a tokenizer and left them at the default 0, which
+            # would make PLLR a constant zero read off a special token --
+            # silently disabling the very term this path exists to supply.
+            raise ValueError(
+                "wt_tok_id == mut_tok_id for at least one example; "
+                "build_examples() was called without tokenizer=..., so "
+                "residue ids were never resolved.")
+        # delta = log P(mut | X) - log P(wt | X), read off the SAME wild-type
+        # forward pass that produced site_wt (Meier et al. 2021: both
+        # pseudo-likelihoods share one context, so no extra pass is needed).
+        # This is the zero-shot ESM score -- on its own it reaches ROC-AUC
+        # 0.834 pooled across these genes.
+        site_logits = self.lm_head(h_wt[batch_idx, wt_pos + 1].unsqueeze(1))
+        log_probs = torch.log_softmax(site_logits.float().squeeze(1), dim=-1)
+        pllr = (log_probs.gather(1, mut_tok_id.view(-1, 1))
+                - log_probs.gather(1, wt_tok_id.view(-1, 1))).squeeze(-1)
+        return block, pllr
+
+    def classify(self, esm_block: torch.Tensor, pllr: torch.Tensor,
+                 priors: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """``(esm_block, pllr[, priors])`` -> logits ``[B]``."""
+        feat = self.feat_norm(esm_block)
+        if self.pllr_mode == "concat":
+            feat = torch.cat([feat, (pllr / self.pllr_scale).unsqueeze(-1)], dim=-1)
+        if self.fusion_head is not None:
+            if priors is None:
                 raise ValueError(
-                    "use_pllr=True requires wt_tok_id/mut_tok_id. Pass "
-                    "tokenizer=model.tokenizer to build_examples().")
-            if bool((wt_tok_id == mut_tok_id).any()):
-                # Synonymous substitutions are dropped upstream, so wt and mut
-                # ids can never legitimately coincide. Equal ids mean
-                # build_examples() ran without a tokenizer and left them at the
-                # default 0, which would make PLLR a constant zero read off a
-                # special token -- silently disabling the very term this path
-                # exists to supply.
+                    f"this model was built with n_prior_features="
+                    f"{self.n_prior_features}, so classify() requires priors.")
+            if priors.shape[-1] != self.n_prior_features:
                 raise ValueError(
-                    "wt_tok_id == mut_tok_id for at least one example; "
-                    "build_examples() was called without tokenizer=..., so "
-                    "residue ids were never resolved.")
-            # delta = log P(mut | X) - log P(wt | X), read off the SAME wild-type
-            # forward pass that produced site_wt (Meier et al. 2021: both
-            # pseudo-likelihoods share one context, so no extra pass is needed).
-            # This is the zero-shot ESM score -- on its own it reaches ROC-AUC
-            # 0.834 pooled across these genes. Feeding it in makes the head
-            # learn a *residual* on top of a working predictor instead of
-            # rediscovering it from 662 labels.
-            site_logits = self.lm_head(h_wt[batch_idx, wt_pos + 1].unsqueeze(1))
-            log_probs = torch.log_softmax(site_logits.float().squeeze(1), dim=-1)
-            pllr = (log_probs.gather(1, mut_tok_id.view(-1, 1))
-                    - log_probs.gather(1, wt_tok_id.view(-1, 1)))
-            feat = torch.cat([feat, pllr / self.pllr_scale], dim=-1)
-        return self.out(self.head(feat)).squeeze(-1)
+                    f"expected {self.n_prior_features} prior features, got "
+                    f"{priors.shape[-1]}")
+            logit = self.fusion_head(feat, priors.to(feat.dtype))
+        else:
+            logit = self.out(self.head(feat)).squeeze(-1)
+        if self.pllr_mode == "residual":
+            logit = logit + self.pllr_gain * (pllr / self.pllr_scale)
+        return logit
+
+    def forward(self, wt_ids: torch.Tensor, wt_mask: torch.Tensor, wt_pos: torch.Tensor,
+                mut_ids: Optional[torch.Tensor] = None,
+                mut_mask: Optional[torch.Tensor] = None,
+                mut_pos: Optional[torch.Tensor] = None,
+                wt_tok_id: Optional[torch.Tensor] = None,
+                mut_tok_id: Optional[torch.Tensor] = None,
+                priors: Optional[torch.Tensor] = None) -> torch.Tensor:
+        block, pllr = self.encode(wt_ids, wt_mask, wt_pos, mut_ids, mut_mask,
+                                  mut_pos, wt_tok_id, mut_tok_id)
+        return self.classify(block, pllr, priors)
 
 
 # --------------------------------------------------------------------------- #
@@ -270,11 +402,20 @@ class FineTuneExample:
     #: PLLR term. Resolved once at example-build time rather than per batch.
     wt_tok_id: int = 0
     mut_tok_id: int = 0
+    #: This variant's standardised prior-feature vector, or None when the model
+    #: has no prior branch.
+    priors: Optional[np.ndarray] = None
+    #: Positional index of the source row in the frame passed to
+    #: :func:`build_examples`. Rows failing wt-validation are dropped, so a
+    #: caller writing per-variant predictions needs this to recover the keys
+    #: of the examples that actually survived.
+    row_index: int = -1
 
 
 def build_examples(
     df: pd.DataFrame, sequence_by_gene: Dict[str, str], mode: str,
     max_residues: int = 1022, tokenizer=None,
+    prior_matrix: Optional[np.ndarray] = None,
 ) -> List[FineTuneExample]:
     """Crop each variant to a mutation-centred window and prepare WT/VT text.
 
@@ -287,13 +428,18 @@ def build_examples(
     examples: List[FineTuneExample] = []
     n_dropped = 0
     has_weight = "label_weight" in df.columns
+    if prior_matrix is not None and len(prior_matrix) != len(df):
+        raise ValueError(
+            f"prior_matrix has {len(prior_matrix)} rows but df has {len(df)}; "
+            "it must be row-aligned to df so a wt-validation drop removes the "
+            "variant and its prior vector together.")
     # Residue -> vocabulary id, resolved once. Without a tokenizer the ids stay
     # 0 and the caller must not enable the PLLR term.
     aa_to_id: Dict[str, int] = {}
     if tokenizer is not None:
         aa_to_id = {aa: int(tokenizer.convert_tokens_to_ids(aa))
                     for aa in "ACDEFGHIKLMNPQRSTVWY"}
-    for row in df.itertuples(index=False):
+    for row_i, row in enumerate(df.itertuples(index=False)):
         gene = str(getattr(row, "gene"))
         seq = sequence_by_gene.get(gene)
         pos = int(getattr(row, "position"))
@@ -314,7 +460,10 @@ def build_examples(
         examples.append(FineTuneExample(
             wt_seq=wt_window, wt_pos0=local_pos, mut_seq=mut_seq, mut_pos0=mut_pos0,
             label=float(getattr(row, "label")), weight=weight,
-            wt_tok_id=aa_to_id.get(wt_aa, 0), mut_tok_id=aa_to_id.get(mut_aa, 0)))
+            wt_tok_id=aa_to_id.get(wt_aa, 0), mut_tok_id=aa_to_id.get(mut_aa, 0),
+            priors=(None if prior_matrix is None
+                    else np.asarray(prior_matrix[row_i], dtype=np.float32)),
+            row_index=row_i))
     if n_dropped:
         logger.warning("build_examples: dropped %d/%d rows (unknown gene or "
                        "wt/position mismatch against the canonical sequence).",
@@ -350,6 +499,9 @@ def make_collate_fn(tokenizer, mode: str):
             out["mut_ids"] = mut_tok["input_ids"]
             out["mut_mask"] = mut_tok["attention_mask"]
             out["mut_pos"] = torch.tensor([b.mut_pos0 for b in batch], dtype=torch.long)
+        if batch[0].priors is not None:
+            out["priors"] = torch.tensor(
+                np.stack([b.priors for b in batch]), dtype=torch.float32)
         return out
     return collate
 
@@ -360,7 +512,8 @@ def _to_device(batch: Dict[str, torch.Tensor], device: torch.device) -> Dict[str
 
 def _forward(model: ESMFineTuneClassifier, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
     tok = {"wt_tok_id": batch.get("wt_tok_id"),
-           "mut_tok_id": batch.get("mut_tok_id")}
+           "mut_tok_id": batch.get("mut_tok_id"),
+           "priors": batch.get("priors")}
     if model.mode == "siamese":
         return model(batch["wt_ids"], batch["wt_mask"], batch["wt_pos"],
                      batch["mut_ids"], batch["mut_mask"], batch["mut_pos"], **tok)
@@ -396,6 +549,102 @@ def predict_proba(model: ESMFineTuneClassifier, examples: Sequence[FineTuneExamp
     return np.concatenate(out) if out else np.zeros(0, dtype=np.float32)
 
 
+def encode_all(model: "ESMFineTuneClassifier", examples: Sequence[FineTuneExample],
+               device: torch.device, batch_size: int = 16, amp: bool = True,
+               ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    """Run the backbone once over *examples* -> ``(blocks, pllrs, priors)``.
+
+    Only valid with a frozen backbone, where the encoder output does not
+    change between epochs. Returns CPU tensors; the caller moves the
+    mini-batches it needs.
+    """
+    model.eval()
+    amp_dtype = amp_dtype_for(device) if amp else None
+    loader = DataLoader(FineTuneDataset(examples), batch_size=batch_size,
+                        shuffle=False,
+                        collate_fn=make_collate_fn(model.tokenizer, model.mode))
+    blocks, pllrs, priors = [], [], []
+    with torch.inference_mode():
+        for batch in loader:
+            batch = _to_device(batch, device)
+            with _autocast(device, amp_dtype):
+                block, pllr = model.encode(
+                    batch["wt_ids"], batch["wt_mask"], batch["wt_pos"],
+                    batch.get("mut_ids"), batch.get("mut_mask"),
+                    batch.get("mut_pos"), batch.get("wt_tok_id"),
+                    batch.get("mut_tok_id"))
+            blocks.append(block.float().cpu())
+            pllrs.append(pllr.float().cpu())
+            if "priors" in batch:
+                priors.append(batch["priors"].float().cpu())
+    return (torch.cat(blocks), torch.cat(pllrs),
+            torch.cat(priors) if priors else None)
+
+
+class _PrecomputedDataset(Dataset):
+    """Encoded features + targets, for head-only training."""
+
+    def __init__(self, blocks, pllrs, priors, labels, weights) -> None:
+        self.blocks, self.pllrs, self.priors = blocks, pllrs, priors
+        self.labels, self.weights = labels, weights
+
+    def __len__(self) -> int:
+        return int(self.blocks.shape[0])
+
+    def __getitem__(self, i: int):
+        priors = None if self.priors is None else self.priors[i]
+        return self.blocks[i], self.pllrs[i], priors, self.labels[i], self.weights[i]
+
+
+def _precomputed_collate(batch):
+    blocks = torch.stack([b[0] for b in batch])
+    pllrs = torch.stack([b[1] for b in batch])
+    priors = None if batch[0][2] is None else torch.stack([b[2] for b in batch])
+    labels = torch.stack([b[3] for b in batch])
+    weights = torch.stack([b[4] for b in batch])
+    return blocks, pllrs, priors, labels, weights
+
+
+def positive_class_weight(labels: Sequence[float]) -> float:
+    """``n_neg / n_pos`` on the fitting partition, or 1.0 if a class is absent.
+
+    Mirrors :mod:`src.train` and :mod:`src.transfer`, which both weight the
+    positive class. Per-gene prevalence on the MMR panel runs 40-82% positive,
+    so an unweighted objective optimises a different operating point in every
+    leave-one-gene-out fold.
+    """
+    arr = np.asarray(list(labels), dtype=np.float64)
+    if arr.size == 0:
+        return 1.0
+    n_pos = float((arr > 0.5).sum())
+    n_neg = float(arr.size - n_pos)
+    if n_pos == 0.0 or n_neg == 0.0:
+        return 1.0
+    return n_neg / n_pos
+
+
+def make_lr_schedule(optimizer: torch.optim.Optimizer, total_steps: int,
+                     warmup_frac: float = 0.1):
+    """Linear warmup then cosine decay to zero, stepped per *optimizer* step.
+
+    Per-epoch granularity is too coarse here: a leave-one-gene-out fold runs
+    ten epochs over a few hundred examples, so the whole schedule is a few
+    hundred optimizer steps. Warmup matters because the alternative -- a 650M
+    backbone taking full-size steps from step 0 on ~300-500 labels -- damages
+    the pretrained representation before the head has learned to read it.
+    """
+    total = max(1, int(total_steps))
+    warmup = min(total, max(1, int(round(total * warmup_frac))))
+
+    def lr_lambda(step: int) -> float:
+        if step < warmup:
+            return (step + 1) / warmup
+        progress = (step - warmup) / max(1, total - warmup)
+        return 0.5 * (1.0 + math.cos(math.pi * min(1.0, progress)))
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
 def fit_esm_finetune(
     model: ESMFineTuneClassifier,
     train_examples: Sequence[FineTuneExample],
@@ -411,6 +660,8 @@ def fit_esm_finetune(
     max_grad_norm: float = 1.0,
     grad_accum_steps: int = 1,
     amp: bool = True,
+    warmup_frac: float = 0.1,
+    use_pos_weight: bool = True,
 ) -> Tuple[ESMFineTuneClassifier, int, float]:
     """Fine-tune with two AdamW parameter groups (ProPath's LR split).
 
@@ -433,6 +684,19 @@ def fit_esm_finetune(
 
     set_seed(seed)
     model.to(device)
+
+    if not model.trainable_backbone_params():
+        # The encoder output is constant across epochs, so encode once instead
+        # of ten times. This is what makes the ablation floor cheap enough to
+        # carry three seeds within the weekend GPU budget.
+        logger.info("Frozen backbone: precomputing features for %d train / "
+                    "%d val examples.", len(train_examples), len(val_examples))
+        return _fit_precomputed(
+            model, train_examples, val_examples, device,
+            head_lr=head_lr, epochs=epochs, patience=patience,
+            batch_size=batch_size, weight_decay=weight_decay,
+            warmup_frac=warmup_frac, use_pos_weight=use_pos_weight,
+            max_grad_norm=max_grad_norm, amp=amp)
 
     amp_dtype = amp_dtype_for(device) if amp else None
     # bf16 has fp32's exponent range, so gradients cannot underflow the way
@@ -458,6 +722,16 @@ def fit_esm_finetune(
         collate_fn=make_collate_fn(model.tokenizer, model.mode))
     val_labels = np.array([e.label for e in val_examples], dtype=np.float32)
 
+    steps_per_epoch = max(1, math.ceil(len(train_loader) / grad_accum_steps))
+    total_steps = epochs * steps_per_epoch
+    scheduler = make_lr_schedule(optimizer, total_steps, warmup_frac)
+    pos_w = (positive_class_weight([e.label for e in train_examples])
+             if use_pos_weight else 1.0)
+    logger.info("LR schedule: %d warmup + cosine over %d optimizer steps | "
+                "pos_weight=%.3f",
+                min(total_steps, max(1, int(round(total_steps * warmup_frac)))),
+                total_steps, pos_w)
+
     clip_params = [p for g in param_groups for p in g["params"]]
     n_batches = len(train_loader)
     best_auc, best_state, best_epoch, left = -np.inf, None, -1, patience
@@ -470,11 +744,17 @@ def fit_esm_finetune(
             batch = _to_device(batch, device)
             with _autocast(device, amp_dtype):
                 logits = _forward(model, batch)
+            weights = batch["weights"]
+            if pos_w != 1.0:
+                weights = weights * torch.where(
+                    batch["labels"] > 0.5,
+                    torch.full_like(weights, pos_w),
+                    torch.ones_like(weights))
             # BCE in fp32 regardless of autocast: the loss reduction is where
             # reduced precision actually costs accuracy, and it is free here.
             loss = (torch.nn.functional.binary_cross_entropy_with_logits(
                 logits.float(), batch["labels"], reduction="none")
-                * batch["weights"]).mean()
+                * weights).mean()
             running += float(loss.item()) * len(batch["labels"])
             # Average over the accumulation window so the effective batch's
             # gradient matches what a single batch_size*grad_accum_steps step
@@ -499,6 +779,7 @@ def fit_esm_finetune(
                 else:
                     optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
+                scheduler.step()
 
         val_probs = predict_proba(model, val_examples, device,
                                   batch_size=batch_size, amp=amp)
@@ -523,6 +804,87 @@ def fit_esm_finetune(
         if val_auc > best_auc:
             best_auc, best_epoch, left = val_auc, epoch + 1, patience
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+        else:
+            left -= 1
+            if left <= 0:
+                logger.info("Early stopping at epoch %d (best val_auc=%.4f @ epoch %d).",
+                            epoch + 1, best_auc, best_epoch)
+                break
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    return model, max(best_epoch, 0), float(best_auc)
+
+
+def _fit_precomputed(model, train_examples, val_examples, device, *, head_lr,
+                     epochs, patience, batch_size, weight_decay, warmup_frac,
+                     use_pos_weight, max_grad_norm, amp,
+                     ) -> Tuple["ESMFineTuneClassifier", int, float]:
+    """Head-only training on features encoded once. Frozen backbone only."""
+    from sklearn.metrics import roc_auc_score
+
+    # Encoding runs under inference_mode, so no activations are stored for a
+    # backward pass and the micro-batch that training needs (1, on a 15 GiB
+    # card) is needlessly small here. Mirror src.esm_extractor's frozen-
+    # inference batch of 8 instead -- this is the whole speed win of the
+    # frozen path, and at batch 1 it would be given straight back.
+    encode_bs = max(batch_size, 8)
+    tr_block, tr_pllr, tr_prior = encode_all(model, train_examples, device,
+                                             batch_size=encode_bs, amp=amp)
+    va_block, va_pllr, va_prior = encode_all(model, val_examples, device,
+                                             batch_size=encode_bs, amp=amp)
+    tr_y = torch.tensor([e.label for e in train_examples], dtype=torch.float32)
+    tr_w = torch.tensor([e.weight for e in train_examples], dtype=torch.float32)
+    val_labels = np.array([e.label for e in val_examples], dtype=np.float32)
+
+    pos_w = (positive_class_weight([e.label for e in train_examples])
+             if use_pos_weight else 1.0)
+    if pos_w != 1.0:
+        tr_w = tr_w * torch.where(tr_y > 0.5, torch.full_like(tr_w, pos_w),
+                                  torch.ones_like(tr_w))
+
+    optimizer = torch.optim.AdamW(model.head_params(), lr=head_lr,
+                                  weight_decay=weight_decay)
+    loader = DataLoader(_PrecomputedDataset(tr_block, tr_pllr, tr_prior, tr_y, tr_w),
+                        batch_size=max(2, batch_size), shuffle=True,
+                        collate_fn=_precomputed_collate)
+    scheduler = make_lr_schedule(optimizer, epochs * max(1, len(loader)), warmup_frac)
+
+    best_auc, best_state, best_epoch, left = -np.inf, None, -1, patience
+    for epoch in range(epochs):
+        model.train()
+        running = 0.0
+        for blocks, pllrs, priors, labels, weights in loader:
+            optimizer.zero_grad(set_to_none=True)
+            logits = model.classify(blocks.to(device), pllrs.to(device),
+                                    None if priors is None else priors.to(device))
+            loss = (torch.nn.functional.binary_cross_entropy_with_logits(
+                logits.float(), labels.to(device), reduction="none")
+                * weights.to(device)).mean()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.head_params(), max_grad_norm)
+            optimizer.step()
+            scheduler.step()
+            running += float(loss.item()) * len(labels)
+
+        model.eval()
+        with torch.inference_mode():
+            val_logits = model.classify(
+                va_block.to(device), va_pllr.to(device),
+                None if va_prior is None else va_prior.to(device))
+            val_probs = torch.sigmoid(val_logits.float()).cpu().numpy()
+        try:
+            val_auc = float(roc_auc_score(val_labels, val_probs)) \
+                if len(np.unique(val_labels)) > 1 else -np.inf
+        except ValueError:
+            val_auc = -np.inf
+        logger.info("epoch %d/%d [frozen]: train_loss=%.4f val_auc=%.4f",
+                    epoch + 1, epochs, running / max(1, len(train_examples)), val_auc)
+
+        if val_auc > best_auc:
+            best_auc, best_epoch, left = val_auc, epoch + 1, patience
+            best_state = {k: v.detach().cpu().clone()
+                          for k, v in model.state_dict().items()}
         else:
             left -= 1
             if left <= 0:
@@ -592,12 +954,20 @@ def load_finetuned_model(path, device: Optional[torch.device] = None, *,
 
     payload = load_checkpoint(Path(path))
     cfg = payload["config"]
+    # Checkpoints written before pllr_mode existed carry a use_pllr bool. The
+    # behaviour it described is exactly "concat", never "residual".
+    pllr_mode = cfg.get("pllr_mode")
+    if pllr_mode is None:
+        pllr_mode = "concat" if cfg.get("use_pllr", True) else "off"
     model = ESMFineTuneClassifier(
         model_name=cfg["model_name"], mode=cfg["mode"],
         n_unfrozen_layers=cfg.get("n_unfrozen_layers", -1),
         hidden_dim=cfg.get("hidden_dim", 256),
         dropout=cfg.get("dropout", 0.15),
-        use_pllr=cfg.get("use_pllr", True))
+        pllr_mode=pllr_mode,
+        n_prior_features=cfg.get("n_prior_features", 0),
+        fusion=cfg.get("fusion", "concat"),
+        shared_dim=cfg.get("shared_dim", 128))
     model.load_state_dict(payload["model_state_dict"], strict=strict)
     if device is not None:
         model.to(device)
@@ -606,8 +976,9 @@ def load_finetuned_model(path, device: Optional[torch.device] = None, *,
 
 
 __all__ = [
-    "FINETUNE_MODES", "PROPATH_DEFAULTS", "FINETUNE_CHECKPOINT_FORMAT",
+    "FINETUNE_MODES", "PLLR_MODES", "PROPATH_DEFAULTS", "FINETUNE_CHECKPOINT_FORMAT",
     "ESMFineTuneClassifier", "FineTuneExample", "FineTuneDataset",
     "build_examples", "make_collate_fn", "predict_proba", "fit_esm_finetune",
     "set_seed", "amp_dtype_for", "save_finetuned", "load_finetuned_model",
+    "make_lr_schedule", "positive_class_weight", "encode_all",
 ]

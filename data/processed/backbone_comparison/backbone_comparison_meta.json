@@ -1,0 +1,8 @@
+{
+  "built_at_utc": "2026-08-28T15:12:54.962289+00:00",
+  "backbones": {
+    "esm1b": "facebook/esm1b_t33_650M_UR50S",
+    "esm2_650m": "facebook/esm2_t33_650M_UR50D"
+  },
+  "clinical_only": true
+}

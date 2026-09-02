@@ -1,0 +1,12 @@
+{
+  "checkpoint": "/home/jvikramsrd/Projects/variant_pathogenicity_dl/data/processed/transfer/pretrain_dropconst.pt",
+  "rows": 172420,
+  "n_pos": 79429,
+  "n_neg": 92991,
+  "n_genes": 79,
+  "feature_dim": 38,
+  "esm_dim": 0,
+  "prior_cols": 38,
+  "inner_val_roc_auc": 0.7175147690047652,
+  "runtime_s": 47.7
+}

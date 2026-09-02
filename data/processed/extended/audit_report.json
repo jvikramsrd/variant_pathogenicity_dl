@@ -576,7 +576,11 @@
   },
   "passed": true,
   "train_csv": {
+<<<<<<< HEAD
     "path": "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\extended\\extended_dataset_train.csv",
+=======
+    "path": "/home/jvikramsrd/Projects/variant_pathogenicity_dl/data/processed/extended/extended_dataset_train.csv",
+>>>>>>> d94684080054700bf62e7e15ca09c3c2d95f31fe
     "rows": 189175,
     "pathogenic": 81798,
     "benign": 107377

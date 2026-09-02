@@ -151,8 +151,13 @@ python scripts/compare_finetune_strategies.py --holdout_gene MSH2 \
 
 # Just the full fine-tune, LOPO across all four MMR genes:
 python scripts/finetune_esm_mmr.py --mode siamese --n_unfrozen_layers -1 \
-    --esm_model facebook/esm2_t33_650M_UR50D --eval lopo \
+    --esm_model facebook/esm2_t33_650M_UR50D --eval lopo --branch esm+priors \
     --backbone_lr 1e-5 --batch_size 8 --epochs 10 --gradient_checkpointing
+
+# The whole Stage-2b ablation grid, one resumable command (see below):
+python scripts/run_stage2b_grid.py --tiers 1 2 3 4 5 --mode siamese --eval lopo \
+    --esm_model facebook/esm2_t33_650M_UR50D \
+    --batch_size 1 --grad_accum 8 --gradient_checkpointing --n_bootstrap 10000
 
 # ESM-1b vs ESM2-650M masked-marginal zero-shot ("don't assume ESM2 wins"):
 python scripts/compare_backbones.py
@@ -162,6 +167,49 @@ python scripts/compare_backbones.py
 `-1` = full fine-tune, `0` = frozen (ablation floor), `N>0` = last N
 transformer layers only (cheaper middle ground). `--gradient_checkpointing`
 trades compute for memory on the 650M checkpoint.
+
+`--branch` controls what the head reads, and it is the flag to check before
+comparing Stage 2b against the frozen Stage-2 probe:
+
+| `--branch` | Head input | Use |
+|---|---|---|
+| `esm` (default) | ESM feature block + the zero-shot PLLR term | Reproduces Stage 2b as it originally shipped |
+| `esm+priors` | the above **plus** `src.transfer.TRANSFER_PRIOR_COLS` through `src/fusion.py`'s heads | The only setting that is comparable with the frozen priors probe |
+
+The historical Stage-2b-vs-probe gap (0.880 vs 0.945 mean unseen-gene ROC-AUC)
+was measured with `--branch esm`, so it confounds freeze depth with feature set
+and settles neither.
+
+Two related knobs: `--pllr_mode residual` (default) adds
+`log P(mut|X) - log P(wt|X)` as a fixed-scale, zero-initialised residual on the
+logit -- an untrained model is then exactly the ~0.834-AUC zero-shot predictor
+-- while `--pllr_mode concat` reproduces the old parameterisation (one of 5,121
+input dims, random init) and `--no-use_pllr` drops the term. `--fusion
+{concat,gatewave}` selects the head on the `esm+priors` branch.
+
+## The Stage-2b ablation grid (Phase 3)
+
+`src/finetune_grid.py` defines 16 cells over `branch` x `n_unfrozen_layers` x
+PLLR mode, grouped into five tiers ordered by scientific value, and
+`scripts/run_stage2b_grid.py` runs them sequentially:
+
+- **Resumable.** A cell counts as complete only when its results CSV, its
+  per-variant predictions CSV, and its summary JSON all exist; re-running the
+  identical command skips those and continues. A failed cell is logged and does
+  not stop the remaining tiers.
+- **Cell-tagged artefacts.** Every filename carries the cell slug
+  (`esm_finetune_results_siamese_lopo_<slug>.csv`), so nothing has to be moved
+  aside between cells and no run can silently overwrite another.
+- **Per-variant predictions**, not just metrics -- which is what makes seed
+  ensembling, recalibration, and variant-level comparison between cells
+  possible after the fact.
+- `--dry_run` prints the plan and every per-cell command line without running
+  anything. `--force` re-runs completed cells.
+
+Tier 1 (6 cells, ~16 h) alone settles the headline question: does ESM add
+anything on top of the published priors on unseen genes? Full operator's
+document, including the pre-registered reading of the results:
+`docs/GPU_RUN_PLAYBOOK.md`.
 
 ## Circularity-safe sequence clustering (Phase 1)
 

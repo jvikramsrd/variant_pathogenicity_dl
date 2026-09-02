@@ -1,12 +1,24 @@
 {
+<<<<<<< HEAD
   "checkpoint": "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\transfer\\mmr_pipeline_pretrain.pt",
+=======
+  "checkpoint": "/home/jvikramsrd/Projects/variant_pathogenicity_dl/data/processed/transfer/mmr_pipeline_pretrain.pt",
+>>>>>>> d94684080054700bf62e7e15ca09c3c2d95f31fe
   "rows": 172420,
   "n_pos": 79429,
   "n_neg": 92991,
   "n_genes": 79,
+<<<<<<< HEAD
   "feature_dim": 5159,
   "esm_dim": 5121,
   "prior_cols": 38,
   "inner_val_roc_auc": 0.7980512981028864,
   "runtime_s": 56586.6
+=======
+  "feature_dim": 38,
+  "esm_dim": 0,
+  "prior_cols": 38,
+  "inner_val_roc_auc": 0.7175147690047652,
+  "runtime_s": 63.3
+>>>>>>> d94684080054700bf62e7e15ca09c3c2d95f31fe
 }

@@ -414,20 +414,53 @@ silently-invalid transfer run produces plausible numbers.
 This is the only place gradients reach the transformer. Everything above is a
 linear probe on frozen features.
 
+The module is split into `encode()` (backbone → ESM feature block + PLLR) and
+`classify()` (features → logit), because that boundary is what makes the prior
+branch, the PLLR residual, and the frozen-backbone precompute path all cheap:
+
 ```python
+# encode() -- AutoModelForMaskedLM, so the LM head is available for PLLR
 h_wt  = backbone(wt_ids).last_hidden_state[batch, wt_pos + 1]    # +1 skips <cls>
 h_mut = backbone(mut_ids).last_hidden_state[batch, mut_pos + 1]  # siamese only
-feat  = cat([h_wt, h_mut, h_mut - h_wt, |h_mut - h_wt|])         # → MLP → logit
+block = cat([h_wt, h_mut, h_mut - h_wt, |h_mut - h_wt|])         # ESM block
+pllr  = log P(mut | X) - log P(wt | X)                           # same WT pass
+
+# classify()
+feat  = LayerNorm(block)                       # normalise BEFORE the first Linear
+feat  = cat([feat, pllr / scale]) if pllr_mode == "concat" else feat
+logit = fusion_head(feat, priors) if priors else head(feat)      # → MLP → logit
+logit = logit + pllr_gain * (pllr / scale)     if pllr_mode == "residual"
 ```
 
 - `mode="siamese"` — **ProPath**: separate WT and mutant passes, pooled at the
-  mutated residue. Backbone LR 1e-5, batch 8, 10 epochs.
+  mutated residue. Backbone LR 1e-5, head LR 3e-4, effective batch 8, 10 epochs,
+  linear warmup over the first 10% of optimizer steps then cosine decay, and a
+  `pos_weight` fixed from the fitting partition (per-gene prevalence swings
+  40–82% across MMR folds).
 - `mode="wt_site"` — **CSBJ**: a single WT pass, per-residue token classifier.
   Half the compute, no explicit mutant representation.
 - `n_unfrozen_layers`: `-1` full backbone, `0` frozen (the ablation floor that
-  isolates what backbone gradients actually buy), `N>0` last N layers.
+  isolates what backbone gradients actually buy), `N>0` last N layers. At `0`
+  the backbone output is constant across epochs, so `encode_all()` runs it once
+  and training proceeds on cached features — which is what makes three-seed
+  floor cells affordable.
+- `branch` / `n_prior_features > 0`: the head additionally reads
+  `src.transfer.TRANSFER_PRIOR_COLS` through `src/fusion.py`'s heads
+  (`--fusion concat|gatewave`, `norm="layer"` so it works at micro-batch 1).
+  Without this the fine-tune sees **none** of the priors the frozen Stage-2
+  probe reads, and any comparison between the two confounds freeze depth with
+  feature set.
+- `pllr_mode`: `residual` (default) adds the zero-shot term as a fixed-scale,
+  **zero-initialised** residual on the logit, so an untrained model *is* the
+  ~0.834-AUC zero-shot predictor and everything above that is what training
+  bought; `concat` is the historical parameterisation (one of 5,121 input dims
+  with a random init weight); `off` drops it.
 - `--gradient_checkpointing` trades ~30% speed for the memory that usually
   decides whether the 650M checkpoint fits on a consumer GPU.
+
+The ablation grid over these axes lives in `src/finetune_grid.py` (16 cells in
+five tiers, deterministic per-cell slugs) and is driven by
+`scripts/run_stage2b_grid.py`; see `docs/GPU_RUN_PLAYBOOK.md`.
 
 ### 6.4 Losses (`src/loss.py`)
 

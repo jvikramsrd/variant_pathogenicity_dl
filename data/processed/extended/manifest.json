@@ -1,5 +1,9 @@
 {
+<<<<<<< HEAD
   "built_at_utc": "2026-08-29T02:20:28.299608+00:00",
+=======
+  "built_at_utc": "2026-08-28T14:55:59.255759+00:00",
+>>>>>>> d94684080054700bf62e7e15ca09c3c2d95f31fe
   "parameters": {
     "genes": [
       "ACE2",
@@ -650,6 +654,7 @@
   },
   "artefacts": {
     "alphafold_plddt_subset.csv": {
+<<<<<<< HEAD
       "sha256": "32f44b920920b25adafebdff6fe27ef442fbacc6aa20a7da91a3ab113f7966cd",
       "bytes": 1359004
     },
@@ -696,6 +701,54 @@
     "panel_sequences.fasta": {
       "sha256": "dd29db173bc6bc8d7b530b98f7fe2429856e61fcd548e05611d6e11d890f89a7",
       "bytes": 64159
+=======
+      "sha256": "001c32da7ff289fc37d628f78d9dad05c0c17095b77fe2f50935781d3a86f8fe",
+      "bytes": 1312311
+    },
+    "alphamissense_subset.csv": {
+      "sha256": "481eaef24325612aeaba128764be39ab060ea45689ff1aa900d065cdb5b32e09",
+      "bytes": 57467049
+    },
+    "dms_scores_long.csv": {
+      "sha256": "b42e0d74b8f6ca1e1dbab81f057b6078307d4ae3de2ffc9270552f9acc81079b",
+      "bytes": 32989095
+    },
+    "extended_dataset.csv": {
+      "sha256": "57ec21fc3e9271a519bf7c293ffb0a69ed29d41ee193a21fd00b569a15e2f458",
+      "bytes": 566871348
+    },
+    "extended_dataset_train.csv": {
+      "sha256": "b1368946417fd82d74c38f340f93c1810ddee06066c9bc4e820c08d20d9ba8e9",
+      "bytes": 36125501
+    },
+    "gnomad_subset.csv": {
+      "sha256": "07e1075d5341c721bdb49a4f32252472dea1ab9fe7853d9aa87631d1bfc505ed",
+      "bytes": 12088858
+    },
+    "interpro_intervals.csv": {
+      "sha256": "fd0fdc8f7d9834537fd6cd802cf521d1145d1d9cca50a8cbd8ac469c74e9641e",
+      "bytes": 222148
+    },
+    "pg_clinical_panel.csv": {
+      "sha256": "73cbd4ddc57f85c902929d74ce994e50b2797b3dcb0d093ebaa82b708c2013e4",
+      "bytes": 119764
+    },
+    "uniprot_domains.csv": {
+      "sha256": "e12a9c769a55b719f661a7dbb2b6ea2c592df480dc664147e671d74632a5639a",
+      "bytes": 24612
+    },
+    "uniprot_functional_sites.csv": {
+      "sha256": "5ea0fd117e1ebdf3f1cdc3720c08d9df85567107f54396a03049fa5154990aaa",
+      "bytes": 59304
+    },
+    "zeroshot_scores_subset.csv": {
+      "sha256": "a2e6e3bfd46abcce42c94eb34cb64c7bdbec9fc6d7eaec7f867914ec195895a4",
+      "bytes": 5315212
+    },
+    "panel_sequences.fasta": {
+      "sha256": "87da3794a2bf1a119937776602ef31068bac08b0a07dc6dffcd8cd04dc0103b7",
+      "bytes": 63027
+>>>>>>> d94684080054700bf62e7e15ca09c3c2d95f31fe
     }
   },
   "stats": {
