@@ -5,6 +5,106 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-09-02 (CPU dev box) — Stage-2b ablation grid: plumbing smoke run
+
+End-to-end check of the new grid path before it leaves for the CUDA box. **8M
+parameters, two epochs, one held-out gene — a plumbing test, not a result.**
+None of these numbers is comparable to a 650M run and none belongs in the paper.
+
+- **Command:**
+
+  ```bash
+  .venv/bin/python scripts/run_stage2b_grid.py --tiers 3 \
+    --esm_model facebook/esm2_t6_8M_UR50D --mode siamese \
+    --eval holdout --holdout_gene MSH2 \
+    --mmr_csv data/mmr/processed/extended/extended_dataset.csv \
+    --panel_json data/mmr/processed/extended/panel_sequences.json \
+    --epochs 2 --n_bootstrap 200 --out_dir <scratch>/grid_smoke
+  ```
+
+- **5/5 tier-3 cells completed, 0 failed.** Split sizes 277 fine-tune / 71
+  inner-val / 335 holdout — the clinical-only partition, with PMS2's 21 rows in
+  the fine-tune pool.
+- Every cell wrote all three artefacts (results CSV, per-variant predictions
+  CSV, summary JSON), plus the combined `stage2b_grid_results.csv` and
+  `stage2b_grid_manifest.json`.
+- **The predictions are seed-ensemblable**, which is the point of the change:
+  all five cells return the same 335 variants keyed by
+  `gene:position:wt_aa:mut_aa`, each row carrying `label`, `prob`, `threshold`,
+  `seed`, `cell_slug`, `branch`, `n_unfrozen_layers`, `pllr_mode`. Runs 1 and 2
+  of Stage 2b returned metrics only and cannot be compared variant-by-variant.
+- **Resumability verified:** re-running the identical command logs
+  `5 already complete | 0 to run` and executes nothing.
+
+**Two things the run itself turned up:**
+
+1. **Resume was broken under `--eval holdout`** — fixed in this commit.
+   `finetune_esm_mmr.py` writes `..._siamese_holdout_MSH2_<slug>.csv`, while the
+   driver's completeness check looked for `..._siamese_holdout_<slug>.csv`, so no
+   holdout cell was ever recognised as complete and a resume silently re-ran the
+   whole tier. Both sides now derive the name from
+   `src.finetune_grid.output_tag`, with a regression test that creates files
+   using the *script's* function and asserts the *driver* finds them. `--eval
+   lopo` — what the GPU run uses — was unaffected: the two constructions
+   happened to agree there.
+2. **Ignore the wall-clock in that manifest.** One cell reports 172.8 min against
+   ~2.8 min for its four siblings. The box suspended (s2idle) at 09:39:17 and
+   resumed at 12:29:07 mid-cell; `journalctl` confirms it. Profiling the three
+   fusion/PLLR configurations directly gives 0.43–0.46 s per example with no
+   difference between them, so a tier-3 cell here really costs ~3 min.
+
+Grid driver and `docs/GPU_RUN_PLAYBOOK.md` are ready for the CUDA box; 149 tests
+pass.
+
+## 2026-08-30 (Windows CUDA box) — Stage 2b re-run: PLLR fix + PMS2 included
+
+Second Stage-2b run to complete ("Run 2" in `docs/PAPER_DRAFT.md` §6.10).
+Incorporates the four ESM-branch corrections from 2026-08-28 (night) — chiefly
+the PLLR term `log P(mut|X) − log P(wt|X)` now being structurally computable by
+the fine-tuned model — and includes **PMS2 for the first time**: the fail-closed
+pseudogene gate was opened with a verified `--pms2_codon_range`, so the 21
+held-out PMS2 rows are homology-checked.
+
+- **Command:** `run_mmr_pipeline.py`, siamese / ProPath recipe, `--eval lopo`.
+  Pipeline defaults imply full unfreeze (`--n_unfrozen_layers -1`), `--use_pllr`,
+  seed 42, 10,000-iteration CIs.
+- **Not captured in the pasted console output:** the micro-batch / grad-accum /
+  gradient-checkpointing values, the summary JSON, and the exact PMS2 codon
+  range. Read `data/processed/esm_finetune/esm_finetune_summary_siamese_lopo.json`
+  on the CUDA box and reconcile before quoting a config in the paper.
+
+| holdout | ROC-AUC | 95% CI | PR-AUC | MCC | thr | n | best_epoch |
+|---|---|---|---|---|---|---|---|
+| MLH1 | 0.9029 | 0.8506–0.9474 | 0.9764 | 0.5275 | 0.9316 | 208 | 5 |
+| MSH2 | 0.8503 | 0.8057–0.8913 | 0.7669 | 0.4575 | 0.8963 | 335 | 2 |
+| MSH6 | 0.8874 | 0.8200–0.9450 | 0.9121 | 0.6444 | 0.5131 | 119 | 1 |
+| PMS2 | 0.9559 | 0.8382–1.0000 | 0.9903 | 0.6912 | 0.0678 | 21  | 3 |
+
+Mean ROC-AUC **0.880** over MLH1/MSH2/MSH6 (n-weighted 0.873); 0.899 with PMS2.
+Mean MCC **0.543** (three genes). Artifacts:
+`data/processed/esm_finetune/esm_finetune_results_siamese_lopo.csv` (that box).
+
+**Change vs the 2026-08-28 run** (PLLR structurally uncomputable, PMS2 absent,
+MLH1 0.8993 / MSH2 0.8776 / MSH6 0.9073, mean 0.895 / MCC 0.492):
+
+- ROC-AUC: MLH1 +0.004, MSH2 −0.027, MSH6 −0.020 → mean **−0.015**.
+- MCC (the plan's primary metric): MSH2 0.297 → **0.458** (+0.161); MSH6
+  0.652 → 0.644 (−0.008); MLH1 0.528 unchanged → mean **+0.051**, essentially
+  all from MSH2.
+- Thresholds tightened: MSH2's MCC-optimal threshold moved 0.057 → 0.896, so
+  MLH1/MSH2 now agree within 0.04 (MSH6 0.51, PMS2 0.068 remain outliers).
+- `best_epoch` 1/3/1 → 5/2/1/3: MLH1 now trains a meaningful number of epochs.
+
+Net: the fix trades a fraction of a ranking point for a better operating point.
+
+**Still owed (unchanged):** `--n_unfrozen_layers 0` ablation floor,
+`--no-use_pllr` ablation, ≥3-seed averaging — now specified as a single grid in
+`docs/PAPER_DRAFT.md` §6.12 (Table 8). Until the floor runs, these numbers
+cannot be attributed to backbone fine-tuning: the frozen priors-probe (Stage 2,
+2026-08-28: MLH1 0.9425 / MSH2 0.8527 / MSH6 0.9734, mean 0.923; from-scratch
+27-feat variant mean 0.945) is still **ahead of Stage 2b by ~4–6 ROC-AUC
+points**.
+
 ## 2026-08-28 (night, CPU box) — fixing the ESM branch
 
 The ESM branch was the weakest part of the project (siamese LOGO mean ROC-AUC
@@ -79,10 +179,11 @@ sizes 1/3/64; the long-sequence path differs only by defect 3 above.
 
 ### Still owed on the GPU box
 
-- Re-run stage 2b with PLLR on 650M, plus the `--no-use_pllr` ablation. That
-  pair is the experiment that establishes whether the fix works at scale.
-- `--n_unfrozen_layers 0` ablation floor (still owed from 2026-08-27).
-- Seed averaging.
+- ~~Re-run stage 2b with PLLR on 650M~~ — done 2026-08-30 (see the entry at the
+  top of this log). ROC-AUC mean −0.015, MCC mean +0.051 vs the pre-fix run.
+- `--no-use_pllr` ablation, `--n_unfrozen_layers 0` ablation floor, and seed
+  averaging are now a single grid — see the top-of-log TODO and
+  `docs/PAPER_DRAFT.md` §6.12.
 
 ## 2026-08-28 (evening, CPU box) — closing the gap to the published bar
 
@@ -283,8 +384,13 @@ the learned head still has to justify itself against.
 - [ ] Definitive benchmark: `python scripts/benchmark_published_predictors.py
       --n_bootstrap 10000 --model_results data/processed/mmr_transfer/mmr_transfer_results_lopo.csv`
       (~90 min CPU; run after rebuilding the MMR table with `--pms2_codon_range 382 862`)
-- [ ] Stage 2b ablation floor: rerun siamese LOGO with `--n_unfrozen_layers 0`
-- [ ] Stage 2b seed averaging (>=3 seeds)
+- [ ] Stage 2b ablation grid on the CUDA box — freeze depth × PLLR × **branch**
+      (`esm` vs `esm+priors`), 16 cells in 5 tiers, ~31 h. One resumable command;
+      see `docs/GPU_RUN_PLAYBOOK.md`. Every filename is cell-tagged, so the old
+      "move the results CSV aside between cells" step is gone. Subsumes the old
+      "ablation floor" and "seed averaging" line items; supersedes the narrower
+      grid described in PAPER_DRAFT.md §6.12, which varies freeze depth alone and
+      therefore cannot separate it from feature set.
 - [ ] Remaining recipes on the same splits: `wt_site`, VariPred probe, MVmamba pooled
 - [ ] Full model: `train_extended.py --features esm+priors --esm_model facebook/esm2_t33_650M_UR50D --no_dms_features`
 - [ ] Leave-one-**protein**-out CV on the broad 80-gene panel (still owed; distinct from the MMR gene-out above)
