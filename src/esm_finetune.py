@@ -543,6 +543,62 @@ def predict_proba(model: ESMFineTuneClassifier, examples: Sequence[FineTuneExamp
     return np.concatenate(out) if out else np.zeros(0, dtype=np.float32)
 
 
+def encode_all(model: "ESMFineTuneClassifier", examples: Sequence[FineTuneExample],
+               device: torch.device, batch_size: int = 16, amp: bool = True,
+               ) -> Tuple[torch.Tensor, torch.Tensor, Optional[torch.Tensor]]:
+    """Run the backbone once over *examples* -> ``(blocks, pllrs, priors)``.
+
+    Only valid with a frozen backbone, where the encoder output does not
+    change between epochs. Returns CPU tensors; the caller moves the
+    mini-batches it needs.
+    """
+    model.eval()
+    amp_dtype = amp_dtype_for(device) if amp else None
+    loader = DataLoader(FineTuneDataset(examples), batch_size=batch_size,
+                        shuffle=False,
+                        collate_fn=make_collate_fn(model.tokenizer, model.mode))
+    blocks, pllrs, priors = [], [], []
+    with torch.inference_mode():
+        for batch in loader:
+            batch = _to_device(batch, device)
+            with _autocast(device, amp_dtype):
+                block, pllr = model.encode(
+                    batch["wt_ids"], batch["wt_mask"], batch["wt_pos"],
+                    batch.get("mut_ids"), batch.get("mut_mask"),
+                    batch.get("mut_pos"), batch.get("wt_tok_id"),
+                    batch.get("mut_tok_id"))
+            blocks.append(block.float().cpu())
+            pllrs.append(pllr.float().cpu())
+            if "priors" in batch:
+                priors.append(batch["priors"].float().cpu())
+    return (torch.cat(blocks), torch.cat(pllrs),
+            torch.cat(priors) if priors else None)
+
+
+class _PrecomputedDataset(Dataset):
+    """Encoded features + targets, for head-only training."""
+
+    def __init__(self, blocks, pllrs, priors, labels, weights) -> None:
+        self.blocks, self.pllrs, self.priors = blocks, pllrs, priors
+        self.labels, self.weights = labels, weights
+
+    def __len__(self) -> int:
+        return int(self.blocks.shape[0])
+
+    def __getitem__(self, i: int):
+        priors = None if self.priors is None else self.priors[i]
+        return self.blocks[i], self.pllrs[i], priors, self.labels[i], self.weights[i]
+
+
+def _precomputed_collate(batch):
+    blocks = torch.stack([b[0] for b in batch])
+    pllrs = torch.stack([b[1] for b in batch])
+    priors = None if batch[0][2] is None else torch.stack([b[2] for b in batch])
+    labels = torch.stack([b[3] for b in batch])
+    weights = torch.stack([b[4] for b in batch])
+    return blocks, pllrs, priors, labels, weights
+
+
 def positive_class_weight(labels: Sequence[float]) -> float:
     """``n_neg / n_pos`` on the fitting partition, or 1.0 if a class is absent.
 
@@ -622,6 +678,19 @@ def fit_esm_finetune(
 
     set_seed(seed)
     model.to(device)
+
+    if not model.trainable_backbone_params():
+        # The encoder output is constant across epochs, so encode once instead
+        # of ten times. This is what makes the ablation floor cheap enough to
+        # carry three seeds within the weekend GPU budget.
+        logger.info("Frozen backbone: precomputing features for %d train / "
+                    "%d val examples.", len(train_examples), len(val_examples))
+        return _fit_precomputed(
+            model, train_examples, val_examples, device,
+            head_lr=head_lr, epochs=epochs, patience=patience,
+            batch_size=batch_size, weight_decay=weight_decay,
+            warmup_frac=warmup_frac, use_pos_weight=use_pos_weight,
+            max_grad_norm=max_grad_norm, amp=amp)
 
     amp_dtype = amp_dtype_for(device) if amp else None
     # bf16 has fp32's exponent range, so gradients cannot underflow the way
@@ -741,6 +810,81 @@ def fit_esm_finetune(
     return model, max(best_epoch, 0), float(best_auc)
 
 
+def _fit_precomputed(model, train_examples, val_examples, device, *, head_lr,
+                     epochs, patience, batch_size, weight_decay, warmup_frac,
+                     use_pos_weight, max_grad_norm, amp,
+                     ) -> Tuple["ESMFineTuneClassifier", int, float]:
+    """Head-only training on features encoded once. Frozen backbone only."""
+    from sklearn.metrics import roc_auc_score
+
+    tr_block, tr_pllr, tr_prior = encode_all(model, train_examples, device,
+                                             batch_size=batch_size, amp=amp)
+    va_block, va_pllr, va_prior = encode_all(model, val_examples, device,
+                                             batch_size=batch_size, amp=amp)
+    tr_y = torch.tensor([e.label for e in train_examples], dtype=torch.float32)
+    tr_w = torch.tensor([e.weight for e in train_examples], dtype=torch.float32)
+    val_labels = np.array([e.label for e in val_examples], dtype=np.float32)
+
+    pos_w = (positive_class_weight([e.label for e in train_examples])
+             if use_pos_weight else 1.0)
+    if pos_w != 1.0:
+        tr_w = tr_w * torch.where(tr_y > 0.5, torch.full_like(tr_w, pos_w),
+                                  torch.ones_like(tr_w))
+
+    optimizer = torch.optim.AdamW(model.head_params(), lr=head_lr,
+                                  weight_decay=weight_decay)
+    loader = DataLoader(_PrecomputedDataset(tr_block, tr_pllr, tr_prior, tr_y, tr_w),
+                        batch_size=max(2, batch_size), shuffle=True,
+                        collate_fn=_precomputed_collate)
+    scheduler = make_lr_schedule(optimizer, epochs * max(1, len(loader)), warmup_frac)
+
+    best_auc, best_state, best_epoch, left = -np.inf, None, -1, patience
+    for epoch in range(epochs):
+        model.train()
+        running = 0.0
+        for blocks, pllrs, priors, labels, weights in loader:
+            optimizer.zero_grad(set_to_none=True)
+            logits = model.classify(blocks.to(device), pllrs.to(device),
+                                    None if priors is None else priors.to(device))
+            loss = (torch.nn.functional.binary_cross_entropy_with_logits(
+                logits.float(), labels.to(device), reduction="none")
+                * weights.to(device)).mean()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.head_params(), max_grad_norm)
+            optimizer.step()
+            scheduler.step()
+            running += float(loss.item()) * len(labels)
+
+        model.eval()
+        with torch.inference_mode():
+            val_logits = model.classify(
+                va_block.to(device), va_pllr.to(device),
+                None if va_prior is None else va_prior.to(device))
+            val_probs = torch.sigmoid(val_logits.float()).cpu().numpy()
+        try:
+            val_auc = float(roc_auc_score(val_labels, val_probs)) \
+                if len(np.unique(val_labels)) > 1 else -np.inf
+        except ValueError:
+            val_auc = -np.inf
+        logger.info("epoch %d/%d [frozen]: train_loss=%.4f val_auc=%.4f",
+                    epoch + 1, epochs, running / max(1, len(train_examples)), val_auc)
+
+        if val_auc > best_auc:
+            best_auc, best_epoch, left = val_auc, epoch + 1, patience
+            best_state = {k: v.detach().cpu().clone()
+                          for k, v in model.state_dict().items()}
+        else:
+            left -= 1
+            if left <= 0:
+                logger.info("Early stopping at epoch %d (best val_auc=%.4f @ epoch %d).",
+                            epoch + 1, best_auc, best_epoch)
+                break
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    return model, max(best_epoch, 0), float(best_auc)
+
+
 # --------------------------------------------------------------------------- #
 # Persistence
 # --------------------------------------------------------------------------- #
@@ -824,5 +968,5 @@ __all__ = [
     "ESMFineTuneClassifier", "FineTuneExample", "FineTuneDataset",
     "build_examples", "make_collate_fn", "predict_proba", "fit_esm_finetune",
     "set_seed", "amp_dtype_for", "save_finetuned", "load_finetuned_model",
-    "make_lr_schedule", "positive_class_weight",
+    "make_lr_schedule", "positive_class_weight", "encode_all",
 ]

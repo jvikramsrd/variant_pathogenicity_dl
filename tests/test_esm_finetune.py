@@ -22,6 +22,8 @@ from src.esm_finetune import (  # noqa: E402
     ESMFineTuneClassifier,
     build_examples,
     make_collate_fn,
+    encode_all,
+    fit_esm_finetune,
     make_lr_schedule,
     positive_class_weight,
 )
@@ -325,3 +327,63 @@ def test_lr_schedule_never_divides_by_zero_on_tiny_runs():
     opt.step()
     sched.step()
     assert np.isfinite(opt.param_groups[0]["lr"])
+
+
+# --------------------------------------------------------------------------- #
+# frozen-backbone precompute
+# --------------------------------------------------------------------------- #
+def demo_examples(model, n_prior_features=0):
+    priors = (None if n_prior_features == 0
+              else np.zeros((4, n_prior_features), dtype=np.float32))
+    return build_examples(demo_frame(), {"G": SEQ}, model.mode,
+                          max_residues=64, tokenizer=model.tokenizer,
+                          prior_matrix=priors)
+
+
+def test_encode_all_matches_a_direct_forward_pass():
+    """The precompute path must be numerically identical to encoding per
+    batch, or the ablation floor silently measures a different model."""
+    model = tiny_model_or_skip(mode="siamese", n_unfrozen_layers=0)
+    model.eval()
+    ex = demo_examples(model)
+    blocks, pllrs, priors = encode_all(model, ex, torch.device("cpu"),
+                                       batch_size=2, amp=False)
+    assert priors is None
+    batch = make_collate_fn(model.tokenizer, model.mode)(ex)
+    with torch.no_grad():
+        ref_block, ref_pllr = model.encode(
+            **{k: v for k, v in batch.items() if k not in ("labels", "weights")})
+    torch.testing.assert_close(blocks, ref_block)
+    torch.testing.assert_close(pllrs, ref_pllr)
+
+
+def test_encode_all_carries_priors_through():
+    model = tiny_model_or_skip(mode="siamese", n_unfrozen_layers=0,
+                               n_prior_features=3)
+    model.eval()
+    blocks, pllrs, priors = encode_all(model, demo_examples(model, 3),
+                                       torch.device("cpu"), batch_size=2, amp=False)
+    assert priors is not None and priors.shape == (4, 3)
+
+
+def test_frozen_fit_uses_precompute_and_still_trains_the_head():
+    model = tiny_model_or_skip(mode="siamese", n_unfrozen_layers=0,
+                               pllr_mode="residual")
+    ex = demo_examples(model)
+    before = model.out.weight.detach().clone()
+    fitted, best_epoch, best_auc = fit_esm_finetune(
+        model, ex, ex, torch.device("cpu"), epochs=2, patience=2,
+        batch_size=2, amp=False)
+    assert best_epoch >= 1
+    assert not torch.allclose(before, fitted.out.weight.detach()), \
+        "head must have trained"
+
+
+def test_frozen_fit_leaves_the_backbone_untouched():
+    model = tiny_model_or_skip(mode="siamese", n_unfrozen_layers=0)
+    ex = demo_examples(model)
+    before = {k: v.detach().clone() for k, v in model.backbone.named_parameters()}
+    fit_esm_finetune(model, ex, ex, torch.device("cpu"), epochs=2, patience=2,
+                     batch_size=2, amp=False)
+    for k, v in model.backbone.named_parameters():
+        torch.testing.assert_close(before[k], v.detach())
