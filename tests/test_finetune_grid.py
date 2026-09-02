@@ -175,3 +175,86 @@ def test_prior_inputs_are_finite_even_with_all_nan_columns():
                                  drop_gene_constant=True,
                                  af_labels_active=False)
     assert np.isfinite(out.train).all() and np.isfinite(out.holdout).all()
+
+
+# --------------------------------------------------------------------------- #
+# grid driver
+# --------------------------------------------------------------------------- #
+import json  # noqa: E402
+
+
+def load_grid_script():
+    return load_script("run_stage2b_grid")
+
+
+def test_cell_is_incomplete_before_anything_runs(tmp_path):
+    mod = load_grid_script()
+    cell = GridCell("esm+priors", -1, "residual", 42)
+    assert not mod.cell_is_complete(tmp_path, cell, "siamese", "lopo")
+
+
+def test_cell_is_complete_only_with_results_and_predictions(tmp_path):
+    """Resumability must not skip a cell whose run died between writing the
+    summary and writing the predictions."""
+    mod = load_grid_script()
+    cell = GridCell("esm+priors", -1, "residual", 42)
+    tag = f"siamese_lopo_{cell.slug()}"
+    (tmp_path / f"esm_finetune_summary_{tag}.json").write_text(
+        json.dumps({"cell": cell.slug()}))
+    assert not mod.cell_is_complete(tmp_path, cell, "siamese", "lopo")
+    (tmp_path / f"esm_finetune_results_{tag}.csv").write_text("holdout_gene\nMLH1\n")
+    assert not mod.cell_is_complete(tmp_path, cell, "siamese", "lopo")
+    (tmp_path / f"esm_finetune_predictions_{tag}.csv").write_text("label,prob\n1,0.9\n")
+    assert mod.cell_is_complete(tmp_path, cell, "siamese", "lopo")
+
+
+def test_build_cell_argv_carries_every_axis():
+    mod = load_grid_script()
+    args = mod.parse_args(["--tiers", "1", "--esm_model", "facebook/esm2_t6_8M_UR50D"])
+    cell = GridCell("esm+priors", 0, "off", 43, fusion="gatewave")
+    argv = mod.build_cell_argv(args, cell)
+    assert argv[argv.index("--branch") + 1] == "esm+priors"
+    assert argv[argv.index("--n_unfrozen_layers") + 1] == "0"
+    assert argv[argv.index("--seed") + 1] == "43"
+    assert argv[argv.index("--fusion") + 1] == "gatewave"
+    assert argv[argv.index("--cell_slug") + 1] == cell.slug()
+    assert "--no-use_pllr" in argv, "pllr_mode 'off' must disable the term"
+
+
+def test_build_cell_argv_uses_pllr_mode_when_the_term_is_on():
+    mod = load_grid_script()
+    args = mod.parse_args(["--tiers", "1"])
+    argv = mod.build_cell_argv(args, GridCell("esm", -1, "residual", 42))
+    assert "--no-use_pllr" not in argv
+    assert argv[argv.index("--pllr_mode") + 1] == "residual"
+
+
+def test_build_cell_argv_is_accepted_by_the_finetune_cli():
+    """The driver and the script must not drift apart: every flag the driver
+    emits has to parse against the script's own argument parser."""
+    grid = load_grid_script()
+    fine = load_finetune_script()
+    args = grid.parse_args(["--tiers", "1"])
+    for cell in cells_for(sorted(grid.TIERS)):
+        argv = grid.build_cell_argv(args, cell)
+        parsed = fine.parse_args(argv[2:])   # drop [python, script.py]
+        assert parsed.branch == cell.branch
+        assert parsed.n_unfrozen_layers == cell.n_unfrozen_layers
+        assert parsed.seed == cell.seed
+        assert parsed.cell_slug == cell.slug()
+        assert parsed.use_pllr == (cell.pllr_mode != "off")
+
+
+def test_aggregate_merges_every_cell_result(tmp_path):
+    mod = load_grid_script()
+    for slug, auc in [("a", 0.9), ("b", 0.8)]:
+        (tmp_path / f"esm_finetune_results_siamese_lopo_{slug}.csv").write_text(
+            f"holdout_gene,roc_auc,cell_slug\nMLH1,{auc},{slug}\n")
+    df = mod.aggregate(tmp_path)
+    assert len(df) == 2
+    assert set(df["cell_slug"]) == {"a", "b"}
+
+
+def test_aggregate_of_an_empty_dir_is_empty(tmp_path):
+    mod = load_grid_script()
+    assert mod.aggregate(tmp_path).empty
