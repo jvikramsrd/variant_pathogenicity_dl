@@ -33,6 +33,7 @@ import json
 import logging
 import sys
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -53,6 +54,13 @@ from src.esm_finetune import (  # noqa: E402
     save_finetuned,
 )
 from src.eval_utils import bootstrap_ci, optimal_threshold_by_mcc  # noqa: E402
+from src.finetune_grid import GridCell  # noqa: E402
+from src.transfer import (  # noqa: E402
+    assert_af_quarantine,
+    prior_columns_of,
+    prior_impute_values,
+    prior_matrix,
+)
 
 logger = logging.getLogger("finetune_esm_mmr")
 
@@ -87,6 +95,27 @@ def parse_args(argv=None) -> argparse.Namespace:
                         "including it lets the head learn a residual instead "
                         "of rediscovering it from a few hundred labels. "
                         "Use --no-use_pllr for the ablation.")
+    p.add_argument("--branch", choices=("esm", "esm+priors"), default="esm",
+                   help="'esm+priors' fuses the leakage-safe prior columns "
+                        "into the fine-tune head. The frozen Stage-2 probe "
+                        "reads 27 such columns; without this flag Stage 2b "
+                        "reads none, so the two are not comparable.")
+    p.add_argument("--fusion", choices=("concat", "gatewave"), default="concat")
+    p.add_argument("--pllr_mode", choices=("residual", "concat"), default="residual",
+                   help="How the zero-shot term enters the head. 'residual' "
+                        "makes the untrained model the zero-shot predictor, "
+                        "so training learns a correction on top of it; "
+                        "'concat' is the historical extra-input-dimension "
+                        "behaviour. Ignored when --no-use_pllr is passed.")
+    p.add_argument("--af_labels_active", action="store_true",
+                   help="Declare that allele-frequency-derived labels are in "
+                        "the training pool. Forces the AF-derived feature "
+                        "columns out of the feature set -- labelling and "
+                        "featuring on frequency at once makes acmg_bs1 equal "
+                        "the label by construction.")
+    p.add_argument("--cell_slug", type=str, default=None,
+                   help="Tag for this cell's output files. Defaults to a slug "
+                        "derived from the configuration.")
     t = p.add_argument_group("training (ProPath defaults)")
     t.add_argument("--backbone_lr", type=float, default=1e-5)
     t.add_argument("--head_lr", type=float, default=3e-4)
@@ -158,6 +187,64 @@ def sample_weights_for(meta: pd.DataFrame, clinical_weight: float) -> np.ndarray
     return w
 
 
+@dataclass
+class PriorInputs:
+    """Standardised prior matrices for the three partitions of one split."""
+
+    train: np.ndarray
+    val: np.ndarray
+    holdout: np.ndarray
+    columns: list
+    impute_values: dict
+    mean: np.ndarray
+    scale: np.ndarray
+
+
+def build_prior_inputs(ft_df: pd.DataFrame, ho_df: pd.DataFrame,
+                       tr_idx, va_idx, *, drop_gene_constant: bool,
+                       af_labels_active: bool) -> PriorInputs:
+    """Prior features for the fine-tune, inner-val and holdout partitions.
+
+    Imputation medians and standardisation constants are fitted on the
+    **fine-tune training rows only** and applied unchanged to inner-val and
+    holdout: fitting them per partition would centre each split differently
+    and hand the head shifted inputs (the same defect ``docs/PAPER.md``
+    Finding 5 records for the Stage-1/Stage-2 imputation constants).
+
+    *drop_gene_constant* must be true for leave-one-gene-out. The five gnomAD
+    gene-level columns hold one value per gene, so across genes they are a
+    5-dimensional gene identifier rather than evidence -- ``RUNLOG.md``
+    2026-08-28 records MLH1 collapsing to ROC-AUC 0.500 in every seed with
+    them kept.
+    """
+    columns = prior_columns_of(ft_df, drop_gene_constant=drop_gene_constant)
+    assert_af_quarantine(columns, af_labels_active)
+    if not columns:
+        raise ValueError("no prior columns found in the fine-tune table")
+
+    train_rows = ft_df.iloc[list(tr_idx)]
+    impute = prior_impute_values(train_rows, columns)
+    x_tr, full_cols = prior_matrix(train_rows, columns=columns,
+                                   impute_values=impute)
+    # Pin the *returned* order (values then derived missingness flags) for the
+    # other two partitions: a different order would silently permute the
+    # head's inputs at evaluation time.
+    x_va, _ = prior_matrix(ft_df.iloc[list(va_idx)], columns=full_cols,
+                           impute_values=impute)
+    x_ho, _ = prior_matrix(ho_df, columns=full_cols, impute_values=impute)
+
+    mean = x_tr.mean(axis=0)
+    scale = x_tr.std(axis=0)
+    scale[scale < 1e-8] = 1.0          # constant column -> leave it centred
+
+    def to_std(x: np.ndarray) -> np.ndarray:
+        return ((x - mean) / scale).astype(np.float32)
+
+    return PriorInputs(train=to_std(x_tr), val=to_std(x_va), holdout=to_std(x_ho),
+                       columns=list(full_cols), impute_values=dict(impute),
+                       mean=mean, scale=scale)
+
+
 def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
                   sequence_by_gene: dict, device: torch.device, holdout: str) -> dict:
     logger.info("=== ESM fine-tune leave-one-gene-out: holdout=%s (mode=%s) ===",
@@ -174,22 +261,37 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
     tr_local, va_local = make_position_group_folds(
         positions, labels, k_folds=5, seed=args.seed, groups=groups)[0]
 
+    priors = None
+    if args.branch == "esm+priors":
+        priors = build_prior_inputs(
+            ft_df, ho_df, tr_local, va_local,
+            drop_gene_constant=(args.eval == "lopo"),
+            af_labels_active=args.af_labels_active)
+        logger.info("Prior branch: %d columns (gene-constant dropped=%s)",
+                    len(priors.columns), args.eval == "lopo")
+
+    pllr_mode = args.pllr_mode if args.use_pllr else "off"
     model = ESMFineTuneClassifier(
         model_name=args.esm_model, mode=args.mode,
         n_unfrozen_layers=args.n_unfrozen_layers, hidden_dim=args.hidden_dim,
         dropout=args.dropout, gradient_checkpointing=args.gradient_checkpointing,
-        use_pllr=args.use_pllr)
+        pllr_mode=pllr_mode,
+        n_prior_features=0 if priors is None else priors.train.shape[1],
+        fusion=args.fusion)
 
     # The tokenizer is required so each example carries its wild-type and
     # substituted residue vocabulary ids; without them the PLLR term would
     # silently read the logit of token 0.
     tok = model.tokenizer
     train_ex = build_examples(ft_df.iloc[tr_local], sequence_by_gene, args.mode,
-                              max_residues=args.max_residues, tokenizer=tok)
+                              max_residues=args.max_residues, tokenizer=tok,
+                              prior_matrix=None if priors is None else priors.train)
     val_ex = build_examples(ft_df.iloc[va_local], sequence_by_gene, args.mode,
-                            max_residues=args.max_residues, tokenizer=tok)
+                            max_residues=args.max_residues, tokenizer=tok,
+                            prior_matrix=None if priors is None else priors.val)
     ho_ex = build_examples(ho_df, sequence_by_gene, args.mode,
-                           max_residues=args.max_residues, tokenizer=tok)
+                           max_residues=args.max_residues, tokenizer=tok,
+                           prior_matrix=None if priors is None else priors.holdout)
     logger.info("Fine-tune train=%d val=%d holdout=%d", len(train_ex), len(val_ex), len(ho_ex))
 
     t0 = time.time()
@@ -217,10 +319,31 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
                           n_bootstrap=args.n_bootstrap, seed=args.seed)
     rep["mcc"], rep["mcc_ci_low"], rep["mcc_ci_high"] = mcc_ci["point"], mcc_ci["lower"], mcc_ci["upper"]
 
+    # Rows failing wt-validation never became examples, so recover the keys of
+    # the ones that did rather than assuming ho_df and ho_probs line up.
+    kept = ho_df.iloc[[e.row_index for e in ho_ex]].reset_index(drop=True)
+    key_cols = [c for c in ("gene", "uniprot_id", "position", "wt_aa", "mut_aa")
+                if c in kept.columns]
+    predictions = kept[key_cols].copy()
+    predictions.insert(0, "holdout_gene", holdout)
+    predictions["label"] = ho_labels
+    predictions["prob"] = ho_probs
+    predictions["threshold"] = float(thr)
+    predictions["seed"] = args.seed
+    predictions["cell_slug"] = args.cell_slug
+    predictions["branch"] = args.branch
+    predictions["n_unfrozen_layers"] = args.n_unfrozen_layers
+    predictions["pllr_mode"] = pllr_mode
+
     row = {
         "holdout_gene": holdout, "mode": args.mode, "esm_model": args.esm_model,
         "n_unfrozen_layers": args.n_unfrozen_layers,
         "use_pllr": bool(args.use_pllr),
+        "branch": args.branch, "fusion": args.fusion, "pllr_mode": pllr_mode,
+        "cell_slug": args.cell_slug,
+        "n_prior_features": 0 if priors is None else priors.train.shape[1],
+        "seed": args.seed,
+        "_predictions": predictions,
         "batch_size": args.batch_size, "grad_accum": args.grad_accum,
         "effective_batch": args.batch_size * args.grad_accum, "amp": args.amp,
         "n_finetune": len(train_ex), "n_inner_val": len(val_ex), "n_holdout": len(ho_ex),
@@ -265,6 +388,12 @@ def main() -> int:
                     args.gradient_checkpointing, args.max_residues)
     device = get_device()
 
+    if args.cell_slug is None:
+        args.cell_slug = GridCell(
+            branch=args.branch, n_unfrozen_layers=args.n_unfrozen_layers,
+            pllr_mode=(args.pllr_mode if args.use_pllr else "off"),
+            seed=args.seed, fusion=args.fusion).slug()
+
     if not args.mmr_csv.exists():
         raise SystemExit(f"{args.mmr_csv} not found -- run scripts/build_mmr_dataset.py first.")
     master = pd.read_csv(args.mmr_csv, low_memory=False)
@@ -303,18 +432,31 @@ def main() -> int:
                        args.mmr_csv.name, ", ".join(skipped),
                        len(evaluated), len(splits))
 
+    predictions = (pd.concat([r.pop("_predictions") for r in rows],
+                             ignore_index=True) if rows else pd.DataFrame())
     results = pd.DataFrame(rows)
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    tag = f"{args.mode}_{'lopo' if args.eval == 'lopo' else 'holdout_' + args.holdout_gene}"
+    # Every filename carries the cell slug: a grid sweep writes a dozen of
+    # these into one directory, and an untagged name would make each run
+    # silently overwrite the last.
+    tag = (f"{args.mode}_"
+           f"{'lopo' if args.eval == 'lopo' else 'holdout_' + args.holdout_gene}_"
+           f"{args.cell_slug}")
     results_path = args.out_dir / f"esm_finetune_results_{tag}.csv"
+    predictions_path = args.out_dir / f"esm_finetune_predictions_{tag}.csv"
     results.to_csv(results_path, index=False)
+    predictions.to_csv(predictions_path, index=False)
     checkpoints = [r["checkpoint"] for r in rows if r.get("checkpoint")]
     summary = {
         "built_at_utc": datetime.now(timezone.utc).isoformat(),
+        "cell": args.cell_slug, "branch": args.branch, "fusion": args.fusion,
+        "pllr_mode": args.pllr_mode if args.use_pllr else "off",
+        "seed": args.seed, "af_labels_active": bool(args.af_labels_active),
         "mode": args.mode, "esm_model": args.esm_model,
         "n_unfrozen_layers": args.n_unfrozen_layers,
         "splits_requested": splits, "splits_evaluated": evaluated,
         "splits_skipped_no_rows": skipped, "results_csv": str(results_path),
+        "predictions_csv": str(predictions_path),
         "checkpoints": checkpoints,
         "runtime_s": round(time.time() - t0, 1),
     }

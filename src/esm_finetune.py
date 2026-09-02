@@ -405,6 +405,11 @@ class FineTuneExample:
     #: This variant's standardised prior-feature vector, or None when the model
     #: has no prior branch.
     priors: Optional[np.ndarray] = None
+    #: Positional index of the source row in the frame passed to
+    #: :func:`build_examples`. Rows failing wt-validation are dropped, so a
+    #: caller writing per-variant predictions needs this to recover the keys
+    #: of the examples that actually survived.
+    row_index: int = -1
 
 
 def build_examples(
@@ -457,7 +462,8 @@ def build_examples(
             label=float(getattr(row, "label")), weight=weight,
             wt_tok_id=aa_to_id.get(wt_aa, 0), mut_tok_id=aa_to_id.get(mut_aa, 0),
             priors=(None if prior_matrix is None
-                    else np.asarray(prior_matrix[row_i], dtype=np.float32))))
+                    else np.asarray(prior_matrix[row_i], dtype=np.float32)),
+            row_index=row_i))
     if n_dropped:
         logger.warning("build_examples: dropped %d/%d rows (unknown gene or "
                        "wt/position mismatch against the canonical sequence).",
