@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
 import random
 import time
 from dataclasses import dataclass
@@ -542,6 +543,46 @@ def predict_proba(model: ESMFineTuneClassifier, examples: Sequence[FineTuneExamp
     return np.concatenate(out) if out else np.zeros(0, dtype=np.float32)
 
 
+def positive_class_weight(labels: Sequence[float]) -> float:
+    """``n_neg / n_pos`` on the fitting partition, or 1.0 if a class is absent.
+
+    Mirrors :mod:`src.train` and :mod:`src.transfer`, which both weight the
+    positive class. Per-gene prevalence on the MMR panel runs 40-82% positive,
+    so an unweighted objective optimises a different operating point in every
+    leave-one-gene-out fold.
+    """
+    arr = np.asarray(list(labels), dtype=np.float64)
+    if arr.size == 0:
+        return 1.0
+    n_pos = float((arr > 0.5).sum())
+    n_neg = float(arr.size - n_pos)
+    if n_pos == 0.0 or n_neg == 0.0:
+        return 1.0
+    return n_neg / n_pos
+
+
+def make_lr_schedule(optimizer: torch.optim.Optimizer, total_steps: int,
+                     warmup_frac: float = 0.1):
+    """Linear warmup then cosine decay to zero, stepped per *optimizer* step.
+
+    Per-epoch granularity is too coarse here: a leave-one-gene-out fold runs
+    ten epochs over a few hundred examples, so the whole schedule is a few
+    hundred optimizer steps. Warmup matters because the alternative -- a 650M
+    backbone taking full-size steps from step 0 on ~300-500 labels -- damages
+    the pretrained representation before the head has learned to read it.
+    """
+    total = max(1, int(total_steps))
+    warmup = min(total, max(1, int(round(total * warmup_frac))))
+
+    def lr_lambda(step: int) -> float:
+        if step < warmup:
+            return (step + 1) / warmup
+        progress = (step - warmup) / max(1, total - warmup)
+        return 0.5 * (1.0 + math.cos(math.pi * min(1.0, progress)))
+
+    return torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
+
+
 def fit_esm_finetune(
     model: ESMFineTuneClassifier,
     train_examples: Sequence[FineTuneExample],
@@ -557,6 +598,8 @@ def fit_esm_finetune(
     max_grad_norm: float = 1.0,
     grad_accum_steps: int = 1,
     amp: bool = True,
+    warmup_frac: float = 0.1,
+    use_pos_weight: bool = True,
 ) -> Tuple[ESMFineTuneClassifier, int, float]:
     """Fine-tune with two AdamW parameter groups (ProPath's LR split).
 
@@ -604,6 +647,16 @@ def fit_esm_finetune(
         collate_fn=make_collate_fn(model.tokenizer, model.mode))
     val_labels = np.array([e.label for e in val_examples], dtype=np.float32)
 
+    steps_per_epoch = max(1, math.ceil(len(train_loader) / grad_accum_steps))
+    total_steps = epochs * steps_per_epoch
+    scheduler = make_lr_schedule(optimizer, total_steps, warmup_frac)
+    pos_w = (positive_class_weight([e.label for e in train_examples])
+             if use_pos_weight else 1.0)
+    logger.info("LR schedule: %d warmup + cosine over %d optimizer steps | "
+                "pos_weight=%.3f",
+                min(total_steps, max(1, int(round(total_steps * warmup_frac)))),
+                total_steps, pos_w)
+
     clip_params = [p for g in param_groups for p in g["params"]]
     n_batches = len(train_loader)
     best_auc, best_state, best_epoch, left = -np.inf, None, -1, patience
@@ -616,11 +669,17 @@ def fit_esm_finetune(
             batch = _to_device(batch, device)
             with _autocast(device, amp_dtype):
                 logits = _forward(model, batch)
+            weights = batch["weights"]
+            if pos_w != 1.0:
+                weights = weights * torch.where(
+                    batch["labels"] > 0.5,
+                    torch.full_like(weights, pos_w),
+                    torch.ones_like(weights))
             # BCE in fp32 regardless of autocast: the loss reduction is where
             # reduced precision actually costs accuracy, and it is free here.
             loss = (torch.nn.functional.binary_cross_entropy_with_logits(
                 logits.float(), batch["labels"], reduction="none")
-                * batch["weights"]).mean()
+                * weights).mean()
             running += float(loss.item()) * len(batch["labels"])
             # Average over the accumulation window so the effective batch's
             # gradient matches what a single batch_size*grad_accum_steps step
@@ -645,6 +704,7 @@ def fit_esm_finetune(
                 else:
                     optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
+                scheduler.step()
 
         val_probs = predict_proba(model, val_examples, device,
                                   batch_size=batch_size, amp=amp)
@@ -764,4 +824,5 @@ __all__ = [
     "ESMFineTuneClassifier", "FineTuneExample", "FineTuneDataset",
     "build_examples", "make_collate_fn", "predict_proba", "fit_esm_finetune",
     "set_seed", "amp_dtype_for", "save_finetuned", "load_finetuned_model",
+    "make_lr_schedule", "positive_class_weight",
 ]

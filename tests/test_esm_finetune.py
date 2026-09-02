@@ -18,7 +18,13 @@ import torch
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.esm_finetune import ESMFineTuneClassifier, build_examples, make_collate_fn  # noqa: E402
+from src.esm_finetune import (  # noqa: E402
+    ESMFineTuneClassifier,
+    build_examples,
+    make_collate_fn,
+    make_lr_schedule,
+    positive_class_weight,
+)
 
 TINY = "facebook/esm2_t6_8M_UR50D"
 SEQ = "MKWVTFISLLFLFSSAYSRGVFRRDAHKSEVAHRFKDLGEENFKALVLIAFAQYLQQCPF"
@@ -278,3 +284,44 @@ def test_build_examples_rejects_misaligned_prior_matrix():
         build_examples(demo_frame(), {"G": SEQ}, "siamese", max_residues=64,
                        tokenizer=model.tokenizer,
                        prior_matrix=np.zeros((2, 3), dtype=np.float32))
+
+
+# --------------------------------------------------------------------------- #
+# LR schedule and class weighting
+# --------------------------------------------------------------------------- #
+def test_positive_class_weight_matches_n_neg_over_n_pos():
+    assert positive_class_weight([1, 1, 0, 0, 0, 0]) == pytest.approx(2.0)
+    assert positive_class_weight([1, 0]) == pytest.approx(1.0)
+
+
+def test_positive_class_weight_is_one_for_a_degenerate_partition():
+    """A single-class partition has no meaningful ratio; 1.0 keeps the loss
+    finite instead of producing inf or a divide-by-zero."""
+    assert positive_class_weight([1, 1, 1]) == pytest.approx(1.0)
+    assert positive_class_weight([0, 0]) == pytest.approx(1.0)
+    assert positive_class_weight([]) == pytest.approx(1.0)
+
+
+def test_lr_schedule_warms_up_then_decays_to_zero():
+    param = torch.nn.Parameter(torch.zeros(1))
+    opt = torch.optim.AdamW([param], lr=1.0)
+    sched = make_lr_schedule(opt, total_steps=100, warmup_frac=0.1)
+    seen = []
+    for _ in range(100):
+        seen.append(opt.param_groups[0]["lr"])
+        opt.step()
+        sched.step()
+    assert seen[0] < seen[5] < seen[9], "warmup must ramp"
+    assert seen[9] == pytest.approx(1.0, abs=1e-6), "peaks at base LR"
+    assert seen[-1] < 0.01, "cosine must decay to ~0"
+    assert all(seen[i] >= seen[i + 1] - 1e-9 for i in range(10, 99)), \
+        "must decay monotonically after warmup"
+
+
+def test_lr_schedule_never_divides_by_zero_on_tiny_runs():
+    param = torch.nn.Parameter(torch.zeros(1))
+    opt = torch.optim.AdamW([param], lr=1.0)
+    sched = make_lr_schedule(opt, total_steps=1, warmup_frac=0.1)
+    opt.step()
+    sched.step()
+    assert np.isfinite(opt.param_groups[0]["lr"])
