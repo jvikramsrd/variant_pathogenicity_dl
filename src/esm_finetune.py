@@ -121,6 +121,9 @@ class ESMFineTuneClassifier(nn.Module):
 
         self.model_name = model_name
         self.mode = mode
+        self.pllr_mode = "concat" if use_pllr else "off"
+        #: Retained for backwards compatibility with existing checkpoints and
+        #: callers; a later change replaces the constructor argument itself.
         self.use_pllr = bool(use_pllr)
         # Kept as attributes (not just consumed below) so a fine-tuned model
         # can be rebuilt from a checkpoint without the original CLI args --
@@ -158,7 +161,7 @@ class ESMFineTuneClassifier(nn.Module):
         if gradient_checkpointing:
             self.backbone.gradient_checkpointing_enable()
 
-        emb_dim = self.hidden_size * (4 if mode == "siamese" else 1)
+        emb_dim = self.esm_block_dim
         # LayerNorm BEFORE the first Linear. Raw ESM hidden states have large,
         # position-dependent norms, and in siamese mode half the concatenated
         # vector (site_wt, site_mut) is near-duplicate while the informative
@@ -166,7 +169,7 @@ class ESMFineTuneClassifier(nn.Module):
         # so an unnormalised input made the head spend its capacity on scale
         # rather than on the signal.
         self.feat_norm = nn.LayerNorm(emb_dim)
-        in_dim = emb_dim + (1 if self.use_pllr else 0)
+        in_dim = emb_dim + (1 if self.pllr_mode == "concat" else 0)
         self.head = nn.Sequential(
             nn.Linear(in_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
@@ -188,6 +191,11 @@ class ESMFineTuneClassifier(nn.Module):
     def head_params(self) -> List[torch.nn.Parameter]:
         return list(self.head.parameters()) + list(self.out.parameters())
 
+    @property
+    def esm_block_dim(self) -> int:
+        """Width of the ESM feature block that :meth:`encode` returns."""
+        return self.hidden_size * (4 if self.mode == "siamese" else 1)
+
     def config(self) -> Dict[str, object]:
         """Constructor kwargs needed to rebuild this model before loading a
         fine-tuned state dict back into it (see :func:`load_finetuned_model`)."""
@@ -203,12 +211,20 @@ class ESMFineTuneClassifier(nn.Module):
     def _encode(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
         return self.backbone(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
 
-    def forward(self, wt_ids: torch.Tensor, wt_mask: torch.Tensor, wt_pos: torch.Tensor,
-                mut_ids: Optional[torch.Tensor] = None,
-                mut_mask: Optional[torch.Tensor] = None,
-                mut_pos: Optional[torch.Tensor] = None,
-                wt_tok_id: Optional[torch.Tensor] = None,
-                mut_tok_id: Optional[torch.Tensor] = None) -> torch.Tensor:
+    def encode(self, wt_ids: torch.Tensor, wt_mask: torch.Tensor, wt_pos: torch.Tensor,
+               mut_ids: Optional[torch.Tensor] = None,
+               mut_mask: Optional[torch.Tensor] = None,
+               mut_pos: Optional[torch.Tensor] = None,
+               wt_tok_id: Optional[torch.Tensor] = None,
+               mut_tok_id: Optional[torch.Tensor] = None,
+               ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Backbone pass -> ``(esm_block [B, esm_block_dim], pllr [B])``.
+
+        Separated from :meth:`classify` so that (a) the prior branch and the
+        PLLR residual are head-local concerns, and (b) when the backbone is
+        frozen this output is constant across epochs and can be computed once
+        (see :func:`fit_esm_finetune`'s precompute path).
+        """
         h_wt = self._encode(wt_ids, wt_mask)
         batch_idx = torch.arange(h_wt.shape[0], device=h_wt.device)
         # +1: token index 0 is <cls>; wt_pos is 0-based within the raw window.
@@ -219,40 +235,56 @@ class ESMFineTuneClassifier(nn.Module):
             h_mut = self._encode(mut_ids, mut_mask)
             site_mut = h_mut[batch_idx, mut_pos + 1]
             diff = site_mut - site_wt
-            feat = torch.cat([site_wt, site_mut, diff, diff.abs()], dim=-1)
+            block = torch.cat([site_wt, site_mut, diff, diff.abs()], dim=-1)
         else:
-            feat = site_wt
-        feat = self.feat_norm(feat)
+            block = site_wt
 
-        if self.use_pllr:
-            if wt_tok_id is None or mut_tok_id is None:
-                raise ValueError(
-                    "use_pllr=True requires wt_tok_id/mut_tok_id. Pass "
-                    "tokenizer=model.tokenizer to build_examples().")
-            if bool((wt_tok_id == mut_tok_id).any()):
-                # Synonymous substitutions are dropped upstream, so wt and mut
-                # ids can never legitimately coincide. Equal ids mean
-                # build_examples() ran without a tokenizer and left them at the
-                # default 0, which would make PLLR a constant zero read off a
-                # special token -- silently disabling the very term this path
-                # exists to supply.
-                raise ValueError(
-                    "wt_tok_id == mut_tok_id for at least one example; "
-                    "build_examples() was called without tokenizer=..., so "
-                    "residue ids were never resolved.")
-            # delta = log P(mut | X) - log P(wt | X), read off the SAME wild-type
-            # forward pass that produced site_wt (Meier et al. 2021: both
-            # pseudo-likelihoods share one context, so no extra pass is needed).
-            # This is the zero-shot ESM score -- on its own it reaches ROC-AUC
-            # 0.834 pooled across these genes. Feeding it in makes the head
-            # learn a *residual* on top of a working predictor instead of
-            # rediscovering it from 662 labels.
-            site_logits = self.lm_head(h_wt[batch_idx, wt_pos + 1].unsqueeze(1))
-            log_probs = torch.log_softmax(site_logits.float().squeeze(1), dim=-1)
-            pllr = (log_probs.gather(1, mut_tok_id.view(-1, 1))
-                    - log_probs.gather(1, wt_tok_id.view(-1, 1)))
-            feat = torch.cat([feat, pllr / self.pllr_scale], dim=-1)
+        if self.pllr_mode == "off":
+            return block, torch.zeros(block.shape[0], device=block.device,
+                                      dtype=torch.float32)
+        if wt_tok_id is None or mut_tok_id is None:
+            raise ValueError(
+                "PLLR is enabled but wt_tok_id/mut_tok_id are missing. Pass "
+                "tokenizer=model.tokenizer to build_examples().")
+        if bool((wt_tok_id == mut_tok_id).any()):
+            # Synonymous substitutions are dropped upstream, so wt and mut ids
+            # can never legitimately coincide. Equal ids mean build_examples()
+            # ran without a tokenizer and left them at the default 0, which
+            # would make PLLR a constant zero read off a special token --
+            # silently disabling the very term this path exists to supply.
+            raise ValueError(
+                "wt_tok_id == mut_tok_id for at least one example; "
+                "build_examples() was called without tokenizer=..., so "
+                "residue ids were never resolved.")
+        # delta = log P(mut | X) - log P(wt | X), read off the SAME wild-type
+        # forward pass that produced site_wt (Meier et al. 2021: both
+        # pseudo-likelihoods share one context, so no extra pass is needed).
+        # This is the zero-shot ESM score -- on its own it reaches ROC-AUC
+        # 0.834 pooled across these genes.
+        site_logits = self.lm_head(h_wt[batch_idx, wt_pos + 1].unsqueeze(1))
+        log_probs = torch.log_softmax(site_logits.float().squeeze(1), dim=-1)
+        pllr = (log_probs.gather(1, mut_tok_id.view(-1, 1))
+                - log_probs.gather(1, wt_tok_id.view(-1, 1))).squeeze(-1)
+        return block, pllr
+
+    def classify(self, esm_block: torch.Tensor, pllr: torch.Tensor,
+                 priors: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """``(esm_block, pllr[, priors])`` -> logits ``[B]``."""
+        feat = self.feat_norm(esm_block)
+        if self.pllr_mode == "concat":
+            feat = torch.cat([feat, (pllr / self.pllr_scale).unsqueeze(-1)], dim=-1)
         return self.out(self.head(feat)).squeeze(-1)
+
+    def forward(self, wt_ids: torch.Tensor, wt_mask: torch.Tensor, wt_pos: torch.Tensor,
+                mut_ids: Optional[torch.Tensor] = None,
+                mut_mask: Optional[torch.Tensor] = None,
+                mut_pos: Optional[torch.Tensor] = None,
+                wt_tok_id: Optional[torch.Tensor] = None,
+                mut_tok_id: Optional[torch.Tensor] = None,
+                priors: Optional[torch.Tensor] = None) -> torch.Tensor:
+        block, pllr = self.encode(wt_ids, wt_mask, wt_pos, mut_ids, mut_mask,
+                                  mut_pos, wt_tok_id, mut_tok_id)
+        return self.classify(block, pllr, priors)
 
 
 # --------------------------------------------------------------------------- #
