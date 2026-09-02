@@ -54,6 +54,15 @@ logger = logging.getLogger(__name__)
 
 FINETUNE_MODES = ("wt_site", "siamese")
 
+#: How the zero-shot term log P(mut|X) - log P(wt|X) reaches the classifier.
+#: "residual" adds it as a learnable-gain skip connection past a
+#: zero-initialised output layer, so an untrained model reproduces the
+#: zero-shot ESM ranking (ROC-AUC ~0.834 on the MMR panel) and training learns
+#: a correction on top of a working predictor. "concat" is the historical
+#: behaviour: one more input dimension with a random init weight. "off" is the
+#: ablation.
+PLLR_MODES = ("residual", "concat", "off")
+
 #: PROJECT_PLAN.md Phase 3 step 4's ProPath-recipe defaults.
 PROPATH_DEFAULTS: Dict[str, object] = {
     "backbone_lr": 1e-5, "batch_size": 8, "epochs": 10,
@@ -108,7 +117,8 @@ class ESMFineTuneClassifier(nn.Module):
                  mode: str = "wt_site", n_unfrozen_layers: int = -1,
                  hidden_dim: int = 256, dropout: float = 0.15,
                  gradient_checkpointing: bool = False,
-                 use_pllr: bool = True) -> None:
+                 pllr_mode: Optional[str] = None,
+                 use_pllr: Optional[bool] = None) -> None:
         super().__init__()
         if mode not in FINETUNE_MODES:
             raise ValueError(f"mode must be one of {FINETUNE_MODES}; got {mode!r}")
@@ -121,10 +131,24 @@ class ESMFineTuneClassifier(nn.Module):
 
         self.model_name = model_name
         self.mode = mode
-        self.pllr_mode = "concat" if use_pllr else "off"
-        #: Retained for backwards compatibility with existing checkpoints and
-        #: callers; a later change replaces the constructor argument itself.
-        self.use_pllr = bool(use_pllr)
+        if use_pllr is not None:
+            # Legacy callers passed a bool. Honour it, but not alongside the
+            # richer flag -- silently preferring one would make an ablation
+            # cell run a configuration its name does not describe. Both
+            # parameters default to None so that an *explicitly* passed
+            # pllr_mode is distinguishable from the default.
+            if pllr_mode is not None:
+                raise ValueError(
+                    "pass either pllr_mode or use_pllr, not both "
+                    f"(got pllr_mode={pllr_mode!r}, use_pllr={use_pllr!r})")
+            pllr_mode = "concat" if use_pllr else "off"
+        if pllr_mode is None:
+            pllr_mode = "residual"
+        if pllr_mode not in PLLR_MODES:
+            raise ValueError(f"pllr_mode must be one of {PLLR_MODES}; got {pllr_mode!r}")
+        self.pllr_mode = pllr_mode
+        #: Retained for backwards compatibility with existing callers.
+        self.use_pllr = pllr_mode != "off"
         # Kept as attributes (not just consumed below) so a fine-tuned model
         # can be rebuilt from a checkpoint without the original CLI args --
         # see config() / save_finetuned() / load_finetuned_model().
@@ -184,12 +208,26 @@ class ESMFineTuneClassifier(nn.Module):
         #: the feature identical between training and single-variant
         #: inference, and keeps it comparable across genes and batch sizes.
         self.register_buffer("pllr_scale", torch.tensor(10.0))
+        if self.pllr_mode == "residual":
+            #: Learnable gain on the zero-shot term. Negative at init because
+            #: raw PLLR is negative for damaging variants while pathogenic is
+            #: the positive class.
+            self.pllr_gain = nn.Parameter(torch.tensor(-1.0))
+            # Zero-init the scalar projection so the untrained model is exactly
+            # the zero-shot predictor. out.weight still receives a non-zero
+            # gradient on the first backward, so it leaves zero immediately --
+            # nothing is frozen out.
+            nn.init.zeros_(self.out.weight)
+            nn.init.zeros_(self.out.bias)
 
     def trainable_backbone_params(self) -> List[torch.nn.Parameter]:
         return [p for p in self.backbone.parameters() if p.requires_grad]
 
     def head_params(self) -> List[torch.nn.Parameter]:
-        return list(self.head.parameters()) + list(self.out.parameters())
+        params = list(self.head.parameters()) + list(self.out.parameters())
+        if self.pllr_mode == "residual":
+            params.append(self.pllr_gain)
+        return params
 
     @property
     def esm_block_dim(self) -> int:
@@ -205,7 +243,7 @@ class ESMFineTuneClassifier(nn.Module):
             "n_unfrozen_layers": self.n_unfrozen_layers,
             "hidden_dim": self.hidden_dim,
             "dropout": self.dropout,
-            "use_pllr": self.use_pllr,
+            "pllr_mode": self.pllr_mode,
         }
 
     def _encode(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
@@ -273,7 +311,10 @@ class ESMFineTuneClassifier(nn.Module):
         feat = self.feat_norm(esm_block)
         if self.pllr_mode == "concat":
             feat = torch.cat([feat, (pllr / self.pllr_scale).unsqueeze(-1)], dim=-1)
-        return self.out(self.head(feat)).squeeze(-1)
+        logit = self.out(self.head(feat)).squeeze(-1)
+        if self.pllr_mode == "residual":
+            logit = logit + self.pllr_gain * (pllr / self.pllr_scale)
+        return logit
 
     def forward(self, wt_ids: torch.Tensor, wt_mask: torch.Tensor, wt_pos: torch.Tensor,
                 mut_ids: Optional[torch.Tensor] = None,
@@ -624,12 +665,17 @@ def load_finetuned_model(path, device: Optional[torch.device] = None, *,
 
     payload = load_checkpoint(Path(path))
     cfg = payload["config"]
+    # Checkpoints written before pllr_mode existed carry a use_pllr bool. The
+    # behaviour it described is exactly "concat", never "residual".
+    pllr_mode = cfg.get("pllr_mode")
+    if pllr_mode is None:
+        pllr_mode = "concat" if cfg.get("use_pllr", True) else "off"
     model = ESMFineTuneClassifier(
         model_name=cfg["model_name"], mode=cfg["mode"],
         n_unfrozen_layers=cfg.get("n_unfrozen_layers", -1),
         hidden_dim=cfg.get("hidden_dim", 256),
         dropout=cfg.get("dropout", 0.15),
-        use_pllr=cfg.get("use_pllr", True))
+        pllr_mode=pllr_mode)
     model.load_state_dict(payload["model_state_dict"], strict=strict)
     if device is not None:
         model.to(device)
@@ -638,7 +684,7 @@ def load_finetuned_model(path, device: Optional[torch.device] = None, *,
 
 
 __all__ = [
-    "FINETUNE_MODES", "PROPATH_DEFAULTS", "FINETUNE_CHECKPOINT_FORMAT",
+    "FINETUNE_MODES", "PLLR_MODES", "PROPATH_DEFAULTS", "FINETUNE_CHECKPOINT_FORMAT",
     "ESMFineTuneClassifier", "FineTuneExample", "FineTuneDataset",
     "build_examples", "make_collate_fn", "predict_proba", "fit_esm_finetune",
     "set_seed", "amp_dtype_for", "save_finetuned", "load_finetuned_model",
