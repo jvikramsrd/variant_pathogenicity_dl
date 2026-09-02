@@ -1,0 +1,1076 @@
+{
+  "built_at_utc": "2026-08-28T14:55:59.255759+00:00",
+  "parameters": {
+    "genes": [
+      "ACE2",
+      "ADRB2",
+      "AICDA",
+      "AMFR",
+      "APP",
+      "BCL2L11",
+      "BRCA1",
+      "BRCA2",
+      "CALM1",
+      "CARD11",
+      "CASP3",
+      "CASP7",
+      "CBS",
+      "CBX4",
+      "CCR5",
+      "CD19",
+      "CPA2",
+      "CYP2C9",
+      "DLG4",
+      "DNAJA1",
+      "EPHB2",
+      "ERBB2",
+      "FKBP3",
+      "GCK",
+      "GDI1",
+      "GRB2",
+      "GYPA",
+      "HECTD1",
+      "HMBS",
+      "HMGCR",
+      "HRAS",
+      "ILF3",
+      "KCNE1",
+      "KCNH2",
+      "KRAS",
+      "MAPK1",
+      "MET",
+      "MPL",
+      "MSH2",
+      "MTHFR",
+      "NKX3-1",
+      "NPC1",
+      "NUDT15",
+      "OBSCN",
+      "OTC",
+      "OTUD7A",
+      "PIN1",
+      "PITX2",
+      "PKN1",
+      "PPARG",
+      "PPM1D",
+      "PRKN",
+      "PRPF40A",
+      "PSAT1",
+      "PTEN",
+      "RAD23A",
+      "RAF1",
+      "RALBP1",
+      "RHO",
+      "SCN5A",
+      "SELL",
+      "SERPINE1",
+      "SHOC2",
+      "SLC22A1",
+      "SLC6A4",
+      "SNCA",
+      "SORBS1",
+      "SOX30",
+      "SRC",
+      "SUMO1",
+      "TARDBP",
+      "TNKS2",
+      "TP53",
+      "TPK1",
+      "TPMT",
+      "UBE2I",
+      "UBE4B",
+      "UBR5",
+      "VKORC1",
+      "YAP1"
+    ],
+    "min_stars": 2,
+    "include_alphamissense": true,
+    "include_zeroshot": true,
+    "include_gnomad": true,
+    "include_structure": true,
+    "include_interpro": true,
+    "include_functional_sites": true
+  },
+  "sources": {
+    "clinvar": {
+      "file": "raw/variant_summary.txt.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz",
+      "sha256": "7e5f0c798858831cf15051f257c80fa5c90611ba982e1ebf89c1ff7787d5d101"
+    },
+    "proteingym_dms": {
+      "version": "v1.3",
+      "urls": {
+        "harvard_mirror": "https://marks.hms.harvard.edu/proteingym/ProteinGym_v1.3",
+        "zenodo": "https://zenodo.org/records/15293562"
+      },
+      "files": {
+        "DMS_ProteinGym_substitutions.zip": {
+          "sha256": "3a83766254ac9ac9984ec25cb73c6e010ea4418f5e35f143933e6b6e6473b921",
+          "bytes": 43021128
+        },
+        "DMS_substitutions.csv": {
+          "sha256": "a8f498011532a74aa9fe556a50555a75e928c5837d19c06a87592ae04049b308",
+          "bytes": 208734
+        }
+      }
+    },
+    "proteingym_clinical_zeroshot": {
+      "version": "v1.3",
+      "files": {
+        "clinical_ProteinGym_substitutions.zip": {
+          "sha256": "afe711af49365bc1ee220a5d212c570a4d9bc35e6960d19a93a0d1ed4ce37be4",
+          "bytes": 3356697
+        },
+        "zero_shot_clinical_substitutions_scores.zip": {
+          "sha256": "6ae0dd2c61ea3adc16f3b30866c311ab77c74713243398e6db883a89eadf0aeb",
+          "bytes": 13241411
+        }
+      }
+    },
+    "alphamissense": {
+      "enabled": true,
+      "version": "1.0 (2023-09-18 release)",
+      "url": "https://storage.googleapis.com/dm_alphamissense/AlphaMissense_aa_substitutions.tsv.gz",
+      "licence": "CC BY-NC-SA 4.0"
+    },
+    "uniprot_domains": {
+      "rest_url": "https://rest.uniprot.org/uniprotkb/{acc}.json"
+    },
+    "gnomad": {
+      "enabled": true,
+      "api_url": "https://gnomad.broadinstitute.org/api",
+      "dataset": "gnomad_r4",
+      "genes_fetched": [
+        "ACE2",
+        "ADRB2",
+        "AICDA",
+        "AMFR",
+        "APP",
+        "BCL2L11",
+        "BRCA1",
+        "BRCA2",
+        "CALM1",
+        "CARD11",
+        "CASP3",
+        "CASP7",
+        "CBS",
+        "CBX4",
+        "CCR5",
+        "CD19",
+        "CPA2",
+        "CYP2C9",
+        "DLG4",
+        "DNAJA1",
+        "EPHB2",
+        "ERBB2",
+        "FKBP3",
+        "GCK",
+        "GDI1",
+        "GRB2",
+        "GYPA",
+        "HECTD1",
+        "HMBS",
+        "HMGCR",
+        "HRAS",
+        "ILF3",
+        "KCNE1",
+        "KCNH2",
+        "KRAS",
+        "MAPK1",
+        "MET",
+        "MPL",
+        "MSH2",
+        "MTHFR",
+        "NKX3-1",
+        "NPC1",
+        "NUDT15",
+        "OBSCN",
+        "OTC",
+        "OTUD7A",
+        "PIN1",
+        "PITX2",
+        "PKN1",
+        "PPARG",
+        "PPM1D",
+        "PRKN",
+        "PRPF40A",
+        "PSAT1",
+        "PTEN",
+        "RAD23A",
+        "RAF1",
+        "RALBP1",
+        "RHO",
+        "SCN5A",
+        "SELL",
+        "SERPINE1",
+        "SHOC2",
+        "SLC22A1",
+        "SLC6A4",
+        "SNCA",
+        "SORBS1",
+        "SOX30",
+        "SRC",
+        "SUMO1",
+        "TARDBP",
+        "TNKS2",
+        "TP53",
+        "TPK1",
+        "TPMT",
+        "UBE2I",
+        "UBE4B",
+        "UBR5",
+        "VKORC1",
+        "YAP1"
+      ],
+      "genes_failed": [],
+      "constraint_genes_fetched": [
+        "ACE2",
+        "ADRB2",
+        "AICDA",
+        "AMFR",
+        "APP",
+        "BCL2L11",
+        "BRCA1",
+        "BRCA2",
+        "CALM1",
+        "CARD11",
+        "CASP3",
+        "CASP7",
+        "CBS",
+        "CBX4",
+        "CCR5",
+        "CD19",
+        "CPA2",
+        "CYP2C9",
+        "DLG4",
+        "DNAJA1",
+        "EPHB2",
+        "ERBB2",
+        "FKBP3",
+        "GCK",
+        "GDI1",
+        "GRB2",
+        "GYPA",
+        "HECTD1",
+        "HMBS",
+        "HMGCR",
+        "HRAS",
+        "ILF3",
+        "KCNE1",
+        "KCNH2",
+        "KRAS",
+        "MAPK1",
+        "MET",
+        "MPL",
+        "MSH2",
+        "MTHFR",
+        "NKX3-1",
+        "NPC1",
+        "NUDT15",
+        "OBSCN",
+        "OTC",
+        "OTUD7A",
+        "PIN1",
+        "PITX2",
+        "PKN1",
+        "PPARG",
+        "PPM1D",
+        "PRKN",
+        "PRPF40A",
+        "PSAT1",
+        "PTEN",
+        "RAD23A",
+        "RAF1",
+        "RALBP1",
+        "RHO",
+        "SCN5A",
+        "SELL",
+        "SERPINE1",
+        "SHOC2",
+        "SLC22A1",
+        "SLC6A4",
+        "SNCA",
+        "SORBS1",
+        "SOX30",
+        "SRC",
+        "SUMO1",
+        "TARDBP",
+        "TNKS2",
+        "TP53",
+        "TPK1",
+        "TPMT",
+        "UBE2I",
+        "UBE4B",
+        "UBR5",
+        "VKORC1",
+        "YAP1"
+      ],
+      "constraint_genes_failed": []
+    },
+    "alphafold": {
+      "enabled": true,
+      "api_url": "https://alphafold.ebi.ac.uk/api",
+      "licence": "CC-BY-4.0",
+      "accessions_covered": 77,
+      "residues_with_plddt": 46692
+    },
+    "interpro": {
+      "enabled": true,
+      "api_url": "https://www.ebi.ac.uk/interpro/api",
+      "licence": "CC0",
+      "intervals": 3168
+    },
+    "uniprot_point_features": {
+      "enabled": true,
+      "rest_url": "https://rest.uniprot.org/uniprotkb/{acc}.json",
+      "rows": 1439
+    }
+  },
+  "panel": {
+    "ACE2": {
+      "accession": "Q9BYF1",
+      "length": 805
+    },
+    "ADRB2": {
+      "accession": "P07550",
+      "length": 413
+    },
+    "AICDA": {
+      "accession": "Q9GZX7",
+      "length": 198
+    },
+    "AMFR": {
+      "accession": "Q9UKV5",
+      "length": 643
+    },
+    "APP": {
+      "accession": "P05067",
+      "length": 770
+    },
+    "BCL2L11": {
+      "accession": "O43521",
+      "length": 198
+    },
+    "BRCA1": {
+      "accession": "P38398",
+      "length": 1863
+    },
+    "BRCA2": {
+      "accession": "P51587",
+      "length": 3418
+    },
+    "CALM1": {
+      "accession": "P0DP23",
+      "length": 149
+    },
+    "CARD11": {
+      "accession": "Q9BXL7",
+      "length": 1154
+    },
+    "CASP3": {
+      "accession": "P42574",
+      "length": 277
+    },
+    "CASP7": {
+      "accession": "P55210",
+      "length": 303
+    },
+    "CBS": {
+      "accession": "P35520",
+      "length": 551
+    },
+    "CBX4": {
+      "accession": "O00257",
+      "length": 560
+    },
+    "CCR5": {
+      "accession": "P51681",
+      "length": 352
+    },
+    "CD19": {
+      "accession": "P15391",
+      "length": 556
+    },
+    "CPA2": {
+      "accession": "P48052",
+      "length": 419
+    },
+    "CYP2C9": {
+      "accession": "P11712",
+      "length": 490
+    },
+    "DLG4": {
+      "accession": "P78352",
+      "length": 724
+    },
+    "DNAJA1": {
+      "accession": "P31689",
+      "length": 397
+    },
+    "EPHB2": {
+      "accession": "P29323",
+      "length": 1055
+    },
+    "ERBB2": {
+      "accession": "P04626",
+      "length": 1255
+    },
+    "FKBP3": {
+      "accession": "Q00688",
+      "length": 224
+    },
+    "GCK": {
+      "accession": "P35557",
+      "length": 465
+    },
+    "GDI1": {
+      "accession": "P31150",
+      "length": 447
+    },
+    "GRB2": {
+      "accession": "P62993",
+      "length": 217
+    },
+    "GYPA": {
+      "accession": "P02724",
+      "length": 150
+    },
+    "HECTD1": {
+      "accession": "Q9ULT8",
+      "length": 2610
+    },
+    "HMBS": {
+      "accession": "P08397",
+      "length": 361
+    },
+    "HMGCR": {
+      "accession": "P04035",
+      "length": 888
+    },
+    "HRAS": {
+      "accession": "P01112",
+      "length": 189
+    },
+    "ILF3": {
+      "accession": "Q12906",
+      "length": 894
+    },
+    "KCNE1": {
+      "accession": "P15382",
+      "length": 129
+    },
+    "KCNH2": {
+      "accession": "Q12809",
+      "length": 1159
+    },
+    "KRAS": {
+      "accession": "P01116",
+      "length": 189
+    },
+    "MAPK1": {
+      "accession": "P28482",
+      "length": 360
+    },
+    "MET": {
+      "accession": "P08581",
+      "length": 1390
+    },
+    "MPL": {
+      "accession": "P40238",
+      "length": 635
+    },
+    "MSH2": {
+      "accession": "P43246",
+      "length": 934
+    },
+    "MTHFR": {
+      "accession": "P42898",
+      "length": 656
+    },
+    "NKX3-1": {
+      "accession": "Q99801",
+      "length": 234
+    },
+    "NPC1": {
+      "accession": "O15118",
+      "length": 1278
+    },
+    "NUDT15": {
+      "accession": "Q9NV35",
+      "length": 164
+    },
+    "OBSCN": {
+      "accession": "Q5VST9",
+      "length": 7968
+    },
+    "OTC": {
+      "accession": "P00480",
+      "length": 354
+    },
+    "OTUD7A": {
+      "accession": "Q8TE49",
+      "length": 926
+    },
+    "PIN1": {
+      "accession": "Q13526",
+      "length": 163
+    },
+    "PITX2": {
+      "accession": "Q99697",
+      "length": 317
+    },
+    "PKN1": {
+      "accession": "Q16512",
+      "length": 942
+    },
+    "PPARG": {
+      "accession": "P37231",
+      "length": 505
+    },
+    "PPM1D": {
+      "accession": "O15297",
+      "length": 605
+    },
+    "PRKN": {
+      "accession": "O60260",
+      "length": 465
+    },
+    "PRPF40A": {
+      "accession": "O75400",
+      "length": 957
+    },
+    "PSAT1": {
+      "accession": "Q9Y617",
+      "length": 370
+    },
+    "PTEN": {
+      "accession": "P60484",
+      "length": 403
+    },
+    "RAD23A": {
+      "accession": "P54725",
+      "length": 363
+    },
+    "RAF1": {
+      "accession": "P04049",
+      "length": 648
+    },
+    "RALBP1": {
+      "accession": "Q15311",
+      "length": 655
+    },
+    "RHO": {
+      "accession": "P08100",
+      "length": 348
+    },
+    "SCN5A": {
+      "accession": "Q14524",
+      "length": 2016
+    },
+    "SELL": {
+      "accession": "P14151",
+      "length": 372
+    },
+    "SERPINE1": {
+      "accession": "P05121",
+      "length": 402
+    },
+    "SHOC2": {
+      "accession": "Q9UQ13",
+      "length": 582
+    },
+    "SLC22A1": {
+      "accession": "O15245",
+      "length": 554
+    },
+    "SLC6A4": {
+      "accession": "P31645",
+      "length": 630
+    },
+    "SNCA": {
+      "accession": "P37840",
+      "length": 140
+    },
+    "SORBS1": {
+      "accession": "Q9BX66",
+      "length": 1292
+    },
+    "SOX30": {
+      "accession": "O94993",
+      "length": 753
+    },
+    "SRC": {
+      "accession": "P12931",
+      "length": 536
+    },
+    "SUMO1": {
+      "accession": "P63165",
+      "length": 101
+    },
+    "TARDBP": {
+      "accession": "Q13148",
+      "length": 414
+    },
+    "TNKS2": {
+      "accession": "Q9H2K2",
+      "length": 1166
+    },
+    "TP53": {
+      "accession": "P04637",
+      "length": 393
+    },
+    "TPK1": {
+      "accession": "Q9H3S4",
+      "length": 243
+    },
+    "TPMT": {
+      "accession": "P51580",
+      "length": 245
+    },
+    "UBE2I": {
+      "accession": "P63279",
+      "length": 158
+    },
+    "UBE4B": {
+      "accession": "O95155",
+      "length": 1302
+    },
+    "UBR5": {
+      "accession": "O95071",
+      "length": 2799
+    },
+    "VKORC1": {
+      "accession": "Q9BQB6",
+      "length": 163
+    },
+    "YAP1": {
+      "accession": "P46937",
+      "length": 504
+    }
+  },
+  "artefacts": {
+    "alphafold_plddt_subset.csv": {
+      "sha256": "001c32da7ff289fc37d628f78d9dad05c0c17095b77fe2f50935781d3a86f8fe",
+      "bytes": 1312311
+    },
+    "alphamissense_subset.csv": {
+      "sha256": "481eaef24325612aeaba128764be39ab060ea45689ff1aa900d065cdb5b32e09",
+      "bytes": 57467049
+    },
+    "dms_scores_long.csv": {
+      "sha256": "b42e0d74b8f6ca1e1dbab81f057b6078307d4ae3de2ffc9270552f9acc81079b",
+      "bytes": 32989095
+    },
+    "extended_dataset.csv": {
+      "sha256": "57ec21fc3e9271a519bf7c293ffb0a69ed29d41ee193a21fd00b569a15e2f458",
+      "bytes": 566871348
+    },
+    "extended_dataset_train.csv": {
+      "sha256": "b1368946417fd82d74c38f340f93c1810ddee06066c9bc4e820c08d20d9ba8e9",
+      "bytes": 36125501
+    },
+    "gnomad_subset.csv": {
+      "sha256": "07e1075d5341c721bdb49a4f32252472dea1ab9fe7853d9aa87631d1bfc505ed",
+      "bytes": 12088858
+    },
+    "interpro_intervals.csv": {
+      "sha256": "fd0fdc8f7d9834537fd6cd802cf521d1145d1d9cca50a8cbd8ac469c74e9641e",
+      "bytes": 222148
+    },
+    "pg_clinical_panel.csv": {
+      "sha256": "73cbd4ddc57f85c902929d74ce994e50b2797b3dcb0d093ebaa82b708c2013e4",
+      "bytes": 119764
+    },
+    "uniprot_domains.csv": {
+      "sha256": "e12a9c769a55b719f661a7dbb2b6ea2c592df480dc664147e671d74632a5639a",
+      "bytes": 24612
+    },
+    "uniprot_functional_sites.csv": {
+      "sha256": "5ea0fd117e1ebdf3f1cdc3720c08d9df85567107f54396a03049fa5154990aaa",
+      "bytes": 59304
+    },
+    "zeroshot_scores_subset.csv": {
+      "sha256": "a2e6e3bfd46abcce42c94eb34cb64c7bdbec9fc6d7eaec7f867914ec195895a4",
+      "bytes": 5315212
+    },
+    "panel_sequences.fasta": {
+      "sha256": "87da3794a2bf1a119937776602ef31068bac08b0a07dc6dffcd8cd04dc0103b7",
+      "bytes": 63027
+    }
+  },
+  "stats": {
+    "genes_requested": [
+      "ACE2",
+      "ADRB2",
+      "AICDA",
+      "AMFR",
+      "APP",
+      "BCL2L11",
+      "BRCA1",
+      "BRCA2",
+      "CALM1",
+      "CARD11",
+      "CASP3",
+      "CASP7",
+      "CBS",
+      "CBX4",
+      "CCR5",
+      "CD19",
+      "CPA2",
+      "CYP2C9",
+      "DLG4",
+      "DNAJA1",
+      "EPHB2",
+      "ERBB2",
+      "FKBP3",
+      "GCK",
+      "GDI1",
+      "GRB2",
+      "GYPA",
+      "HECTD1",
+      "HMBS",
+      "HMGCR",
+      "HRAS",
+      "ILF3",
+      "KCNE1",
+      "KCNH2",
+      "KRAS",
+      "MAPK1",
+      "MET",
+      "MPL",
+      "MSH2",
+      "MTHFR",
+      "NKX3-1",
+      "NPC1",
+      "NUDT15",
+      "OBSCN",
+      "OTC",
+      "OTUD7A",
+      "PIN1",
+      "PITX2",
+      "PKN1",
+      "PPARG",
+      "PPM1D",
+      "PRKN",
+      "PRPF40A",
+      "PSAT1",
+      "PTEN",
+      "RAD23A",
+      "RAF1",
+      "RALBP1",
+      "RHO",
+      "SCN5A",
+      "SELL",
+      "SERPINE1",
+      "SHOC2",
+      "SLC22A1",
+      "SLC6A4",
+      "SNCA",
+      "SORBS1",
+      "SOX30",
+      "SRC",
+      "SUMO1",
+      "TARDBP",
+      "TNKS2",
+      "TP53",
+      "TPK1",
+      "TPMT",
+      "UBE2I",
+      "UBE4B",
+      "UBR5",
+      "VKORC1",
+      "YAP1"
+    ],
+    "genes_resolved": {
+      "ACE2": "Q9BYF1",
+      "ADRB2": "P07550",
+      "AICDA": "Q9GZX7",
+      "AMFR": "Q9UKV5",
+      "APP": "P05067",
+      "BCL2L11": "O43521",
+      "BRCA1": "P38398",
+      "BRCA2": "P51587",
+      "CALM1": "P0DP23",
+      "CARD11": "Q9BXL7",
+      "CASP3": "P42574",
+      "CASP7": "P55210",
+      "CBS": "P35520",
+      "CBX4": "O00257",
+      "CCR5": "P51681",
+      "CD19": "P15391",
+      "CPA2": "P48052",
+      "CYP2C9": "P11712",
+      "DLG4": "P78352",
+      "DNAJA1": "P31689",
+      "EPHB2": "P29323",
+      "ERBB2": "P04626",
+      "FKBP3": "Q00688",
+      "GCK": "P35557",
+      "GDI1": "P31150",
+      "GRB2": "P62993",
+      "GYPA": "P02724",
+      "HECTD1": "Q9ULT8",
+      "HMBS": "P08397",
+      "HMGCR": "P04035",
+      "HRAS": "P01112",
+      "ILF3": "Q12906",
+      "KCNE1": "P15382",
+      "KCNH2": "Q12809",
+      "KRAS": "P01116",
+      "MAPK1": "P28482",
+      "MET": "P08581",
+      "MPL": "P40238",
+      "MSH2": "P43246",
+      "MTHFR": "P42898",
+      "NKX3-1": "Q99801",
+      "NPC1": "O15118",
+      "NUDT15": "Q9NV35",
+      "OBSCN": "Q5VST9",
+      "OTC": "P00480",
+      "OTUD7A": "Q8TE49",
+      "PIN1": "Q13526",
+      "PITX2": "Q99697",
+      "PKN1": "Q16512",
+      "PPARG": "P37231",
+      "PPM1D": "O15297",
+      "PRKN": "O60260",
+      "PRPF40A": "O75400",
+      "PSAT1": "Q9Y617",
+      "PTEN": "P60484",
+      "RAD23A": "P54725",
+      "RAF1": "P04049",
+      "RALBP1": "Q15311",
+      "RHO": "P08100",
+      "SCN5A": "Q14524",
+      "SELL": "P14151",
+      "SERPINE1": "P05121",
+      "SHOC2": "Q9UQ13",
+      "SLC22A1": "O15245",
+      "SLC6A4": "P31645",
+      "SNCA": "P37840",
+      "SORBS1": "Q9BX66",
+      "SOX30": "O94993",
+      "SRC": "P12931",
+      "SUMO1": "P63165",
+      "TARDBP": "Q13148",
+      "TNKS2": "Q9H2K2",
+      "TP53": "P04637",
+      "TPK1": "Q9H3S4",
+      "TPMT": "P51580",
+      "UBE2I": "P63279",
+      "UBE4B": "O95155",
+      "UBR5": "O95071",
+      "VKORC1": "Q9BQB6",
+      "YAP1": "P46937"
+    },
+    "genes_without_clinvar": [],
+    "clinvar_labelled": 2368,
+    "clinvar_vus": 21597,
+    "clinvar_dropped_alignment": 3658,
+    "dms_rows_total_human": 329664,
+    "dms_rows_panel": 272672,
+    "dms_rows_dropped_wt_mismatch": 50304,
+    "dms_assays_panel": 93,
+    "clinical_rows_total": 62727,
+    "clinical_np_matched": 33,
+    "clinical_np_unmatched": 2492,
+    "alphamissense_rows_panel": 1156625,
+    "gnomad_rows_panel": 66941,
+    "gnomad_genes_fetched": [
+      "ACE2",
+      "ADRB2",
+      "AICDA",
+      "AMFR",
+      "APP",
+      "BCL2L11",
+      "BRCA1",
+      "BRCA2",
+      "CALM1",
+      "CARD11",
+      "CASP3",
+      "CASP7",
+      "CBS",
+      "CBX4",
+      "CCR5",
+      "CD19",
+      "CPA2",
+      "CYP2C9",
+      "DLG4",
+      "DNAJA1",
+      "EPHB2",
+      "ERBB2",
+      "FKBP3",
+      "GCK",
+      "GDI1",
+      "GRB2",
+      "GYPA",
+      "HECTD1",
+      "HMBS",
+      "HMGCR",
+      "HRAS",
+      "ILF3",
+      "KCNE1",
+      "KCNH2",
+      "KRAS",
+      "MAPK1",
+      "MET",
+      "MPL",
+      "MSH2",
+      "MTHFR",
+      "NKX3-1",
+      "NPC1",
+      "NUDT15",
+      "OBSCN",
+      "OTC",
+      "OTUD7A",
+      "PIN1",
+      "PITX2",
+      "PKN1",
+      "PPARG",
+      "PPM1D",
+      "PRKN",
+      "PRPF40A",
+      "PSAT1",
+      "PTEN",
+      "RAD23A",
+      "RAF1",
+      "RALBP1",
+      "RHO",
+      "SCN5A",
+      "SELL",
+      "SERPINE1",
+      "SHOC2",
+      "SLC22A1",
+      "SLC6A4",
+      "SNCA",
+      "SORBS1",
+      "SOX30",
+      "SRC",
+      "SUMO1",
+      "TARDBP",
+      "TNKS2",
+      "TP53",
+      "TPK1",
+      "TPMT",
+      "UBE2I",
+      "UBE4B",
+      "UBR5",
+      "VKORC1",
+      "YAP1"
+    ],
+    "gnomad_genes_failed": [],
+    "gnomad_constraint_genes_fetched": [
+      "ACE2",
+      "ADRB2",
+      "AICDA",
+      "AMFR",
+      "APP",
+      "BCL2L11",
+      "BRCA1",
+      "BRCA2",
+      "CALM1",
+      "CARD11",
+      "CASP3",
+      "CASP7",
+      "CBS",
+      "CBX4",
+      "CCR5",
+      "CD19",
+      "CPA2",
+      "CYP2C9",
+      "DLG4",
+      "DNAJA1",
+      "EPHB2",
+      "ERBB2",
+      "FKBP3",
+      "GCK",
+      "GDI1",
+      "GRB2",
+      "GYPA",
+      "HECTD1",
+      "HMBS",
+      "HMGCR",
+      "HRAS",
+      "ILF3",
+      "KCNE1",
+      "KCNH2",
+      "KRAS",
+      "MAPK1",
+      "MET",
+      "MPL",
+      "MSH2",
+      "MTHFR",
+      "NKX3-1",
+      "NPC1",
+      "NUDT15",
+      "OBSCN",
+      "OTC",
+      "OTUD7A",
+      "PIN1",
+      "PITX2",
+      "PKN1",
+      "PPARG",
+      "PPM1D",
+      "PRKN",
+      "PRPF40A",
+      "PSAT1",
+      "PTEN",
+      "RAD23A",
+      "RAF1",
+      "RALBP1",
+      "RHO",
+      "SCN5A",
+      "SELL",
+      "SERPINE1",
+      "SHOC2",
+      "SLC22A1",
+      "SLC6A4",
+      "SNCA",
+      "SORBS1",
+      "SOX30",
+      "SRC",
+      "SUMO1",
+      "TARDBP",
+      "TNKS2",
+      "TP53",
+      "TPK1",
+      "TPMT",
+      "UBE2I",
+      "UBE4B",
+      "UBR5",
+      "VKORC1",
+      "YAP1"
+    ],
+    "gnomad_constraint_genes_failed": [],
+    "alphafold_residues_with_plddt": 46692,
+    "alphafold_accessions_covered": 77,
+    "interpro_intervals": 3168,
+    "functional_site_rows": 1439,
+    "zeroshot_rows_joined": 2292,
+    "domain_intervals": 593,
+    "master_rows": 1156625,
+    "master_label_counts": {
+      "nan": 967450,
+      "0": 107377,
+      "1": 81798
+    },
+    "multi_source_overlaps": {
+      "clinvar": 23965,
+      "pg_clinical": 2292,
+      "dms": 223872,
+      "alphamissense": 1156625,
+      "zeroshot_models": 2292,
+      "domains": 598348,
+      "gnomad": 66939,
+      "alphafold": 887148,
+      "interpro": 1076407,
+      "functional_site": 25878
+    },
+    "clinvar_conflicting_keys": 0,
+    "clinical_conflicting_keys": 0,
+    "dms_conflicting_keys": 12491,
+    "master_dropped_synonymous": 0,
+    "master_dropped_incomplete_key": 0,
+    "master_gene_relabelled": 0
+  }
+}

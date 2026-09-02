@@ -1,0 +1,2 @@
+holdout_gene,mode,esm_model,n_unfrozen_layers,use_pllr,batch_size,grad_accum,effective_batch,amp,n_finetune,n_inner_val,n_holdout,best_epoch,inner_val_roc_auc,runtime_s,threshold,roc_auc,roc_auc_ci_low,roc_auc_ci_high,pr_auc,pr_auc_ci_low,pr_auc_ci_high,mcc,mcc_ci_low,mcc_ci_high
+MSH6,siamese,facebook/esm2_t6_8M_UR50D,0,True,16,1,16,True,450,114,119,3,0.8894819466248037,618.2,0.6516205654377117,0.8465234595816845,0.7724632560768796,0.9095604861503673,0.844665229255245,0.7715669061886575,0.915463739840501,0.5143915272448606,0.3723466907443944,0.6444073065755728

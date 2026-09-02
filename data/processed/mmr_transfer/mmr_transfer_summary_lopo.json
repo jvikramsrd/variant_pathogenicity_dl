@@ -1,0 +1,26 @@
+{
+  "built_at_utc": "2026-08-28T13:43:29.008875+00:00",
+  "checkpoint": "data/processed/transfer/pretrain_dropconst.pt",
+  "scratch": false,
+  "features": "priors",
+  "rank_normalize": "off",
+  "gene_constant_priors": "auto",
+  "gene_constant_priors_dropped": true,
+  "esm_model": "facebook/esm2_t12_35M_UR50D",
+  "n_bootstrap": 10000,
+  "splits_requested": [
+    "MLH1",
+    "MSH2",
+    "MSH6",
+    "PMS2"
+  ],
+  "splits_evaluated": [
+    "MLH1",
+    "MSH2",
+    "MSH6",
+    "PMS2"
+  ],
+  "splits_skipped_no_rows": [],
+  "results_csv": "/home/jvikramsrd/Projects/variant_pathogenicity_dl/data/processed/mmr_transfer/mmr_transfer_results_lopo.csv",
+  "runtime_s": 183.6
+}

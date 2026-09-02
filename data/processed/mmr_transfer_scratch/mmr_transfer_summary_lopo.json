@@ -1,0 +1,27 @@
+{
+  "built_at_utc": "2026-08-28T14:47:12.758468+00:00",
+  "checkpoint": null,
+  "scratch": true,
+  "features": "priors",
+  "rank_normalize": "off",
+  "gene_constant_priors": "auto",
+  "gene_constant_priors_dropped": true,
+  "esm_model": "facebook/esm2_t12_35M_UR50D",
+  "n_bootstrap": 2000,
+  "splits_requested": [
+    "MLH1",
+    "MSH2",
+    "MSH6",
+    "PMS2"
+  ],
+  "splits_evaluated": [
+    "MLH1",
+    "MSH2",
+    "MSH6",
+    "PMS2"
+  ],
+  "splits_skipped_no_rows": [],
+  "results_csv": "data/processed/mmr_transfer_scratch/mmr_transfer_results_lopo.csv",
+  "predictions_csv": "data/processed/mmr_transfer_scratch/mmr_transfer_predictions_lopo.csv",
+  "runtime_s": 51.2
+}

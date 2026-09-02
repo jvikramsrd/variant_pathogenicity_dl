@@ -1,0 +1,31 @@
+{
+  "built_at_utc": "2026-08-28T12:51:59.234360+00:00",
+  "genes": [
+    "MLH1",
+    "MSH2",
+    "MSH6",
+    "PMS2"
+  ],
+  "rows": 74328,
+  "labelled": 17103,
+  "labelled_per_gene": {
+    "MSH2": 16755,
+    "MLH1": 208,
+    "MSH6": 119,
+    "PMS2": 21
+  },
+  "vus": 9589,
+  "expert_panel_calls": 277,
+  "balanced_subset_rows": 4936,
+  "pms2_homology_excluded_labels": 9139,
+  "gnomad_features_joined": true,
+  "gnomad_rows_with_af": 6492,
+  "cimra_csv": null,
+  "cimra_rows_with_oddspath": 0,
+  "mavedb_joined": true,
+  "mavedb_rows_with_score": 17014,
+  "gnomad_constraint_joined": true,
+  "alphafold_joined": true,
+  "interpro_joined": true,
+  "functional_sites_joined": true
+}
