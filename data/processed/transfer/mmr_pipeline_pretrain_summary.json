@@ -1,0 +1,12 @@
+{
+  "checkpoint": "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\transfer\\mmr_pipeline_pretrain.pt",
+  "rows": 172420,
+  "n_pos": 79429,
+  "n_neg": 92991,
+  "n_genes": 79,
+  "feature_dim": 5159,
+  "esm_dim": 5121,
+  "prior_cols": 38,
+  "inner_val_roc_auc": 0.7980512981028864,
+  "runtime_s": 56586.6
+}

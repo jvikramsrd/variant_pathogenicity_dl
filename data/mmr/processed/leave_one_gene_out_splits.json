@@ -1,0 +1,38 @@
+{
+  "strategy": "leave_one_mmr_gene_out",
+  "rationale": "The real generalization test given only 4 genes total (PROJECT_PLAN.md Phase 1, circularity-safe split).",
+  "splits": [
+    {
+      "holdout_gene": "MLH1",
+      "train_genes": [
+        "MSH2",
+        "MSH6",
+        "PMS2"
+      ]
+    },
+    {
+      "holdout_gene": "MSH2",
+      "train_genes": [
+        "MLH1",
+        "MSH6",
+        "PMS2"
+      ]
+    },
+    {
+      "holdout_gene": "MSH6",
+      "train_genes": [
+        "MLH1",
+        "MSH2",
+        "PMS2"
+      ]
+    },
+    {
+      "holdout_gene": "PMS2",
+      "train_genes": [
+        "MLH1",
+        "MSH2",
+        "MSH6"
+      ]
+    }
+  ]
+}

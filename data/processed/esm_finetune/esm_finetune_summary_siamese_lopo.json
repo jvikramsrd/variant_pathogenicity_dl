@@ -1,0 +1,27 @@
+{
+  "built_at_utc": "2026-08-29T21:36:31.738588+00:00",
+  "mode": "siamese",
+  "esm_model": "facebook/esm2_t33_650M_UR50D",
+  "n_unfrozen_layers": -1,
+  "splits_requested": [
+    "MLH1",
+    "MSH2",
+    "MSH6",
+    "PMS2"
+  ],
+  "splits_evaluated": [
+    "MLH1",
+    "MSH2",
+    "MSH6",
+    "PMS2"
+  ],
+  "splits_skipped_no_rows": [],
+  "results_csv": "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\esm_finetune\\esm_finetune_results_siamese_lopo.csv",
+  "checkpoints": [
+    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\esm_finetune\\esm_finetune_siamese_holdout_MLH1.pt",
+    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\esm_finetune\\esm_finetune_siamese_holdout_MSH2.pt",
+    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\esm_finetune\\esm_finetune_siamese_holdout_MSH6.pt",
+    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\esm_finetune\\esm_finetune_siamese_holdout_PMS2.pt"
+  ],
+  "runtime_s": 10007.4
+}

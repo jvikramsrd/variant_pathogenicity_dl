@@ -1,0 +1,584 @@
+{
+  "rows": 1156625,
+  "cols": 68,
+  "checks": {
+    "C1_key_uniqueness": {
+      "duplicate_keys": 0,
+      "nan_keys": 0
+    },
+    "C2_sequence_consistency": {
+      "out_of_bounds": 0,
+      "wt_mismatch": 0,
+      "unknown_accessions": 0
+    },
+    "C3_mutation_validity": {
+      "invalid_mut_letters": 0,
+      "wt_eq_mut": 0
+    },
+    "C4_gene_accession_map": {
+      "mismatched_pairs": 0,
+      "acc_with_multiple_genes": 0
+    },
+    "C5_hgvs": {
+      "mismatched": 0,
+      "missing": 0
+    },
+    "C6_label_precedence": {
+      "violations": 0,
+      "non_binary": 0
+    },
+    "C7_dms_coherence": {
+      "coherent": true,
+      "multi_assay_without_bin(median-masked)": 0
+    },
+    "C8_alphamissense": {
+      "score_out_of_range": 0,
+      "unknown_class": 0,
+      "class_vs_score_contradictions": 0
+    },
+    "C9_zeroshot_coverage": {
+      "any_model_row_fraction": 0.002,
+      "per_model_fill": {
+        "zs_cadd": 0.002,
+        "zs_fathmm": 0.002,
+        "zs_mutationassessor": 0.0016,
+        "zs_sift4g": 0.002,
+        "zs_mpc": 0.0011,
+        "zs_provean": 0.002,
+        "zs_deogen2": 0.0018,
+        "zs_polyphen2_hvar": 0.0018,
+        "zs_bayesdel_addaf": 0.002,
+        "zs_revel": 0.002,
+        "zs_vest4": 0.002,
+        "zs_metarnn": 0.002,
+        "zs_trancepteve_l": 0.002,
+        "zs_gemme": 0.002,
+        "zs_eve": 0.002,
+        "zs_esm1b": 0.002,
+        "zs_poet": 0.002
+      }
+    },
+    "C10_domains": {
+      "incoherent_rows": 0
+    },
+    "C11_provenance": {
+      "token_mismatches": 0,
+      "count_mismatches": 0
+    }
+  },
+  "train_summary": {
+    "labelled_rows": 189175,
+    "pathogenic": 81798,
+    "benign": 107377,
+    "labels_by_source": {
+      "clinvar_only": 1110,
+      "pg_clinical_only": 1034,
+      "single_assay_dms": 185773
+    },
+    "feature_coverage_on_labelled": {
+      "alphamissense": 1.0,
+      "any_zeroshot": 0.012,
+      "dms_score": 0.992,
+      "in_domain": 0.338
+    },
+    "genes": 80,
+    "per_gene": [
+      {
+        "gene": "HMGCR",
+        "total": 16853,
+        "pathogenic": 8254,
+        "benign": 8599
+      },
+      {
+        "gene": "MSH2",
+        "total": 16755,
+        "pathogenic": 2369,
+        "benign": 14386
+      },
+      {
+        "gene": "MTHFR",
+        "total": 12464,
+        "pathogenic": 6203,
+        "benign": 6261
+      },
+      {
+        "gene": "SLC6A4",
+        "total": 11576,
+        "pathogenic": 5787,
+        "benign": 5789
+      },
+      {
+        "gene": "SHOC2",
+        "total": 10972,
+        "pathogenic": 5273,
+        "benign": 5699
+      },
+      {
+        "gene": "PPARG",
+        "total": 9576,
+        "pathogenic": 2062,
+        "benign": 7514
+      },
+      {
+        "gene": "PRKN",
+        "total": 8758,
+        "pathogenic": 3333,
+        "benign": 5425
+      },
+      {
+        "gene": "PPM1D",
+        "total": 7896,
+        "pathogenic": 3943,
+        "benign": 3953
+      },
+      {
+        "gene": "ADRB2",
+        "total": 7800,
+        "pathogenic": 3900,
+        "benign": 3900
+      },
+      {
+        "gene": "CBS",
+        "total": 7243,
+        "pathogenic": 3938,
+        "benign": 3305
+      },
+      {
+        "gene": "MAPK1",
+        "total": 6809,
+        "pathogenic": 3408,
+        "benign": 3401
+      },
+      {
+        "gene": "CCR5",
+        "total": 6137,
+        "pathogenic": 2942,
+        "benign": 3195
+      },
+      {
+        "gene": "HMBS",
+        "total": 5693,
+        "pathogenic": 2851,
+        "benign": 2842
+      },
+      {
+        "gene": "SERPINE1",
+        "total": 5347,
+        "pathogenic": 2784,
+        "benign": 2563
+      },
+      {
+        "gene": "CD19",
+        "total": 3763,
+        "pathogenic": 2990,
+        "benign": 773
+      },
+      {
+        "gene": "CYP2C9",
+        "total": 3671,
+        "pathogenic": 1916,
+        "benign": 1755
+      },
+      {
+        "gene": "TPMT",
+        "total": 3648,
+        "pathogenic": 708,
+        "benign": 2940
+      },
+      {
+        "gene": "TPK1",
+        "total": 3183,
+        "pathogenic": 1932,
+        "benign": 1251
+      },
+      {
+        "gene": "HRAS",
+        "total": 3137,
+        "pathogenic": 980,
+        "benign": 2157
+      },
+      {
+        "gene": "NUDT15",
+        "total": 2844,
+        "pathogenic": 940,
+        "benign": 1904
+      },
+      {
+        "gene": "PTEN",
+        "total": 2797,
+        "pathogenic": 874,
+        "benign": 1923
+      },
+      {
+        "gene": "UBE2I",
+        "total": 2563,
+        "pathogenic": 1281,
+        "benign": 1282
+      },
+      {
+        "gene": "SNCA",
+        "total": 2394,
+        "pathogenic": 539,
+        "benign": 1855
+      },
+      {
+        "gene": "ACE2",
+        "total": 2223,
+        "pathogenic": 1112,
+        "benign": 1111
+      },
+      {
+        "gene": "BRCA1",
+        "total": 2113,
+        "pathogenic": 493,
+        "benign": 1620
+      },
+      {
+        "gene": "VKORC1",
+        "total": 2008,
+        "pathogenic": 986,
+        "benign": 1022
+      },
+      {
+        "gene": "PSAT1",
+        "total": 1914,
+        "pathogenic": 956,
+        "benign": 958
+      },
+      {
+        "gene": "CALM1",
+        "total": 1813,
+        "pathogenic": 909,
+        "benign": 904
+      },
+      {
+        "gene": "SUMO1",
+        "total": 1700,
+        "pathogenic": 650,
+        "benign": 1050
+      },
+      {
+        "gene": "OTC",
+        "total": 1602,
+        "pathogenic": 831,
+        "benign": 771
+      },
+      {
+        "gene": "DLG4",
+        "total": 1288,
+        "pathogenic": 393,
+        "benign": 895
+      },
+      {
+        "gene": "TARDBP",
+        "total": 1204,
+        "pathogenic": 612,
+        "benign": 592
+      },
+      {
+        "gene": "GDI1",
+        "total": 1154,
+        "pathogenic": 578,
+        "benign": 576
+      },
+      {
+        "gene": "GRB2",
+        "total": 1034,
+        "pathogenic": 336,
+        "benign": 698
+      },
+      {
+        "gene": "APP",
+        "total": 816,
+        "pathogenic": 238,
+        "benign": 578
+      },
+      {
+        "gene": "GCK",
+        "total": 781,
+        "pathogenic": 526,
+        "benign": 255
+      },
+      {
+        "gene": "NPC1",
+        "total": 731,
+        "pathogenic": 507,
+        "benign": 224
+      },
+      {
+        "gene": "MPL",
+        "total": 573,
+        "pathogenic": 438,
+        "benign": 135
+      },
+      {
+        "gene": "BRCA2",
+        "total": 569,
+        "pathogenic": 112,
+        "benign": 457
+      },
+      {
+        "gene": "YAP1",
+        "total": 368,
+        "pathogenic": 155,
+        "benign": 213
+      },
+      {
+        "gene": "KCNH2",
+        "total": 364,
+        "pathogenic": 251,
+        "benign": 113
+      },
+      {
+        "gene": "RAF1",
+        "total": 360,
+        "pathogenic": 194,
+        "benign": 166
+      },
+      {
+        "gene": "SELL",
+        "total": 360,
+        "pathogenic": 190,
+        "benign": 170
+      },
+      {
+        "gene": "SCN5A",
+        "total": 347,
+        "pathogenic": 213,
+        "benign": 134
+      },
+      {
+        "gene": "ERBB2",
+        "total": 344,
+        "pathogenic": 176,
+        "benign": 168
+      },
+      {
+        "gene": "TP53",
+        "total": 344,
+        "pathogenic": 225,
+        "benign": 119
+      },
+      {
+        "gene": "SRC",
+        "total": 278,
+        "pathogenic": 129,
+        "benign": 149
+      },
+      {
+        "gene": "MET",
+        "total": 261,
+        "pathogenic": 112,
+        "benign": 149
+      },
+      {
+        "gene": "GYPA",
+        "total": 245,
+        "pathogenic": 130,
+        "benign": 115
+      },
+      {
+        "gene": "AICDA",
+        "total": 222,
+        "pathogenic": 186,
+        "benign": 36
+      },
+      {
+        "gene": "KRAS",
+        "total": 203,
+        "pathogenic": 81,
+        "benign": 122
+      },
+      {
+        "gene": "RHO",
+        "total": 200,
+        "pathogenic": 138,
+        "benign": 62
+      },
+      {
+        "gene": "BCL2L11",
+        "total": 170,
+        "pathogenic": 93,
+        "benign": 77
+      },
+      {
+        "gene": "PKN1",
+        "total": 149,
+        "pathogenic": 60,
+        "benign": 89
+      },
+      {
+        "gene": "CARD11",
+        "total": 114,
+        "pathogenic": 47,
+        "benign": 67
+      },
+      {
+        "gene": "UBE4B",
+        "total": 109,
+        "pathogenic": 47,
+        "benign": 62
+      },
+      {
+        "gene": "OBSCN",
+        "total": 99,
+        "pathogenic": 19,
+        "benign": 80
+      },
+      {
+        "gene": "CPA2",
+        "total": 97,
+        "pathogenic": 44,
+        "benign": 53
+      },
+      {
+        "gene": "NKX3-1",
+        "total": 95,
+        "pathogenic": 62,
+        "benign": 33
+      },
+      {
+        "gene": "ILF3",
+        "total": 94,
+        "pathogenic": 21,
+        "benign": 73
+      },
+      {
+        "gene": "PRPF40A",
+        "total": 75,
+        "pathogenic": 0,
+        "benign": 75
+      },
+      {
+        "gene": "SORBS1",
+        "total": 73,
+        "pathogenic": 40,
+        "benign": 33
+      },
+      {
+        "gene": "CASP3",
+        "total": 70,
+        "pathogenic": 33,
+        "benign": 37
+      },
+      {
+        "gene": "CASP7",
+        "total": 63,
+        "pathogenic": 36,
+        "benign": 27
+      },
+      {
+        "gene": "UBR5",
+        "total": 58,
+        "pathogenic": 36,
+        "benign": 22
+      },
+      {
+        "gene": "SOX30",
+        "total": 57,
+        "pathogenic": 29,
+        "benign": 28
+      },
+      {
+        "gene": "TNKS2",
+        "total": 57,
+        "pathogenic": 6,
+        "benign": 51
+      },
+      {
+        "gene": "RALBP1",
+        "total": 57,
+        "pathogenic": 27,
+        "benign": 30
+      },
+      {
+        "gene": "DNAJA1",
+        "total": 57,
+        "pathogenic": 2,
+        "benign": 55
+      },
+      {
+        "gene": "FKBP3",
+        "total": 57,
+        "pathogenic": 24,
+        "benign": 33
+      },
+      {
+        "gene": "OTUD7A",
+        "total": 45,
+        "pathogenic": 13,
+        "benign": 32
+      },
+      {
+        "gene": "EPHB2",
+        "total": 40,
+        "pathogenic": 2,
+        "benign": 38
+      },
+      {
+        "gene": "PITX2",
+        "total": 38,
+        "pathogenic": 5,
+        "benign": 33
+      },
+      {
+        "gene": "CBX4",
+        "total": 37,
+        "pathogenic": 4,
+        "benign": 33
+      },
+      {
+        "gene": "AMFR",
+        "total": 36,
+        "pathogenic": 20,
+        "benign": 16
+      },
+      {
+        "gene": "KCNE1",
+        "total": 36,
+        "pathogenic": 10,
+        "benign": 26
+      },
+      {
+        "gene": "RAD23A",
+        "total": 36,
+        "pathogenic": 34,
+        "benign": 2
+      },
+      {
+        "gene": "SLC22A1",
+        "total": 28,
+        "pathogenic": 20,
+        "benign": 8
+      },
+      {
+        "gene": "PIN1",
+        "total": 27,
+        "pathogenic": 0,
+        "benign": 27
+      },
+      {
+        "gene": "HECTD1",
+        "total": 3,
+        "pathogenic": 0,
+        "benign": 3
+      }
+    ]
+  },
+  "conflicts": {
+    "clinvar_vs_pg_clinical": {
+      "overlap_rows": 1258,
+      "disagreements": 0,
+      "quarantined_rows": 0,
+      "unquarantined_disagreements": 0,
+      "note": "contradictory clinical evidence is excluded from supervision"
+    }
+  },
+  "passed": true,
+  "train_csv": {
+    "path": "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\extended\\extended_dataset_train.csv",
+    "rows": 189175,
+    "pathogenic": 81798,
+    "benign": 107377
+  }
+}

@@ -1,0 +1,212 @@
+{
+  "built_at_utc": "2026-08-29T02:21:53.126674+00:00",
+  "parameters": {
+    "genes": [
+      "MLH1",
+      "MSH2",
+      "MSH6",
+      "PMS2"
+    ],
+    "min_stars": 2,
+    "include_alphamissense": true,
+    "include_zeroshot": true,
+    "include_gnomad": false,
+    "include_structure": true,
+    "include_interpro": true,
+    "include_functional_sites": true
+  },
+  "sources": {
+    "clinvar": {
+      "file": "raw/variant_summary.txt.gz",
+      "url": "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz",
+      "sha256": "7e5f0c798858831cf15051f257c80fa5c90611ba982e1ebf89c1ff7787d5d101"
+    },
+    "proteingym_dms": {
+      "version": "v1.3",
+      "urls": {
+        "harvard_mirror": "https://marks.hms.harvard.edu/proteingym/ProteinGym_v1.3",
+        "zenodo": "https://zenodo.org/records/15293562"
+      },
+      "files": {
+        "DMS_ProteinGym_substitutions.zip": {
+          "sha256": "3a83766254ac9ac9984ec25cb73c6e010ea4418f5e35f143933e6b6e6473b921",
+          "bytes": 43021128
+        },
+        "DMS_substitutions.csv": {
+          "sha256": "a8f498011532a74aa9fe556a50555a75e928c5837d19c06a87592ae04049b308",
+          "bytes": 208734
+        }
+      }
+    },
+    "proteingym_clinical_zeroshot": {
+      "version": "v1.3",
+      "files": {
+        "clinical_ProteinGym_substitutions.zip": {
+          "sha256": "afe711af49365bc1ee220a5d212c570a4d9bc35e6960d19a93a0d1ed4ce37be4",
+          "bytes": 3356697
+        },
+        "zero_shot_clinical_substitutions_scores.zip": {
+          "sha256": "6ae0dd2c61ea3adc16f3b30866c311ab77c74713243398e6db883a89eadf0aeb",
+          "bytes": 13241411
+        }
+      }
+    },
+    "alphamissense": {
+      "enabled": true,
+      "version": "1.0 (2023-09-18 release)",
+      "url": "https://storage.googleapis.com/dm_alphamissense/AlphaMissense_aa_substitutions.tsv.gz",
+      "licence": "CC BY-NC-SA 4.0"
+    },
+    "uniprot_domains": {
+      "rest_url": "https://rest.uniprot.org/uniprotkb/{acc}.json"
+    },
+    "gnomad": {
+      "enabled": false,
+      "api_url": "https://gnomad.broadinstitute.org/api",
+      "dataset": "gnomad_r4",
+      "genes_fetched": [],
+      "genes_failed": [],
+      "constraint_genes_fetched": [],
+      "constraint_genes_failed": []
+    },
+    "alphafold": {
+      "enabled": true,
+      "api_url": "https://alphafold.ebi.ac.uk/api",
+      "licence": "CC-BY-4.0",
+      "accessions_covered": 4,
+      "residues_with_plddt": 3912
+    },
+    "interpro": {
+      "enabled": true,
+      "api_url": "https://www.ebi.ac.uk/interpro/api",
+      "licence": "CC0",
+      "intervals": 123
+    },
+    "uniprot_point_features": {
+      "enabled": true,
+      "rest_url": "https://rest.uniprot.org/uniprotkb/{acc}.json",
+      "rows": 61
+    }
+  },
+  "panel": {
+    "MLH1": {
+      "accession": "P40692",
+      "length": 756
+    },
+    "MSH2": {
+      "accession": "P43246",
+      "length": 934
+    },
+    "MSH6": {
+      "accession": "P52701",
+      "length": 1360
+    },
+    "PMS2": {
+      "accession": "P54278",
+      "length": 862
+    }
+  },
+  "artefacts": {
+    "alphafold_plddt_subset.csv": {
+      "sha256": "784a697472520d7af3f43934bffcbaa43c9b87d1f7bad35dafae46246ce58731",
+      "bytes": 114511
+    },
+    "alphamissense_subset.csv": {
+      "sha256": "f071bb62e240477a1a4467c25a548e6a8b904e26c9fb013750d8fa021877b5ea",
+      "bytes": 3726303
+    },
+    "dms_scores_long.csv": {
+      "sha256": "d275d893712251c5a9d839e2c773e43594ae8a399600fe8e982bb9b8f62caf7d",
+      "bytes": 1485160
+    },
+    "extended_dataset.csv": {
+      "sha256": "60d0d6d79f096d831df1b78acb6fbf6089bf0115d8ba33c485adcf443508264f",
+      "bytes": 37862327
+    },
+    "interpro_intervals.csv": {
+      "sha256": "24e61d233031520f2269b99c88296f62bb08531c7b050c676a47e212ac094e54",
+      "bytes": 10445
+    },
+    "pg_clinical_panel.csv": {
+      "sha256": "6bbca3d14a00e04e3f237f422a4224d57b3ecd4ad70f546220e70f03c630e582",
+      "bytes": 29763
+    },
+    "uniprot_domains.csv": {
+      "sha256": "14800b95bd354b7a19dfc7b4bc2623986122e99223353797ff1973863d107983",
+      "bytes": 986
+    },
+    "uniprot_functional_sites.csv": {
+      "sha256": "9aad5066d3448913ee217b429b92a52383068af6127b7687ffc214fa573918c9",
+      "bytes": 2703
+    },
+    "zeroshot_scores_subset.csv": {
+      "sha256": "57ca5eb3d994c3757eb979c74eda6d85961fd2a867e3662ff15e94789152d672",
+      "bytes": 1273449
+    },
+    "panel_sequences.fasta": {
+      "sha256": "ccfb5b44295f456d8070b63faefd75b5560513489229548f8565177ef5719ea0",
+      "bytes": 4102
+    }
+  },
+  "stats": {
+    "genes_requested": [
+      "MLH1",
+      "MSH2",
+      "MSH6",
+      "PMS2"
+    ],
+    "genes_resolved": {
+      "MLH1": "P40692",
+      "MSH2": "P43246",
+      "MSH6": "P52701",
+      "PMS2": "P54278"
+    },
+    "genes_without_clinvar": [],
+    "clinvar_labelled": 464,
+    "clinvar_vus": 9588,
+    "clinvar_dropped_alignment": 0,
+    "dms_rows_total_human": 329664,
+    "dms_rows_panel": 16749,
+    "dms_rows_dropped_wt_mismatch": 0,
+    "dms_assays_panel": 1,
+    "clinical_rows_total": 62727,
+    "clinical_np_matched": 3,
+    "clinical_np_unmatched": 2522,
+    "alphamissense_rows_panel": 74328,
+    "gnomad_rows_panel": 0,
+    "gnomad_genes_fetched": [],
+    "gnomad_genes_failed": [],
+    "gnomad_constraint_genes_fetched": [],
+    "gnomad_constraint_genes_failed": [],
+    "alphafold_residues_with_plddt": 3912,
+    "alphafold_accessions_covered": 4,
+    "interpro_intervals": 123,
+    "functional_site_rows": 61,
+    "zeroshot_rows_joined": 564,
+    "domain_intervals": 20,
+    "master_rows": 74328,
+    "master_label_counts": {
+      "nan": 57204,
+      "0": 14500,
+      "1": 2624
+    },
+    "multi_source_overlaps": {
+      "clinvar": 10052,
+      "pg_clinical": 564,
+      "dms": 16749,
+      "alphamissense": 74328,
+      "zeroshot_models": 564,
+      "domains": 15637,
+      "gnomad": 0,
+      "alphafold": 74328,
+      "interpro": 72599,
+      "functional_site": 1083
+    },
+    "clinvar_conflicting_keys": 0,
+    "clinical_conflicting_keys": 0,
+    "dms_conflicting_keys": 0,
+    "master_dropped_synonymous": 0,
+    "master_dropped_incomplete_key": 0,
+    "master_gene_relabelled": 0
+  }
+}
