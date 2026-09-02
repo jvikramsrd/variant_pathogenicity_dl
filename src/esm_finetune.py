@@ -823,10 +823,16 @@ def _fit_precomputed(model, train_examples, val_examples, device, *, head_lr,
     """Head-only training on features encoded once. Frozen backbone only."""
     from sklearn.metrics import roc_auc_score
 
+    # Encoding runs under inference_mode, so no activations are stored for a
+    # backward pass and the micro-batch that training needs (1, on a 15 GiB
+    # card) is needlessly small here. Mirror src.esm_extractor's frozen-
+    # inference batch of 8 instead -- this is the whole speed win of the
+    # frozen path, and at batch 1 it would be given straight back.
+    encode_bs = max(batch_size, 8)
     tr_block, tr_pllr, tr_prior = encode_all(model, train_examples, device,
-                                             batch_size=batch_size, amp=amp)
+                                             batch_size=encode_bs, amp=amp)
     va_block, va_pllr, va_prior = encode_all(model, val_examples, device,
-                                             batch_size=batch_size, amp=amp)
+                                             batch_size=encode_bs, amp=amp)
     tr_y = torch.tensor([e.label for e in train_examples], dtype=torch.float32)
     tr_w = torch.tensor([e.weight for e in train_examples], dtype=torch.float32)
     val_labels = np.array([e.label for e in val_examples], dtype=np.float32)
