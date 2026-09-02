@@ -81,6 +81,35 @@ GENE_CONSTANT_PRIOR_COLS: Tuple[str, ...] = (
     "gnomad_syn_z",
 )
 
+#: gnomAD allele-frequency columns and the ACMG flags derived from them.
+#: :func:`src.gnomad.add_frequency_flags` defines acmg_ba1 as ``AF > 0.05``,
+#: acmg_bs1 as ``AF > bs1_af`` and acmg_pm2 as ``AF < pm2_af``, so any label
+#: minted from allele frequency is reproduced exactly by these columns.
+AF_DERIVED_PRIOR_COLS: Tuple[str, ...] = (
+    "gnomad_log10_af", "acmg_ba1", "acmg_bs1", "acmg_pm2",
+)
+
+
+def assert_af_quarantine(prior_cols: Sequence[str],
+                         af_labels_active: bool) -> None:
+    """Refuse a configuration that both labels *and* features on frequency.
+
+    Minting benign labels from gnomAD allele frequency while feeding allele
+    frequency as a feature makes ``acmg_bs1 == label`` by construction on
+    every minted row -- the same target leakage as ``dms_bin_median ==
+    1 - label`` (docs/PAPER.md Finding 2). Enforced here rather than left to
+    convention, because the failure is invisible in every metric.
+    """
+    if not af_labels_active:
+        return
+    offenders = sorted(set(prior_cols) & set(AF_DERIVED_PRIOR_COLS))
+    if offenders:
+        raise ValueError(
+            "AF quarantine violated: allele-frequency-derived labels are "
+            f"active while these AF-derived features are in the feature set: "
+            f"{offenders}. Drop them, or disable the AF labels.")
+
+
 #: Sign applied before ranking so that every score reads "higher = more
 #: pathogenic". The four negated columns are likelihood-style scores where a
 #: higher value means *more fit*. Signs were fitted empirically on the broad
@@ -693,7 +722,8 @@ __all__ = [
     "RANK_PREFIX", "CONSENSUS_COL", "GENE_CONSTANT_PRIOR_COLS",
     "PRIOR_SCORE_SIGN", "rankable_score_columns",
     "add_within_gene_rank_features",
-    "MMR_GENES", "TRANSFER_PRIOR_COLS",
+    "MMR_GENES", "TRANSFER_PRIOR_COLS", "AF_DERIVED_PRIOR_COLS",
+    "assert_af_quarantine",
     "TransferConfig", "FeatureBundle",
     "prior_columns_of", "prior_matrix", "prior_impute_values",
     "esm_branch_matrix", "align_rows",
