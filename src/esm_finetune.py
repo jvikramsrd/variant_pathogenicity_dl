@@ -48,6 +48,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
 
+from .fusion import build_fusion_head
 from .mvmamba_features import centered_window_bounds
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,24 @@ def _autocast(device: torch.device, dtype: Optional[torch.dtype]):
     return torch.autocast(device_type=device.type, dtype=dtype)
 
 
+def _zero_init_scalar_output(module: nn.Module) -> None:
+    """Zero the last ``Linear(..., 1)`` in *module*.
+
+    Used by the PLLR residual mode so the untrained model's logit is exactly
+    the scaled zero-shot term. Works for the plain head and for both fusion
+    heads, which all end in a scalar projection.
+    """
+    last = None
+    for m in module.modules():
+        if isinstance(m, nn.Linear) and m.out_features == 1:
+            last = m
+    if last is None:
+        raise ValueError("no scalar output Linear found to zero-initialise")
+    nn.init.zeros_(last.weight)
+    if last.bias is not None:
+        nn.init.zeros_(last.bias)
+
+
 # --------------------------------------------------------------------------- #
 # Model
 # --------------------------------------------------------------------------- #
@@ -118,6 +137,9 @@ class ESMFineTuneClassifier(nn.Module):
                  hidden_dim: int = 256, dropout: float = 0.15,
                  gradient_checkpointing: bool = False,
                  pllr_mode: Optional[str] = None,
+                 n_prior_features: int = 0,
+                 fusion: str = "concat",
+                 shared_dim: int = 128,
                  use_pllr: Optional[bool] = None) -> None:
         super().__init__()
         if mode not in FINETUNE_MODES:
@@ -194,13 +216,29 @@ class ESMFineTuneClassifier(nn.Module):
         # rather than on the signal.
         self.feat_norm = nn.LayerNorm(emb_dim)
         in_dim = emb_dim + (1 if self.pllr_mode == "concat" else 0)
-        self.head = nn.Sequential(
-            nn.Linear(in_dim, hidden_dim),
-            nn.LayerNorm(hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-        )
-        self.out = nn.Linear(hidden_dim, 1)
+        self.n_prior_features = int(n_prior_features)
+        self.fusion = fusion
+        self.shared_dim = int(shared_dim)
+        if self.n_prior_features > 0:
+            # Reuse the Stage-2 fusion heads rather than a second
+            # implementation, so Stage-2b architectures stay directly
+            # comparable to Stage-2's concat_fusion / gatewave_fusion cells.
+            # norm="layer": the fine-tune runs at micro-batch 1 on a 15 GiB
+            # card, where BatchNorm1d cannot compute batch statistics.
+            self.fusion_head: Optional[nn.Module] = build_fusion_head(
+                fusion, (in_dim, self.n_prior_features),
+                shared_dim=self.shared_dim, dropout=dropout, norm="layer")
+            self.head = None
+            self.out = None
+        else:
+            self.fusion_head = None
+            self.head = nn.Sequential(
+                nn.Linear(in_dim, hidden_dim),
+                nn.LayerNorm(hidden_dim),
+                nn.GELU(),
+                nn.Dropout(dropout),
+            )
+            self.out = nn.Linear(hidden_dim, 1)
         #: PLLR is a log-ratio, typically within about [-20, +5]. Dividing by a
         #: fixed constant puts it on roughly the same scale as the LayerNorm'd
         #: embedding block so neither term dominates the first Linear at
@@ -214,17 +252,23 @@ class ESMFineTuneClassifier(nn.Module):
             #: the positive class.
             self.pllr_gain = nn.Parameter(torch.tensor(-1.0))
             # Zero-init the scalar projection so the untrained model is exactly
-            # the zero-shot predictor. out.weight still receives a non-zero
+            # the zero-shot predictor. Its weight still receives a non-zero
             # gradient on the first backward, so it leaves zero immediately --
             # nothing is frozen out.
-            nn.init.zeros_(self.out.weight)
-            nn.init.zeros_(self.out.bias)
+            _zero_init_scalar_output(self._scoring_module())
 
     def trainable_backbone_params(self) -> List[torch.nn.Parameter]:
         return [p for p in self.backbone.parameters() if p.requires_grad]
 
+    def _scoring_module(self) -> nn.Module:
+        """Whichever submodule turns features into a logit."""
+        return self.fusion_head if self.fusion_head is not None else self.out
+
     def head_params(self) -> List[torch.nn.Parameter]:
-        params = list(self.head.parameters()) + list(self.out.parameters())
+        if self.fusion_head is not None:
+            params = list(self.fusion_head.parameters())
+        else:
+            params = list(self.head.parameters()) + list(self.out.parameters())
         if self.pllr_mode == "residual":
             params.append(self.pllr_gain)
         return params
@@ -244,6 +288,9 @@ class ESMFineTuneClassifier(nn.Module):
             "hidden_dim": self.hidden_dim,
             "dropout": self.dropout,
             "pllr_mode": self.pllr_mode,
+            "n_prior_features": self.n_prior_features,
+            "fusion": self.fusion,
+            "shared_dim": self.shared_dim,
         }
 
     def _encode(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
@@ -311,7 +358,18 @@ class ESMFineTuneClassifier(nn.Module):
         feat = self.feat_norm(esm_block)
         if self.pllr_mode == "concat":
             feat = torch.cat([feat, (pllr / self.pllr_scale).unsqueeze(-1)], dim=-1)
-        logit = self.out(self.head(feat)).squeeze(-1)
+        if self.fusion_head is not None:
+            if priors is None:
+                raise ValueError(
+                    f"this model was built with n_prior_features="
+                    f"{self.n_prior_features}, so classify() requires priors.")
+            if priors.shape[-1] != self.n_prior_features:
+                raise ValueError(
+                    f"expected {self.n_prior_features} prior features, got "
+                    f"{priors.shape[-1]}")
+            logit = self.fusion_head(feat, priors.to(feat.dtype))
+        else:
+            logit = self.out(self.head(feat)).squeeze(-1)
         if self.pllr_mode == "residual":
             logit = logit + self.pllr_gain * (pllr / self.pllr_scale)
         return logit
@@ -343,11 +401,15 @@ class FineTuneExample:
     #: PLLR term. Resolved once at example-build time rather than per batch.
     wt_tok_id: int = 0
     mut_tok_id: int = 0
+    #: This variant's standardised prior-feature vector, or None when the model
+    #: has no prior branch.
+    priors: Optional[np.ndarray] = None
 
 
 def build_examples(
     df: pd.DataFrame, sequence_by_gene: Dict[str, str], mode: str,
     max_residues: int = 1022, tokenizer=None,
+    prior_matrix: Optional[np.ndarray] = None,
 ) -> List[FineTuneExample]:
     """Crop each variant to a mutation-centred window and prepare WT/VT text.
 
@@ -360,13 +422,18 @@ def build_examples(
     examples: List[FineTuneExample] = []
     n_dropped = 0
     has_weight = "label_weight" in df.columns
+    if prior_matrix is not None and len(prior_matrix) != len(df):
+        raise ValueError(
+            f"prior_matrix has {len(prior_matrix)} rows but df has {len(df)}; "
+            "it must be row-aligned to df so a wt-validation drop removes the "
+            "variant and its prior vector together.")
     # Residue -> vocabulary id, resolved once. Without a tokenizer the ids stay
     # 0 and the caller must not enable the PLLR term.
     aa_to_id: Dict[str, int] = {}
     if tokenizer is not None:
         aa_to_id = {aa: int(tokenizer.convert_tokens_to_ids(aa))
                     for aa in "ACDEFGHIKLMNPQRSTVWY"}
-    for row in df.itertuples(index=False):
+    for row_i, row in enumerate(df.itertuples(index=False)):
         gene = str(getattr(row, "gene"))
         seq = sequence_by_gene.get(gene)
         pos = int(getattr(row, "position"))
@@ -387,7 +454,9 @@ def build_examples(
         examples.append(FineTuneExample(
             wt_seq=wt_window, wt_pos0=local_pos, mut_seq=mut_seq, mut_pos0=mut_pos0,
             label=float(getattr(row, "label")), weight=weight,
-            wt_tok_id=aa_to_id.get(wt_aa, 0), mut_tok_id=aa_to_id.get(mut_aa, 0)))
+            wt_tok_id=aa_to_id.get(wt_aa, 0), mut_tok_id=aa_to_id.get(mut_aa, 0),
+            priors=(None if prior_matrix is None
+                    else np.asarray(prior_matrix[row_i], dtype=np.float32))))
     if n_dropped:
         logger.warning("build_examples: dropped %d/%d rows (unknown gene or "
                        "wt/position mismatch against the canonical sequence).",
@@ -423,6 +492,9 @@ def make_collate_fn(tokenizer, mode: str):
             out["mut_ids"] = mut_tok["input_ids"]
             out["mut_mask"] = mut_tok["attention_mask"]
             out["mut_pos"] = torch.tensor([b.mut_pos0 for b in batch], dtype=torch.long)
+        if batch[0].priors is not None:
+            out["priors"] = torch.tensor(
+                np.stack([b.priors for b in batch]), dtype=torch.float32)
         return out
     return collate
 
@@ -433,7 +505,8 @@ def _to_device(batch: Dict[str, torch.Tensor], device: torch.device) -> Dict[str
 
 def _forward(model: ESMFineTuneClassifier, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
     tok = {"wt_tok_id": batch.get("wt_tok_id"),
-           "mut_tok_id": batch.get("mut_tok_id")}
+           "mut_tok_id": batch.get("mut_tok_id"),
+           "priors": batch.get("priors")}
     if model.mode == "siamese":
         return model(batch["wt_ids"], batch["wt_mask"], batch["wt_pos"],
                      batch["mut_ids"], batch["mut_mask"], batch["mut_pos"], **tok)
@@ -675,7 +748,10 @@ def load_finetuned_model(path, device: Optional[torch.device] = None, *,
         n_unfrozen_layers=cfg.get("n_unfrozen_layers", -1),
         hidden_dim=cfg.get("hidden_dim", 256),
         dropout=cfg.get("dropout", 0.15),
-        pllr_mode=pllr_mode)
+        pllr_mode=pllr_mode,
+        n_prior_features=cfg.get("n_prior_features", 0),
+        fusion=cfg.get("fusion", "concat"),
+        shared_dim=cfg.get("shared_dim", 128))
     model.load_state_dict(payload["model_state_dict"], strict=strict)
     if device is not None:
         model.to(device)

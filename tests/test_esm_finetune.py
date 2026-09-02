@@ -183,3 +183,98 @@ def test_unknown_pllr_mode_raises():
     with pytest.raises(ValueError, match="pllr_mode"):
         ESMFineTuneClassifier(model_name=TINY, mode="siamese",
                               n_unfrozen_layers=0, pllr_mode="sometimes")
+
+
+# --------------------------------------------------------------------------- #
+# prior-feature branch
+# --------------------------------------------------------------------------- #
+def test_prior_branch_changes_the_logit():
+    model = tiny_model_or_skip(mode="siamese", n_unfrozen_layers=0,
+                               pllr_mode="off", n_prior_features=5)
+    model.eval()
+    block = torch.randn(3, model.esm_block_dim)
+    pllr = torch.zeros(3)
+    with torch.no_grad():
+        a = model.classify(block, pllr, priors=torch.zeros(3, 5))
+        b = model.classify(block, pllr, priors=torch.ones(3, 5))
+    assert not torch.allclose(a, b), "prior vector must reach the head"
+
+
+def test_prior_branch_requires_priors_when_configured():
+    model = tiny_model_or_skip(mode="siamese", n_unfrozen_layers=0,
+                               n_prior_features=5)
+    with pytest.raises(ValueError, match="priors"):
+        model.classify(torch.randn(2, model.esm_block_dim), torch.zeros(2))
+
+
+def test_prior_branch_rejects_wrong_width():
+    model = tiny_model_or_skip(mode="siamese", n_unfrozen_layers=0,
+                               n_prior_features=5)
+    with pytest.raises(ValueError, match="5"):
+        model.classify(torch.randn(2, model.esm_block_dim), torch.zeros(2),
+                       priors=torch.zeros(2, 4))
+
+
+def test_prior_branch_works_at_micro_batch_one():
+    """The only config that fits a 650M full fine-tune on a 15 GiB card."""
+    model = tiny_model_or_skip(mode="siamese", n_unfrozen_layers=0,
+                               n_prior_features=5, fusion="concat")
+    model.train()
+    out = model.classify(torch.randn(1, model.esm_block_dim), torch.zeros(1),
+                         priors=torch.zeros(1, 5))
+    assert out.shape == (1,) and torch.isfinite(out).all()
+
+
+def test_gatewave_fusion_also_supported():
+    model = tiny_model_or_skip(mode="siamese", n_unfrozen_layers=0,
+                               n_prior_features=5, fusion="gatewave")
+    model.train()
+    out = model.classify(torch.randn(2, model.esm_block_dim), torch.zeros(2),
+                         priors=torch.randn(2, 5))
+    assert out.shape == (2,)
+
+
+def test_residual_pllr_still_dominates_at_init_with_priors():
+    """Zero-init of the fusion head's scalar projection must hold for the
+    fusion path too, or the residual guarantee silently applies to only one
+    architecture."""
+    model = tiny_model_or_skip(mode="siamese", n_unfrozen_layers=0,
+                               pllr_mode="residual", n_prior_features=5)
+    model.eval()
+    pllr = torch.tensor([-8.0, 1.0])
+    with torch.no_grad():
+        logits = model.classify(torch.randn(2, model.esm_block_dim), pllr,
+                                priors=torch.randn(2, 5))
+        expected = model.pllr_gain * (pllr / model.pllr_scale)
+    torch.testing.assert_close(logits, expected)
+
+
+def test_build_examples_carries_prior_rows_and_drops_them_with_their_row():
+    model = tiny_model_or_skip(mode="siamese", n_unfrozen_layers=0)
+    df = demo_frame()
+    df.loc[1, "wt_aa"] = "X"          # forces a wt-validation drop
+    priors = np.arange(4 * 3, dtype=np.float32).reshape(4, 3)
+    ex = build_examples(df, {"G": SEQ}, "siamese", max_residues=64,
+                        tokenizer=model.tokenizer, prior_matrix=priors)
+    assert len(ex) == 3
+    # Row 1 was dropped, so surviving examples keep rows 0, 2, 3.
+    np.testing.assert_allclose(
+        np.stack([e.priors for e in ex]), priors[[0, 2, 3]])
+
+
+def test_collate_emits_prior_tensor():
+    model = tiny_model_or_skip(mode="siamese", n_unfrozen_layers=0)
+    priors = np.ones((4, 3), dtype=np.float32)
+    ex = build_examples(demo_frame(), {"G": SEQ}, "siamese", max_residues=64,
+                        tokenizer=model.tokenizer, prior_matrix=priors)
+    batch = make_collate_fn(model.tokenizer, "siamese")(ex)
+    assert batch["priors"].shape == (4, 3)
+    assert batch["priors"].dtype == torch.float32
+
+
+def test_build_examples_rejects_misaligned_prior_matrix():
+    model = tiny_model_or_skip(mode="siamese", n_unfrozen_layers=0)
+    with pytest.raises(ValueError, match="rows"):
+        build_examples(demo_frame(), {"G": SEQ}, "siamese", max_residues=64,
+                       tokenizer=model.tokenizer,
+                       prior_matrix=np.zeros((2, 3), dtype=np.float32))

@@ -209,16 +209,20 @@ def _stub_finetune_model(**overrides):
     m.dropout = overrides.get("dropout", 0.15)
     m.pllr_mode = overrides.get("pllr_mode", "residual")
     m.use_pllr = m.pllr_mode != "off"
+    m.n_prior_features = overrides.get("n_prior_features", 0)
+    m.fusion = overrides.get("fusion", "concat")
+    m.shared_dim = overrides.get("shared_dim", 128)
     return m
 
 
 def test_config_roundtrips_every_constructor_arg():
     cfg = _stub_finetune_model(mode="wt_site", n_unfrozen_layers=4,
-                               pllr_mode="off").config()
+                               pllr_mode="off", n_prior_features=27).config()
     assert cfg == {
         "model_name": "facebook/esm2_t6_8M_UR50D", "mode": "wt_site",
         "n_unfrozen_layers": 4, "hidden_dim": 256, "dropout": 0.15,
-        "pllr_mode": "off",
+        "pllr_mode": "off", "n_prior_features": 27, "fusion": "concat",
+        "shared_dim": 128,
     }
 
 
@@ -296,7 +300,8 @@ def test_load_finetuned_model_rebuilds_from_stored_config():
     assert seen["init"] == {
         "model_name": "facebook/esm2_t6_8M_UR50D", "mode": "wt_site",
         "n_unfrozen_layers": 2, "hidden_dim": 128, "dropout": 0.2,
-        "pllr_mode": "off",
+        "pllr_mode": "off", "n_prior_features": 0, "fusion": "concat",
+        "shared_dim": 128,
     }
     assert seen["state_dict"] == {"sentinel": 1}
     assert seen["device"] == "cpu"
