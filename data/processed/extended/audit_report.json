@@ -1,5 +1,5 @@
 {
-  "rows": 1156625,
+  "rows": 1152863,
   "cols": 68,
   "checks": {
     "C1_key_uniqueness": {
@@ -67,13 +67,13 @@
     }
   },
   "train_summary": {
-    "labelled_rows": 189175,
-    "pathogenic": 81798,
-    "benign": 107377,
+    "labelled_rows": 189006,
+    "pathogenic": 81706,
+    "benign": 107300,
     "labels_by_source": {
-      "clinvar_only": 1110,
+      "clinvar_only": 1114,
       "pg_clinical_only": 1034,
-      "single_assay_dms": 185773
+      "single_assay_dms": 185600
     },
     "feature_coverage_on_labelled": {
       "alphamissense": 1.0,
@@ -81,7 +81,7 @@
       "dms_score": 0.992,
       "in_domain": 0.338
     },
-    "genes": 80,
+    "genes": 79,
     "per_gene": [
       {
         "gene": "HMGCR",
@@ -313,8 +313,8 @@
       },
       {
         "gene": "BRCA2",
-        "total": 569,
-        "pathogenic": 112,
+        "total": 570,
+        "pathogenic": 113,
         "benign": 457
       },
       {
@@ -348,16 +348,16 @@
         "benign": 134
       },
       {
-        "gene": "ERBB2",
-        "total": 344,
-        "pathogenic": 176,
-        "benign": 168
-      },
-      {
         "gene": "TP53",
         "total": 344,
         "pathogenic": 225,
         "benign": 119
+      },
+      {
+        "gene": "ERBB2",
+        "total": 344,
+        "pathogenic": 176,
+        "benign": 168
       },
       {
         "gene": "SRC",
@@ -394,12 +394,6 @@
         "total": 200,
         "pathogenic": 138,
         "benign": 62
-      },
-      {
-        "gene": "BCL2L11",
-        "total": 170,
-        "pathogenic": 93,
-        "benign": 77
       },
       {
         "gene": "PKN1",
@@ -576,9 +570,9 @@
   },
   "passed": true,
   "train_csv": {
-    "path": "/home/jvikramsrd/Projects/variant_pathogenicity_dl/data/processed/extended/extended_dataset_train.csv",
-    "rows": 189175,
-    "pathogenic": 81798,
-    "benign": 107377
+    "path": "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\extended\\extended_dataset_train.csv",
+    "rows": 189006,
+    "pathogenic": 81706,
+    "benign": 107300
   }
 }
