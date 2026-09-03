@@ -116,11 +116,56 @@ def parse_hgvsp(hgvsp: str) -> Optional[tuple[str, int, str]]:
     return wt, int(m.group(2)), mut
 
 
+#: Substrings that mark a *server-side, transient* GraphQL error. gnomAD
+#: reports these with HTTP 200 and an ``errors`` array rather than a 5xx
+#: status, so ``raise_for_status`` never sees them and the transport retry
+#: below is bypassed unless they are classified here explicitly.
+_RETRYABLE_GQL_MESSAGES: tuple[str, ...] = (
+    "service overloaded",
+    "service unavailable",
+    "internal server error",
+    "rate limit",
+    "too many requests",
+    "timeout",
+    "timed out",
+    "try again",
+    "temporarily unavailable",
+)
+
+
+def _gql_error_is_retryable(errors: object) -> bool:
+    """True when every reported GraphQL error looks transient.
+
+    A permanent error -- an unknown field, a gene that does not exist, a
+    malformed query -- must fail on the first attempt: retrying it burns
+    minutes of backoff to arrive at the same answer. A mixed batch is treated
+    as permanent for the same reason.
+    """
+    if not isinstance(errors, (list, tuple)) or not errors:
+        return False
+    for err in errors:
+        message = (err.get("message", "") if isinstance(err, dict) else err)
+        text = str(message).lower()
+        if not any(pattern in text for pattern in _RETRYABLE_GQL_MESSAGES):
+            return False
+    return True
+
+
 def _gql(session: requests.Session, query: str, variables: Dict[str, str],
-         max_retries: int = 5, timeout: int = 120) -> dict:
-    """POST one GraphQL request with exponential-backoff retries."""
+         max_retries: int = 5, timeout: int = 120,
+         backoff_base: float = 5.0) -> dict:
+    """POST one GraphQL request with exponential-backoff retries.
+
+    Retries cover both transport failures (connection reset, read timeout,
+    5xx) and transient *GraphQL-level* errors such as gnomAD's
+    ``Service overloaded``, which arrives as HTTP 200 with an ``errors``
+    array. Backoff is ``backoff_base * 2**attempt`` with deterministic
+    per-attempt spacing (5s, 10s, 20s, 40s -> ~75 s of patience over five
+    attempts), which is what an overloaded gnomAD needs to recover.
+    """
     last: Optional[Exception] = None
     for attempt in range(max_retries):
+        retryable: Optional[Exception] = None
         try:
             resp = session.post(
                 GNOMAD_API_URL,
@@ -130,16 +175,28 @@ def _gql(session: requests.Session, query: str, variables: Dict[str, str],
             resp.raise_for_status()
             payload = resp.json()
         except Exception as exc:  # noqa: BLE001 - transport errors are retried
-            last = exc
-            wait = 5.0 * (attempt + 1)
-            logger.warning("gnomAD API attempt %d failed (%s); retry in %.0fs",
-                           attempt + 1, exc, wait)
-            time.sleep(wait)
-            continue
-        if payload.get("errors"):
-            raise RuntimeError(f"gnomAD GraphQL error(s): {payload['errors']}")
-        return payload["data"]
-    raise RuntimeError(f"gnomAD API unreachable after {max_retries} attempts: {last}")
+            retryable = exc
+        else:
+            errors = payload.get("errors")
+            if not errors:
+                return payload["data"]
+            failure = RuntimeError(f"gnomAD GraphQL error(s): {errors}")
+            if not _gql_error_is_retryable(errors):
+                raise failure
+            retryable = failure
+
+        last = retryable
+        if attempt == max_retries - 1:
+            break
+        wait = backoff_base * (2 ** attempt)
+        logger.warning("gnomAD API attempt %d/%d failed (%s); retry in %.0fs",
+                       attempt + 1, max_retries, retryable, wait)
+        time.sleep(wait)
+    raise RuntimeError(
+        f"gnomAD API failed after {max_retries} attempts: {last}. "
+        "Per-gene results are cached, so re-running the identical command "
+        "resumes from where it stopped."
+    )
 
 
 def fetch_gene_gnomad_variants(gene: str,

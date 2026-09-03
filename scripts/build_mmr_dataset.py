@@ -211,11 +211,33 @@ def main() -> int:
             master[c] = np.nan
     else:
         logger.info("[4/%d] Fetching gnomAD gene-level constraint metrics ...", N)
-        constraint_by_gene = {
-            g: load_or_fetch_constraint(g, args.data_dir / "raw",
-                                        overwrite=args.overwrite_cache)
-            for g in MMR_GENES if g in set(master["gene"].unique())
-        }
+        # Fetched one gene at a time so a failure names the gene it belongs to.
+        # This stays fail-closed: unlike the 80-gene panel (where
+        # ``extended_builder`` records per-gene failures in the manifest and
+        # carries on), the MMR panel is four genes and every one of them is
+        # load-bearing, so a silent NaN column here would misreport the build.
+        # ``--skip_gnomad_constraint`` is the deliberate opt-out.
+        constraint_by_gene: dict = {}
+        failed: list = []
+        for g in MMR_GENES:
+            if g not in set(master["gene"].unique()):
+                continue
+            try:
+                constraint_by_gene[g] = load_or_fetch_constraint(
+                    g, args.data_dir / "raw", overwrite=args.overwrite_cache)
+            except Exception as exc:  # noqa: BLE001 - reported together below
+                logger.error("gnomAD constraint: %s failed (%s).", g, exc)
+                failed.append(g)
+        if failed:
+            raise RuntimeError(
+                f"gnomAD gene-level constraint unavailable for: {', '.join(failed)}. "
+                "Every successful gene is cached under "
+                f"{args.data_dir / 'raw' / 'gnomad'}, so re-running the identical "
+                "command resumes and only retries what is missing. If gnomAD is "
+                "down for longer than you can wait, re-run with "
+                "--skip_gnomad_constraint to build without these five columns "
+                "-- the manifest then records their absence."
+            )
         master = attach_gene_constraint(master, constraint_by_gene)
         logger.info("gnomAD constraint: %s", constraint_by_gene)
 

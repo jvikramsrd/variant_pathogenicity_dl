@@ -780,6 +780,118 @@ def test_transfer_head_checkpoint_roundtrips_weights_scalers_and_threshold():
         raise AssertionError("mismatched view count was accepted")
 
 
+# --------------------------------------------------------------------------- #
+# gnomAD GraphQL retry classification
+#
+# gnomAD reports transient overload as HTTP 200 with an ``errors`` array, so
+# ``raise_for_status`` never sees it. Before this was classified, a single
+# "Service overloaded" reply aborted a ten-minute build on its first attempt
+# without using any of the five configured retries.
+# --------------------------------------------------------------------------- #
+class _FakeResponse:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._payload
+
+
+class _FakeSession:
+    """Replays a queued list of payloads and counts the POSTs it served."""
+
+    def __init__(self, payloads):
+        self._payloads = list(payloads)
+        self.calls = 0
+
+    def post(self, *_args, **_kwargs):
+        self.calls += 1
+        return _FakeResponse(self._payloads.pop(0))
+
+
+def test_gnomad_service_overloaded_is_retryable():
+    from src.gnomad import _gql_error_is_retryable
+    assert _gql_error_is_retryable([{"message": "Service overloaded"}])
+    assert _gql_error_is_retryable([{"message": "Too Many Requests"}])
+    assert _gql_error_is_retryable([{"message": "upstream timed out"}])
+
+
+def test_gnomad_permanent_error_is_not_retryable():
+    from src.gnomad import _gql_error_is_retryable
+    assert not _gql_error_is_retryable([{"message": "Cannot query field 'nope'"}])
+    assert not _gql_error_is_retryable([])
+    assert not _gql_error_is_retryable(None)
+
+
+def test_gnomad_mixed_errors_are_not_retryable():
+    """A real bug alongside an overload must not be retried into silence."""
+    from src.gnomad import _gql_error_is_retryable
+    assert not _gql_error_is_retryable([
+        {"message": "Service overloaded"},
+        {"message": "Cannot query field 'nope'"},
+    ])
+
+
+def test_gql_retries_overload_then_returns_data():
+    import src.gnomad as gnomad_mod
+
+    session = _FakeSession([
+        {"errors": [{"message": "Service overloaded"}]},
+        {"errors": [{"message": "Service overloaded"}]},
+        {"data": {"gene": {"gnomad_constraint": {"pLI": 0.99}}}},
+    ])
+    slept = []
+    original_sleep = gnomad_mod.time.sleep
+    gnomad_mod.time.sleep = slept.append
+    try:
+        data = gnomad_mod._gql(session, "query", {}, backoff_base=0.0)
+    finally:
+        gnomad_mod.time.sleep = original_sleep
+    assert data["gene"]["gnomad_constraint"]["pLI"] == 0.99
+    assert session.calls == 3, "should have retried twice before succeeding"
+    assert len(slept) == 2, "should have backed off between attempts"
+
+
+def test_gql_does_not_retry_a_permanent_error():
+    import src.gnomad as gnomad_mod
+
+    session = _FakeSession([{"errors": [{"message": "Cannot query field 'nope'"}]}])
+    original_sleep = gnomad_mod.time.sleep
+    gnomad_mod.time.sleep = lambda _s: (_ for _ in ()).throw(
+        AssertionError("must not sleep on a permanent error"))
+    try:
+        try:
+            gnomad_mod._gql(session, "query", {}, backoff_base=0.0)
+        except RuntimeError as exc:
+            assert "Cannot query field" in str(exc)
+        else:
+            raise AssertionError("a permanent GraphQL error must raise")
+    finally:
+        gnomad_mod.time.sleep = original_sleep
+    assert session.calls == 1, "a permanent error must fail on the first attempt"
+
+
+def test_gql_exhausts_retries_and_mentions_the_cache():
+    import src.gnomad as gnomad_mod
+
+    session = _FakeSession([{"errors": [{"message": "Service overloaded"}]}] * 3)
+    original_sleep = gnomad_mod.time.sleep
+    gnomad_mod.time.sleep = lambda _s: None
+    try:
+        try:
+            gnomad_mod._gql(session, "query", {}, max_retries=3, backoff_base=0.0)
+        except RuntimeError as exc:
+            # The operator needs to know a re-run resumes rather than restarts.
+            assert "cached" in str(exc).lower()
+        else:
+            raise AssertionError("exhausted retries must raise")
+    finally:
+        gnomad_mod.time.sleep = original_sleep
+    assert session.calls == 3
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     failed = []
