@@ -232,6 +232,18 @@ def binary_metrics_at_threshold(
     ``f1_pathogenic`` is F1 for the positive (pathogenic) class specifically;
     ``f1_macro`` and ``f1_weighted`` are the multi-class averages, named so
     that a table can never silently mix them up.
+
+    Every quantity is derived from the ``tn/fp/fn/tp`` counts rather than from
+    six separate sklearn scorers. Those scorers each rebuild a confusion matrix
+    internally *without* passing ``labels``, so a single-class cohort -- a
+    held-out gene with only benign variants, say -- makes them emit
+    ``UserWarning: A single label was found in 'y_true' and 'y_pred'`` and fall
+    back to a 1x1 matrix. Working from the counts is warning-free, exact on
+    degenerate input, and avoids recomputing the same matrix six times.
+
+    Zero-denominator conventions follow sklearn's ``zero_division=0`` for
+    precision / recall / F1, while specificity and NPV stay NaN: "no negatives
+    were present" is missing information, not a score of zero.
     """
     truth = np.asarray(y_true, dtype=np.int64)
     probs = np.asarray(y_prob, dtype=np.float64)
@@ -239,26 +251,37 @@ def binary_metrics_at_threshold(
 
     counts = confusion_counts(truth, pred)
     tn, fp, fn, tp = counts["tn"], counts["fp"], counts["fn"], counts["tp"]
+    total = tn + fp + fn + tp
 
-    # Specificity and NPV have no sklearn one-liner for the binary case and
-    # are computed from the counts so that empty denominators stay NaN rather
-    # than silently becoming 0.0.
-    specificity = float(tn / (tn + fp)) if (tn + fp) else float("nan")
-    npv = float(tn / (tn + fn)) if (tn + fn) else float("nan")
-    recall = float(sk_metrics.recall_score(truth, pred, zero_division=0))
+    def _ratio(num: int, den: int, empty: float = 0.0) -> float:
+        return float(num / den) if den else empty
+
+    precision = _ratio(tp, tp + fp)
+    recall = _ratio(tp, tp + fn)
+    specificity = _ratio(tn, tn + fp, empty=float("nan"))
+    npv = _ratio(tn, tn + fn, empty=float("nan"))
+    # F1 per class straight from the counts: 2TP / (2TP + FP + FN), with the
+    # roles of the classes swapped for the negative class.
+    f1_pos = _ratio(2 * tp, 2 * tp + fp + fn)
+    f1_neg = _ratio(2 * tn, 2 * tn + fn + fp)
+    support_pos, support_neg = tp + fn, tn + fp
 
     out: Dict[str, float] = {
-        "accuracy": float(sk_metrics.accuracy_score(truth, pred)),
-        "balanced_accuracy": float(sk_metrics.balanced_accuracy_score(truth, pred)),
-        "precision": float(sk_metrics.precision_score(truth, pred, zero_division=0)),
+        "accuracy": _ratio(tp + tn, total, empty=float("nan")),
+        # Mean of the two class recalls; NaN-safe because a class with no
+        # support makes balanced accuracy undefined rather than zero.
+        "balanced_accuracy": float(np.mean([recall, specificity]))
+        if support_pos and support_neg else float("nan"),
+        "precision": precision,
         "recall": recall,
         "sensitivity": recall,
         "specificity": specificity,
         "npv": npv,
-        "f1_pathogenic": float(sk_metrics.f1_score(truth, pred, zero_division=0)),
-        "f1_macro": float(sk_metrics.f1_score(truth, pred, average="macro", zero_division=0)),
+        "f1_pathogenic": f1_pos,
+        "f1_macro": float(np.mean([f1_pos, f1_neg])),
         "f1_weighted": float(
-            sk_metrics.f1_score(truth, pred, average="weighted", zero_division=0)),
+            (support_neg * f1_neg + support_pos * f1_pos) / total)
+        if total else float("nan"),
         "mcc": safe_mcc(truth, pred),
     }
     out.update({k: float(v) for k, v in counts.items()})

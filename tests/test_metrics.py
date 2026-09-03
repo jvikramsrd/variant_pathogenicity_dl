@@ -72,6 +72,24 @@ def test_specificity_is_nan_when_there_are_no_negatives():
     assert np.isnan(m["specificity"])
 
 
+def test_degenerate_cohort_emits_no_sklearn_warning():
+    """A single-class cohort must not trip sklearn's confusion-matrix warning.
+
+    The scorers (`balanced_accuracy_score` among them) rebuild a confusion
+    matrix without passing `labels`, so they warn and fall back to a 1x1
+    matrix. The panel is derived from counts instead, precisely to avoid that.
+    """
+    import warnings
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")           # any warning becomes a failure
+        m = binary_metrics_at_threshold([1, 1, 1], [0.9, 0.8, 0.7], threshold=0.5)
+        binary_metrics_at_threshold([0, 0, 0], [0.1, 0.2, 0.3], threshold=0.5)
+    assert m["tp"] == 3 and m["tn"] == 0
+    assert np.isnan(m["specificity"])
+    assert np.isnan(m["balanced_accuracy"])      # undefined without negatives
+
+
 def test_f1_variants_are_distinct_and_named():
     """A class-imbalanced case where the three F1s genuinely differ."""
     y_true = [0] * 8 + [1] * 2
