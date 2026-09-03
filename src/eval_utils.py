@@ -14,44 +14,30 @@ import logging
 from typing import Callable, Dict, Optional, Sequence, Tuple
 
 import numpy as np
-from sklearn import metrics as sk_metrics
+
+from .metrics import (
+    SUPPORTED_METRICS,
+    compute_metric,
+    evaluation_report,
+    optimal_threshold,
+    safe_mcc,
+)
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_N_BOOTSTRAP = 10_000
 
 
-def safe_mcc(y_true: Sequence[int], y_pred: Sequence[int]) -> float:
-    """MCC that returns 0.0 (not NaN) for degenerate single-class predictions."""
-    truth = np.asarray(y_true, dtype=np.int64)
-    pred = np.asarray(y_pred, dtype=np.int64)
-    if len(np.unique(truth)) < 2 or len(np.unique(pred)) < 2:
-        return 0.0
-    return float(sk_metrics.matthews_corrcoef(truth, pred))
-
-
 def optimal_threshold_by_mcc(y_true: Sequence[int], y_score: Sequence[float],
                              n_grid: int = 2001) -> Tuple[float, float]:
     """Find the score threshold maximising MCC on *validation* data.
 
-    Sweeps a dense probability grid between the observed score extremes
-    (cheap, monotone-free, no external deps) and returns ``(threshold, mcc)``.
+    Thin wrapper over :func:`src.metrics.optimal_threshold` kept for the
+    existing call sites. Returns ``(threshold, mcc)``; a degenerate input
+    yields ``(0.5, 0.0)`` as before.
     """
-    truth = np.asarray(y_true, dtype=np.int64)
-    scores = np.asarray(y_score, dtype=np.float64)
-    if len(truth) == 0 or len(np.unique(truth)) < 2:
-        return 0.5, 0.0
-    lo = float(np.nanmin(scores))
-    hi = float(np.nanmax(scores))
-    if not np.isfinite(lo) or not np.isfinite(hi) or hi <= lo:
-        return 0.5, safe_mcc(truth, (scores >= 0.5).astype(int))
-    grid = np.linspace(lo, hi, n_grid)
-    best_t, best_mcc = 0.5, -np.inf
-    for t in grid:
-        mcc = safe_mcc(truth, (scores >= t).astype(int))
-        if mcc > best_mcc:
-            best_mcc, best_t = mcc, float(t)
-    return best_t, best_mcc
+    thr, value = optimal_threshold(y_true, y_score, metric="mcc", n_grid=n_grid)
+    return thr, (0.0 if not np.isfinite(value) else value)
 
 
 def bootstrap_ci(
@@ -68,8 +54,10 @@ def bootstrap_ci(
     Parameters
     ----------
     metric:
-        One of ``{"roc_auc", "pr_auc", "mcc", "balanced_accuracy", "f1"}`` or
-        a callable ``(y_true_sample, y_score_sample) -> float``.
+        Any name in :data:`src.metrics.SUPPORTED_METRICS` -- which now covers
+        the whole reporting panel (accuracy, precision, recall, specificity,
+        macro/weighted F1, ...) and not just the original five -- or a
+        callable ``(y_true_sample, y_score_sample) -> float``.
     threshold:
         Decision cut-off used by the thresholded metrics (mcc/f1/bal-acc).
 
@@ -82,25 +70,13 @@ def bootstrap_ci(
     n = len(truth)
     if n == 0:
         return {"point": np.nan, "lower": np.nan, "upper": np.nan, "n": 0}
+    if not callable(metric) and metric not in SUPPORTED_METRICS:
+        raise ValueError(
+            f"Unknown bootstrap metric '{metric}'. "
+            f"Supported: {', '.join(SUPPORTED_METRICS)}.")
 
     def _compute(t: np.ndarray, s: np.ndarray) -> float:
-        if callable(metric):
-            return float(metric(t, s))
-        if metric == "roc_auc":
-            if len(np.unique(t)) < 2:
-                return np.nan
-            return float(sk_metrics.roc_auc_score(t, s))
-        if metric == "pr_auc":
-            if len(np.unique(t)) < 2:
-                return np.nan
-            return float(sk_metrics.average_precision_score(t, s))
-        if metric == "mcc":
-            return safe_mcc(t, (s >= threshold).astype(int))
-        if metric == "balanced_accuracy":
-            return float(sk_metrics.balanced_accuracy_score(t, (s >= threshold).astype(int)))
-        if metric == "f1":
-            return float(sk_metrics.f1_score(t, (s >= threshold).astype(int), zero_division=0))
-        raise ValueError(f"Unknown bootstrap metric '{metric}'.")
+        return compute_metric(metric, t, s, threshold=threshold)
 
     point = _compute(truth, scores)
 
@@ -144,35 +120,34 @@ def primary_metric_report(
     val_y_prob: Optional[Sequence[float]] = None,
     n_bootstrap: int = DEFAULT_N_BOOTSTRAP,
     seed: int = 42,
+    ci_metrics: Sequence[str] = ("roc_auc", "pr_auc", "mcc"),
 ) -> Dict[str, float]:
-    """Plan-accurate headline report: MCC primary, AUC/AUPR secondary, CIs.
+    """Headline report: the full metric panel plus bootstrap CIs.
+
+    The body of the report is :func:`src.metrics.evaluation_report` -- every
+    contract metric at both the fixed 0.5 threshold (``t050_*``) and the
+    selected threshold (``tval_*``), with calibration and cohort counts.
+    Bootstrap CIs are added for *ci_metrics* on top.
 
     The decision threshold is tuned by MCC on the **validation** vectors when
     provided; otherwise the test vectors double as tuning input (explicitly
     flagged via ``threshold_source`` so callers never confuse the two).
     """
-    if val_y_true is None or val_y_prob is None:
-        thr, tuned_mcc = optimal_threshold_by_mcc(y_true, y_prob)
-        source = "test(fallback)"
-    else:
-        thr, tuned_mcc = optimal_threshold_by_mcc(val_y_true, val_y_prob)
-        source = "validation"
+    out: Dict[str, float] = dict(evaluation_report(
+        y_true, y_prob,
+        val_y_true=val_y_true, val_y_prob=val_y_prob,
+        threshold_metric="mcc",
+    ))
+    if not out.get("available", False):
+        return out
 
-    out: Dict[str, float] = {
-        "threshold": thr,
-        "threshold_source": source,
-    }
-    for name in ("roc_auc", "pr_auc"):
-        ci = bootstrap_ci(y_true, y_prob, metric=name,
+    thr = float(out["threshold"])
+    for name in ci_metrics:
+        ci = bootstrap_ci(y_true, y_prob, metric=name, threshold=thr,
                           n_bootstrap=n_bootstrap, seed=seed)
-        out[f"{name}"] = ci["point"]
+        out[name] = ci["point"]
         out[f"{name}_ci_low"] = ci["lower"]
         out[f"{name}_ci_high"] = ci["upper"]
-    mcc_ci = bootstrap_ci(y_true, y_prob, metric="mcc", threshold=thr,
-                          n_bootstrap=n_bootstrap, seed=seed)
-    out["mcc"] = mcc_ci["point"]
-    out["mcc_ci_low"] = mcc_ci["lower"]
-    out["mcc_ci_high"] = mcc_ci["upper"]
     return out
 
 

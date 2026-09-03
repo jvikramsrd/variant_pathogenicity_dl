@@ -498,6 +498,50 @@ originally grouped on the raw `position`. Pooling proteins then collapsed
 position 42 of TP53 and position 42 of BRCA1 into one "leakage group" — wrong in
 both directions. The key is now `"{uniprot_id}:{position}"`, passed explicitly.
 
+### 7.1 The metric engine (`src/metrics.py`)
+
+`src/metrics.py` is the single authority for how a model is scored. It is
+torch-free and matplotlib-free, so ablation drivers and benchmark scripts can
+import it without a deep-learning stack. `src/calibration.py` and
+`src/eval_utils.py` re-export from it; they no longer define metrics.
+
+Why it exists: metrics previously lived in three places that had drifted
+apart, and between them reported neither **accuracy, precision, recall,
+specificity, macro/weighted F1, nor a confusion matrix** — so no run could
+produce the reporting panel this project requires. `bootstrap_ci` also
+hard-coded a five-name dispatch that raised on anything else, so the gap could
+not be closed at the call sites.
+
+| Function | What it gives you |
+|---|---|
+| `binary_metrics_at_threshold` | accuracy, precision, recall/sensitivity, specificity, NPV, F1 (pathogenic / macro / weighted), balanced accuracy, MCC, and `tn/fp/fn/tp` |
+| `threshold_free_metrics` | AUROC, AUPRC — NaN, never 0, when a fold is single-class |
+| `calibration_metrics` | Brier, ECE (uniform + adaptive binning), MCE |
+| `evaluation_report` | the whole panel at **both** 0.5 (`t050_*`) and the selected threshold (`tval_*`), flat for direct concatenation into a results table |
+| `cohort_report` | per-gene / label-source / star-tier / AF-band / missingness metrics in long format |
+| `journal_table` | a journal-ready table that renders unscoreable cohorts as `n/a` |
+
+Two rules the module enforces rather than documents:
+
+- **Threshold provenance.** `evaluation_report` tunes on `val_y_*` when given
+  and stamps `threshold_source="validation"`. Without them it falls back to the
+  test vectors and stamps `"test(fallback)"` — a value that must never appear
+  in a headline result.
+- **Degenerate cohorts are flagged, not scored.** Below `MIN_COHORT_N` rows, or
+  with fewer than `MIN_COHORT_PER_CLASS` of either class, a cohort returns NaN
+  metrics with `available=False` and an `unavailable_reason`. A gene too small
+  to score stays in the table as a coverage finding instead of vanishing.
+
+`journal_table` deliberately computes no ranking: accuracy alone must never
+pick a winner, so that judgement stays with the surrounding text.
+
+**Run on the training machine** (not run here):
+
+```bash
+python -m pytest tests/test_metrics.py -v          # the new contract tests
+python -m pytest tests/ -q                          # full suite, checks the re-exports
+```
+
 ---
 
 ## 8. Design decisions and better alternatives

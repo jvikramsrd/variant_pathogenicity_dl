@@ -1,8 +1,15 @@
-"""Calibration and metric engine.
+"""Post-hoc calibrators and reliability plotting.
+
+Metric *definitions* live in :mod:`src.metrics`, which is torch-free and is
+the single authority for how a model is scored. This module re-exports the
+calibration primitives (ECE / MCE / Brier / bin statistics) for backwards
+compatibility and owns everything that needs ``torch`` or ``matplotlib``.
 
 Discrimination metrics
-    ROC-AUC, PR-AUC, Matthew's Correlation Coefficient (MCC), balanced
-    accuracy, F1-score.
+    :func:`discrimination_metrics` and :func:`full_report` return the full
+    reporting panel -- ROC-AUC, PR-AUC, accuracy, precision, recall,
+    specificity, NPV, F1 (pathogenic / macro / weighted), balanced accuracy,
+    MCC and the ``tn/fp/fn/tp`` confusion matrix.
 
 Calibration metrics
     Expected Calibration Error (ECE) with both fixed-width ("uniform") and
@@ -23,7 +30,7 @@ Visualization
 from __future__ import annotations
 
 import logging
-from typing import Dict, Mapping, Optional, Sequence, Tuple
+from typing import Dict, Mapping, Optional, Sequence
 
 import matplotlib
 
@@ -35,90 +42,22 @@ import torch  # noqa: E402
 import torch.nn as nn  # noqa: E402
 import torch.nn.functional as F  # noqa: E402
 from scipy.special import expit  # noqa: E402
-from sklearn import metrics as sk_metrics  # noqa: E402
 from sklearn.isotonic import IsotonicRegression  # noqa: E402
 
+# ``src.metrics`` is the authoritative, torch-free definition of every metric.
+# The names below are re-exported so existing importers of ``src.calibration``
+# keep working unchanged.
+from .metrics import (  # noqa: E402
+    binary_metrics_at_threshold,
+    brier_score,
+    calibration_bin_stats,
+    calibration_metrics,
+    expected_calibration_error,
+    maximum_calibration_error,
+    threshold_free_metrics,
+)
+
 logger = logging.getLogger(__name__)
-
-
-# --------------------------------------------------------------------------- #
-# Binning helpers
-# --------------------------------------------------------------------------- #
-def _bin_assignments(probs: np.ndarray, n_bins: int, strategy: str) -> Tuple[np.ndarray, int]:
-    """Assign each probability to a bin; return (bin_index, n_effective_bins)."""
-    probs = np.asarray(probs, dtype=np.float64)
-    if strategy == "uniform":
-        edges = np.linspace(0.0, 1.0, n_bins + 1)
-        idx = np.clip(np.searchsorted(edges, probs, side="right") - 1, 0, n_bins - 1)
-        return idx, n_bins
-    if strategy == "adaptive":
-        # Equal-mass bins via quantiles; collapse duplicate edges gracefully.
-        quantiles = np.quantile(probs, np.linspace(0.0, 1.0, n_bins + 1))
-        edges = np.unique(quantiles)
-        if len(edges) < 2:
-            return np.zeros_like(probs, dtype=int), 1
-        idx = np.clip(np.searchsorted(edges, probs, side="right") - 1, 0, len(edges) - 2)
-        return idx, len(edges) - 1
-    raise ValueError(f"Unknown binning strategy '{strategy}'.")
-
-
-def calibration_bin_stats(
-    y_prob: Sequence[float],
-    y_true: Sequence[int],
-    n_bins: int = 10,
-    strategy: str = "uniform",
-) -> Dict[str, np.ndarray]:
-    """Per-bin confidence/accuracy statistics used by ECE/MCE and plotting."""
-    probs = np.asarray(y_prob, dtype=np.float64)
-    truth = np.asarray(y_true, dtype=np.int64)
-    idx, n_eff = _bin_assignments(probs, n_bins, strategy)
-
-    confidence = np.zeros(n_eff)
-    accuracy = np.zeros(n_eff)
-    counts = np.zeros(n_eff, dtype=int)
-    for b in range(n_eff):
-        mask = idx == b
-        counts[b] = int(mask.sum())
-        if counts[b]:
-            confidence[b] = probs[mask].mean()
-            accuracy[b] = truth[mask].mean()
-    gaps = np.abs(confidence - accuracy)
-    return {"confidence": confidence, "accuracy": accuracy,
-            "counts": counts, "gaps": gaps, "n_bins": n_eff}
-
-
-# --------------------------------------------------------------------------- #
-# Calibration metrics
-# --------------------------------------------------------------------------- #
-def expected_calibration_error(
-    y_prob: Sequence[float], y_true: Sequence[int], n_bins: int = 10, strategy: str = "uniform"
-) -> float:
-    """``ECE = sum_b (n_b / N) |conf(b) - acc(b)|``."""
-    stats = calibration_bin_stats(y_prob, y_true, n_bins=n_bins, strategy=strategy)
-    total = stats["counts"].sum()
-    if total == 0:
-        return float("nan")
-    return float((stats["counts"] / total * stats["gaps"]).sum())
-
-
-def maximum_calibration_error(
-    y_prob: Sequence[float], y_true: Sequence[int], n_bins: int = 10, strategy: str = "uniform"
-) -> float:
-    """Largest absolute confidence-accuracy gap across bins."""
-    stats = calibration_bin_stats(y_prob, y_true, n_bins=n_bins, strategy=strategy)
-    nonempty = stats["counts"] > 0
-    if not nonempty.any():
-        return float("nan")
-    return float(stats["gaps"][nonempty].max())
-
-
-def brier_score(y_prob: Sequence[float], y_true: Sequence[int]) -> float:
-    """Mean squared error of probabilities against binary labels."""
-    probs = np.asarray(y_prob, dtype=np.float64)
-    truth = np.asarray(y_true, dtype=np.float64)
-    if len(probs) == 0:
-        return float("nan")
-    return float(np.mean((probs - truth) ** 2))
 
 
 # --------------------------------------------------------------------------- #
@@ -127,20 +66,18 @@ def brier_score(y_prob: Sequence[float], y_true: Sequence[int]) -> float:
 def discrimination_metrics(
     y_true: Sequence[int], y_prob: Sequence[float], threshold: float = 0.5
 ) -> Dict[str, float]:
-    """ROC-AUC, PR-AUC, MCC, balanced accuracy and F1 at *threshold*."""
-    truth = np.asarray(y_true, dtype=np.int64)
-    probs = np.asarray(y_prob, dtype=np.float64)
-    pred = (probs >= threshold).astype(int)
-    out: Dict[str, float] = {}
-    try:
-        out["roc_auc"] = float(sk_metrics.roc_auc_score(truth, probs))
-        out["pr_auc"] = float(sk_metrics.average_precision_score(truth, probs))
-    except ValueError:  # only one class present in this fold
-        out["roc_auc"] = float("nan")
-        out["pr_auc"] = float("nan")
-    out["mcc"] = float(sk_metrics.matthews_corrcoef(truth, pred)) if len(set(pred.tolist()) | set(truth.tolist())) > 1 else float("nan")
-    out["balanced_accuracy"] = float(sk_metrics.balanced_accuracy_score(truth, pred))
-    out["f1"] = float(sk_metrics.f1_score(truth, pred, zero_division=0))
+    """Discrimination + thresholded panel at *threshold*.
+
+    Delegates to :mod:`src.metrics`, which owns the definitions. The historic
+    keys (``roc_auc``, ``pr_auc``, ``mcc``, ``balanced_accuracy``, ``f1``) are
+    preserved; the return value is now a superset that also carries accuracy,
+    precision, recall/sensitivity, specificity, NPV, macro/weighted F1 and the
+    ``tn/fp/fn/tp`` confusion matrix.
+    """
+    out: Dict[str, float] = dict(threshold_free_metrics(y_true, y_prob))
+    out.update(binary_metrics_at_threshold(y_true, y_prob, threshold=threshold))
+    # ``f1`` historically meant F1 of the positive (pathogenic) class.
+    out["f1"] = out["f1_pathogenic"]
     return out
 
 
@@ -153,10 +90,8 @@ def full_report(
 ) -> Dict[str, float]:
     """Combined discrimination + calibration report for one score vector."""
     report = discrimination_metrics(y_true, y_prob, threshold=threshold)
-    report["ece_uniform"] = expected_calibration_error(y_prob, y_true, n_bins=fixed_bins, strategy="uniform")
-    report["ece_adaptive"] = expected_calibration_error(y_prob, y_true, n_bins=adaptive_bins, strategy="adaptive")
-    report["mce"] = maximum_calibration_error(y_prob, y_true, n_bins=fixed_bins, strategy="uniform")
-    report["brier"] = brier_score(y_prob, y_true)
+    report.update(calibration_metrics(
+        y_true, y_prob, fixed_bins=fixed_bins, adaptive_bins=adaptive_bins))
     return report
 
 
@@ -298,6 +233,9 @@ __all__ = [
     "expected_calibration_error",
     "maximum_calibration_error",
     "brier_score",
+    "calibration_metrics",
+    "binary_metrics_at_threshold",
+    "threshold_free_metrics",
     "discrimination_metrics",
     "full_report",
     "TemperatureScaling",

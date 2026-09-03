@@ -6,7 +6,10 @@ Modules:
     dataset       -- torch Dataset + position-grouped CV splitters.
     model         -- residual MLP classification head.
     loss          -- Focal loss and class-balanced weighted BCE.
-    calibration   -- ECE / MCE / Brier, temperature scaling, isotonic regression.
+    metrics       -- Authoritative metric engine: the full reporting panel,
+                     cohort/subgroup breakdowns and journal tables (torch-free).
+    calibration   -- Temperature scaling, isotonic regression, reliability
+                     plots; re-exports the calibration metrics from `metrics`.
     train         -- 5-fold CV training loop, benchmarking and VUS inference.
 
 Heavy dependencies are imported lazily inside functions so that `import src`
@@ -23,6 +26,7 @@ __all__ = [
     "dataset",
     "model",
     "loss",
+    "metrics",
     "calibration",
     "train",
 ]
