@@ -1,14 +1,4 @@
 {
-<<<<<<< HEAD
-  "built_at_utc": "2026-08-29T18:49:40.810530+00:00",
-  "checkpoint": "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\transfer\\mmr_pipeline_pretrain.pt",
-  "scratch": false,
-  "features": "esm+priors",
-  "rank_normalize": "off",
-  "gene_constant_priors": "drop",
-  "gene_constant_priors_dropped": true,
-  "esm_model": "facebook/esm2_t33_650M_UR50D",
-=======
   "built_at_utc": "2026-08-28T13:43:29.008875+00:00",
   "checkpoint": "data/processed/transfer/pretrain_dropconst.pt",
   "scratch": false,
@@ -17,7 +7,6 @@
   "gene_constant_priors": "auto",
   "gene_constant_priors_dropped": true,
   "esm_model": "facebook/esm2_t12_35M_UR50D",
->>>>>>> d94684080054700bf62e7e15ca09c3c2d95f31fe
   "n_bootstrap": 10000,
   "splits_requested": [
     "MLH1",
@@ -32,34 +21,6 @@
     "PMS2"
   ],
   "splits_skipped_no_rows": [],
-<<<<<<< HEAD
-  "results_csv": "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_results_lopo.csv",
-  "predictions_csv": "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_predictions_lopo.csv",
-  "checkpoints": [
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_MLH1_esm_only.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_MLH1_priors_only.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_MLH1_fused_pretrained.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_MLH1_concat_fusion.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_MLH1_gatewave_fusion.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_MSH2_esm_only.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_MSH2_priors_only.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_MSH2_fused_pretrained.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_MSH2_concat_fusion.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_MSH2_gatewave_fusion.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_MSH6_esm_only.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_MSH6_priors_only.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_MSH6_fused_pretrained.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_MSH6_concat_fusion.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_MSH6_gatewave_fusion.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_PMS2_esm_only.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_PMS2_priors_only.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_PMS2_fused_pretrained.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_PMS2_concat_fusion.pt",
-    "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\processed\\mmr_transfer\\mmr_transfer_head_PMS2_gatewave_fusion.pt"
-  ],
-  "runtime_s": 2645.5
-=======
   "results_csv": "/home/jvikramsrd/Projects/variant_pathogenicity_dl/data/processed/mmr_transfer/mmr_transfer_results_lopo.csv",
   "runtime_s": 183.6
->>>>>>> d94684080054700bf62e7e15ca09c3c2d95f31fe
 }

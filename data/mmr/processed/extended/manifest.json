@@ -1,9 +1,5 @@
 {
-<<<<<<< HEAD
-  "built_at_utc": "2026-08-29T02:21:53.126674+00:00",
-=======
-  "built_at_utc": "2026-08-28T12:51:54.862225+00:00",
->>>>>>> d94684080054700bf62e7e15ca09c3c2d95f31fe
+  "built_at_utc": "2026-09-02T14:59:29.558380+00:00",
   "parameters": {
     "genes": [
       "MLH1",
@@ -23,7 +19,7 @@
     "clinvar": {
       "file": "raw/variant_summary.txt.gz",
       "url": "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz",
-      "sha256": "7e5f0c798858831cf15051f257c80fa5c90611ba982e1ebf89c1ff7787d5d101"
+      "sha256": "186ad2838a138f0bc7a79b1b7b6dde5533b105175d293e1131652889529804c9"
     },
     "proteingym_dms": {
       "version": "v1.3",
@@ -112,7 +108,6 @@
   },
   "artefacts": {
     "alphafold_plddt_subset.csv": {
-<<<<<<< HEAD
       "sha256": "784a697472520d7af3f43934bffcbaa43c9b87d1f7bad35dafae46246ce58731",
       "bytes": 114511
     },
@@ -125,8 +120,8 @@
       "bytes": 1485160
     },
     "extended_dataset.csv": {
-      "sha256": "60d0d6d79f096d831df1b78acb6fbf6089bf0115d8ba33c485adcf443508264f",
-      "bytes": 37862327
+      "sha256": "63fd528831cdd0ceea43147595e16d9dd1642b9209800602030824bdaabc66ba",
+      "bytes": 37862375
     },
     "interpro_intervals.csv": {
       "sha256": "24e61d233031520f2269b99c88296f62bb08531c7b050c676a47e212ac094e54",
@@ -151,46 +146,6 @@
     "panel_sequences.fasta": {
       "sha256": "ccfb5b44295f456d8070b63faefd75b5560513489229548f8565177ef5719ea0",
       "bytes": 4102
-=======
-      "sha256": "8190c188da8f24b71e4e4be2b94f3ee4e82da18b3536556b9a4cd280e1a9e93b",
-      "bytes": 110598
-    },
-    "alphamissense_subset.csv": {
-      "sha256": "2f206e47f87b0c1a9b4e8fd65a5b69233a6dee3f95ff586d1315f9af4d706348",
-      "bytes": 3651974
-    },
-    "dms_scores_long.csv": {
-      "sha256": "63d6d8ccc94409fb8d4a974c6ee676139444854ba1424c194067818a9856ecc8",
-      "bytes": 1468410
-    },
-    "extended_dataset.csv": {
-      "sha256": "07698dd4ff642011d86f57578d87fc9a1090cdb42135c53892dd7a2955b64727",
-      "bytes": 37788000
-    },
-    "interpro_intervals.csv": {
-      "sha256": "67ee14c3ab45b3a701dcd1fd022b8810a08c3432683939e14a69568b6329f0f9",
-      "bytes": 10321
-    },
-    "pg_clinical_panel.csv": {
-      "sha256": "e7703a79c717f977f972f51aadbb6abbf5d259a4d8c2ba6058e01dda860fe9ac",
-      "bytes": 29198
-    },
-    "uniprot_domains.csv": {
-      "sha256": "f6518400a6e9e00598d9a1d2f433f5efd4b6c195aa229d2ebd54532f633bf9ee",
-      "bytes": 965
-    },
-    "uniprot_functional_sites.csv": {
-      "sha256": "a8e201acea00b68349d9b6e949302138c5ab008c1706aa925b22e2b5d7eb1404",
-      "bytes": 2641
-    },
-    "zeroshot_scores_subset.csv": {
-      "sha256": "4682edf08b0afd6db71fd2d5059cc5217d679e9fc62f26d106ba5f02edc1e841",
-      "bytes": 1272884
-    },
-    "panel_sequences.fasta": {
-      "sha256": "e4727dc784ec032d6f6e41e3ffe3de8e0ad18c74a6ebc9a76db8bbb19f8698ff",
-      "bytes": 4031
->>>>>>> d94684080054700bf62e7e15ca09c3c2d95f31fe
     }
   },
   "stats": {
@@ -207,13 +162,8 @@
       "PMS2": "P54278"
     },
     "genes_without_clinvar": [],
-<<<<<<< HEAD
     "clinvar_labelled": 464,
-    "clinvar_vus": 9588,
-=======
-    "clinvar_labelled": 463,
     "clinvar_vus": 9589,
->>>>>>> d94684080054700bf62e7e15ca09c3c2d95f31fe
     "clinvar_dropped_alignment": 0,
     "dms_rows_total_human": 329664,
     "dms_rows_panel": 16749,
@@ -241,7 +191,7 @@
       "1": 2624
     },
     "multi_source_overlaps": {
-      "clinvar": 10052,
+      "clinvar": 10053,
       "pg_clinical": 564,
       "dms": 16749,
       "alphamissense": 74328,

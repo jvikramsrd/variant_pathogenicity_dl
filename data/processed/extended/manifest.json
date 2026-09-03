@@ -1,9 +1,5 @@
 {
-<<<<<<< HEAD
-  "built_at_utc": "2026-08-29T02:20:28.299608+00:00",
-=======
-  "built_at_utc": "2026-08-28T14:55:59.255759+00:00",
->>>>>>> d94684080054700bf62e7e15ca09c3c2d95f31fe
+  "built_at_utc": "2026-09-02T14:53:04.718851+00:00",
   "parameters": {
     "genes": [
       "ACE2",
@@ -11,7 +7,6 @@
       "AICDA",
       "AMFR",
       "APP",
-      "BCL2L11",
       "BRCA1",
       "BRCA2",
       "CALM1",
@@ -99,7 +94,7 @@
     "clinvar": {
       "file": "raw/variant_summary.txt.gz",
       "url": "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz",
-      "sha256": "7e5f0c798858831cf15051f257c80fa5c90611ba982e1ebf89c1ff7787d5d101"
+      "sha256": "186ad2838a138f0bc7a79b1b7b6dde5533b105175d293e1131652889529804c9"
     },
     "proteingym_dms": {
       "version": "v1.3",
@@ -150,7 +145,6 @@
         "AICDA",
         "AMFR",
         "APP",
-        "BCL2L11",
         "BRCA1",
         "BRCA2",
         "CALM1",
@@ -233,7 +227,6 @@
         "AICDA",
         "AMFR",
         "APP",
-        "BCL2L11",
         "BRCA1",
         "BRCA2",
         "CALM1",
@@ -315,19 +308,19 @@
       "enabled": true,
       "api_url": "https://alphafold.ebi.ac.uk/api",
       "licence": "CC-BY-4.0",
-      "accessions_covered": 77,
-      "residues_with_plddt": 46692
+      "accessions_covered": 76,
+      "residues_with_plddt": 46494
     },
     "interpro": {
       "enabled": true,
       "api_url": "https://www.ebi.ac.uk/interpro/api",
       "licence": "CC0",
-      "intervals": 3168
+      "intervals": 3160
     },
     "uniprot_point_features": {
       "enabled": true,
       "rest_url": "https://rest.uniprot.org/uniprotkb/{acc}.json",
-      "rows": 1439
+      "rows": 1435
     }
   },
   "panel": {
@@ -350,10 +343,6 @@
     "APP": {
       "accession": "P05067",
       "length": 770
-    },
-    "BCL2L11": {
-      "accession": "O43521",
-      "length": 198
     },
     "BRCA1": {
       "accession": "P38398",
@@ -654,101 +643,52 @@
   },
   "artefacts": {
     "alphafold_plddt_subset.csv": {
-<<<<<<< HEAD
-      "sha256": "32f44b920920b25adafebdff6fe27ef442fbacc6aa20a7da91a3ab113f7966cd",
-      "bytes": 1359004
+      "sha256": "1dc83adbc171c15e7701873f996e007077b1b299ba3d0b8a6cf4aa060aaa9407",
+      "bytes": 1353684
     },
     "alphamissense_subset.csv": {
-      "sha256": "7217d3a1736730507126b6c412a7040e1203b24616e7b252a918c9f141a71f80",
-      "bytes": 58623827
+      "sha256": "2cee38d8f6b1c5625dfc9d050d012940dcad26a520e4196a326cbec79d99f31d",
+      "bytes": 58441755
     },
     "dms_scores_long.csv": {
-      "sha256": "490bc3bd8bb0a9b99345a98e9381404324e798435bca8cfd5c743ad25c5fc4d0",
-      "bytes": 33261768
+      "sha256": "78f0a79f7cc62738899f060b5cebb7bdc9475528cef36a7f647b75b5b044d741",
+      "bytes": 33241092
     },
     "extended_dataset.csv": {
-      "sha256": "386d9f2e915517ca91f5f87a83a328827a99a10765edbe9459e1f65ed444e157",
-      "bytes": 568028031
+      "sha256": "dbe6bab0278f7a8605796ba62db9ffa5d4a952c96e934caa9099e476941b0cd3",
+      "bytes": 566669081
     },
     "extended_dataset_train.csv": {
-      "sha256": "abbeec1698dde75816b14e6c59108ab808b45db018ab74f6494ffd3f4b798fb9",
-      "bytes": 40009554
+      "sha256": "6769b00f87385cb50e23f7b874875ff1646083c8ae69e6c582a91204d9b66910",
+      "bytes": 39980886
     },
     "gnomad_subset.csv": {
-      "sha256": "8fdceeaf88b97a6a8324ca1550271d894e6d309dbf807dd3a59ff9a41586c4d3",
-      "bytes": 12155826
+      "sha256": "6faffba7bd062fac06f0f1121fdfc91145feb95154ffb1527101297452fee3ed",
+      "bytes": 12072395
     },
     "interpro_intervals.csv": {
-      "sha256": "f9f0ebed95f1bb1a716ad073f8fb6bd7eb500fcf2614529d65455723bf972f49",
-      "bytes": 225317
+      "sha256": "f4a02d96703f4149e808d299997f7bac3bb604e571bad22f75c361aa0f646189",
+      "bytes": 224800
     },
     "pg_clinical_panel.csv": {
       "sha256": "3e33dceea81f15f4561814acbd9542ec751e5b14511eaac9c3689399593629d3",
       "bytes": 122057
     },
     "uniprot_domains.csv": {
-      "sha256": "55824d4330288ea31413585d32f681fc26f7848b7f74cc773d91f2494299ffce",
-      "bytes": 25206
+      "sha256": "69ece45d1fc68e5f7d1c1f05a52a827dea2cc1b341e000e48403f1b10dc3e06d",
+      "bytes": 25175
     },
     "uniprot_functional_sites.csv": {
-      "sha256": "cfbf77a00c892370cd7c24cffef8e1e653bcb5ea502d7c6b6a5741ecdae746c6",
-      "bytes": 60744
+      "sha256": "fdfc8194bdf222498b9c9d7fcd2370b28a9f26141c395f439941d48aad95173f",
+      "bytes": 60567
     },
     "zeroshot_scores_subset.csv": {
       "sha256": "6f75dbc99f5f0d74dd19bbceeff35e25d9d6feb354b11bbcdc4471dcd98e61c0",
       "bytes": 5317505
     },
     "panel_sequences.fasta": {
-      "sha256": "dd29db173bc6bc8d7b530b98f7fe2429856e61fcd548e05611d6e11d890f89a7",
-      "bytes": 64159
-=======
-      "sha256": "001c32da7ff289fc37d628f78d9dad05c0c17095b77fe2f50935781d3a86f8fe",
-      "bytes": 1312311
-    },
-    "alphamissense_subset.csv": {
-      "sha256": "481eaef24325612aeaba128764be39ab060ea45689ff1aa900d065cdb5b32e09",
-      "bytes": 57467049
-    },
-    "dms_scores_long.csv": {
-      "sha256": "b42e0d74b8f6ca1e1dbab81f057b6078307d4ae3de2ffc9270552f9acc81079b",
-      "bytes": 32989095
-    },
-    "extended_dataset.csv": {
-      "sha256": "57ec21fc3e9271a519bf7c293ffb0a69ed29d41ee193a21fd00b569a15e2f458",
-      "bytes": 566871348
-    },
-    "extended_dataset_train.csv": {
-      "sha256": "b1368946417fd82d74c38f340f93c1810ddee06066c9bc4e820c08d20d9ba8e9",
-      "bytes": 36125501
-    },
-    "gnomad_subset.csv": {
-      "sha256": "07e1075d5341c721bdb49a4f32252472dea1ab9fe7853d9aa87631d1bfc505ed",
-      "bytes": 12088858
-    },
-    "interpro_intervals.csv": {
-      "sha256": "fd0fdc8f7d9834537fd6cd802cf521d1145d1d9cca50a8cbd8ac469c74e9641e",
-      "bytes": 222148
-    },
-    "pg_clinical_panel.csv": {
-      "sha256": "73cbd4ddc57f85c902929d74ce994e50b2797b3dcb0d093ebaa82b708c2013e4",
-      "bytes": 119764
-    },
-    "uniprot_domains.csv": {
-      "sha256": "e12a9c769a55b719f661a7dbb2b6ea2c592df480dc664147e671d74632a5639a",
-      "bytes": 24612
-    },
-    "uniprot_functional_sites.csv": {
-      "sha256": "5ea0fd117e1ebdf3f1cdc3720c08d9df85567107f54396a03049fa5154990aaa",
-      "bytes": 59304
-    },
-    "zeroshot_scores_subset.csv": {
-      "sha256": "a2e6e3bfd46abcce42c94eb34cb64c7bdbec9fc6d7eaec7f867914ec195895a4",
-      "bytes": 5315212
-    },
-    "panel_sequences.fasta": {
-      "sha256": "87da3794a2bf1a119937776602ef31068bac08b0a07dc6dffcd8cd04dc0103b7",
-      "bytes": 63027
->>>>>>> d94684080054700bf62e7e15ca09c3c2d95f31fe
+      "sha256": "e55e5fcbe3835fc4083d2f805553b09a54826ac1d58239d797e0f2a6f97fa0a2",
+      "bytes": 63936
     }
   },
   "stats": {
@@ -758,7 +698,6 @@
       "AICDA",
       "AMFR",
       "APP",
-      "BCL2L11",
       "BRCA1",
       "BRCA2",
       "CALM1",
@@ -840,7 +779,6 @@
       "AICDA": "Q9GZX7",
       "AMFR": "Q9UKV5",
       "APP": "P05067",
-      "BCL2L11": "O43521",
       "BRCA1": "P38398",
       "BRCA2": "P51587",
       "CALM1": "P0DP23",
@@ -917,25 +855,24 @@
       "YAP1": "P46937"
     },
     "genes_without_clinvar": [],
-    "clinvar_labelled": 2368,
-    "clinvar_vus": 21597,
+    "clinvar_labelled": 2372,
+    "clinvar_vus": 21573,
     "clinvar_dropped_alignment": 3658,
     "dms_rows_total_human": 329664,
-    "dms_rows_panel": 272672,
+    "dms_rows_panel": 272502,
     "dms_rows_dropped_wt_mismatch": 50304,
-    "dms_assays_panel": 93,
+    "dms_assays_panel": 92,
     "clinical_rows_total": 62727,
     "clinical_np_matched": 33,
     "clinical_np_unmatched": 2492,
-    "alphamissense_rows_panel": 1156625,
-    "gnomad_rows_panel": 66941,
+    "alphamissense_rows_panel": 1152863,
+    "gnomad_rows_panel": 66586,
     "gnomad_genes_fetched": [
       "ACE2",
       "ADRB2",
       "AICDA",
       "AMFR",
       "APP",
-      "BCL2L11",
       "BRCA1",
       "BRCA2",
       "CALM1",
@@ -1018,7 +955,6 @@
       "AICDA",
       "AMFR",
       "APP",
-      "BCL2L11",
       "BRCA1",
       "BRCA2",
       "CALM1",
@@ -1095,29 +1031,29 @@
       "YAP1"
     ],
     "gnomad_constraint_genes_failed": [],
-    "alphafold_residues_with_plddt": 46692,
-    "alphafold_accessions_covered": 77,
-    "interpro_intervals": 3168,
-    "functional_site_rows": 1439,
+    "alphafold_residues_with_plddt": 46494,
+    "alphafold_accessions_covered": 76,
+    "interpro_intervals": 3160,
+    "functional_site_rows": 1435,
     "zeroshot_rows_joined": 2292,
-    "domain_intervals": 593,
-    "master_rows": 1156625,
+    "domain_intervals": 592,
+    "master_rows": 1152863,
     "master_label_counts": {
-      "nan": 967450,
-      "0": 107377,
-      "1": 81798
+      "nan": 963857,
+      "0": 107300,
+      "1": 81706
     },
     "multi_source_overlaps": {
-      "clinvar": 23965,
+      "clinvar": 23945,
       "pg_clinical": 2292,
-      "dms": 223872,
-      "alphamissense": 1156625,
+      "dms": 223702,
+      "alphamissense": 1152863,
       "zeroshot_models": 2292,
-      "domains": 598348,
-      "gnomad": 66939,
-      "alphafold": 887148,
-      "interpro": 1076407,
-      "functional_site": 25878
+      "domains": 596980,
+      "gnomad": 66584,
+      "alphafold": 883386,
+      "interpro": 1072645,
+      "functional_site": 25802
     },
     "clinvar_conflicting_keys": 0,
     "clinical_conflicting_keys": 0,
