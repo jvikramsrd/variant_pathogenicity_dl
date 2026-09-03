@@ -188,7 +188,21 @@ Stage 2b so it does not collide with the grid.
 ### 4.6 Tests
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest tests\ -q      # expect 149 passed
+.\.venv\Scripts\python.exe -m pytest tests\ -q
+```
+
+**179 tests collect**: 149 pre-existing, plus 30 in `tests/test_metrics.py`
+covering the metric engine's reporting contract (specificity's denominator,
+F1-pathogenic vs macro vs weighted, confusion counts on degenerate input,
+threshold provenance, cohort availability). Those 30 are new and have not been
+executed on any machine yet — this is their first run, so treat a failure there
+as a bug in the tests or in `src/metrics.py`, not as a broken environment.
+
+The metric engine is deliberately torch-free, so `tests\test_metrics.py` alone
+runs without CUDA and is a fast pre-flight:
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests\test_metrics.py -v
 ```
 
 Failures here are far cheaper to fix than fifteen hours into a run.
