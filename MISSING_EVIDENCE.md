@@ -119,30 +119,24 @@ of the comparison; it is recorded in the summary and must be stated in the table
 **Commands.** One run per row, on the build machine, against the dataset SHA-256 above. The
 comparator is the grid cell `esmpri_concat_frozen_pllr-residual_seed42`, so every flag below
 matches it and only the feature set moves — `scripts/finetune_esm_mmr.py` defaults to the 35M
-checkpoint and `wt_site`, which would not be comparable:
+checkpoint and `wt_site`, which would not be comparable. One command per line, no
+continuations — the build machine runs PowerShell, where a backslash continuation or a
+bash array silently does the wrong thing.
 
-```bash
-common=(--mode siamese --esm_model facebook/esm2_t33_650M_UR50D
-        --eval lopo --branch esm+priors --fusion concat --pllr_mode residual
-        --n_unfrozen_layers 0 --seed 42
-        --batch_size 1 --grad_accum 8 --gradient_checkpointing
-        --n_bootstrap 10000 --no-save_checkpoints
-        --out_dir data/processed/stage2b_grid)
-
-# Rows 4 and 6: structure, then domains.
-for g in structure domains; do
-  python scripts/finetune_esm_mmr.py "${common[@]}" \
-    --drop_prior_groups $g --cell_slug ablate_$g
-done
-
-# Row 5 ("without gnomAD") must drop the proxy with it; gnomad alone raises.
-python scripts/finetune_esm_mmr.py "${common[@]}" \
-  --drop_prior_groups gnomad prior_scores --cell_slug ablate_gnomad_and_scores
-
-# Row 7 (AlphaMissense circularity — the test §4 "Residual circularity" calls for).
-python scripts/finetune_esm_mmr.py "${common[@]}" \
-  --drop_prior_groups prior_scores --cell_slug ablate_prior_scores
 ```
+# Row 4 — no structural features
+python scripts/finetune_esm_mmr.py --mode siamese --esm_model facebook/esm2_t33_650M_UR50D --eval lopo --branch esm+priors --fusion concat --pllr_mode residual --n_unfrozen_layers 0 --seed 42 --batch_size 1 --grad_accum 8 --gradient_checkpointing --n_bootstrap 10000 --no-save_checkpoints --out_dir data/processed/stage2b_grid --drop_prior_groups structure --cell_slug ablate_structure
+
+# Row 6 — no UniProt/InterPro domains
+python scripts/finetune_esm_mmr.py --mode siamese --esm_model facebook/esm2_t33_650M_UR50D --eval lopo --branch esm+priors --fusion concat --pllr_mode residual --n_unfrozen_layers 0 --seed 42 --batch_size 1 --grad_accum 8 --gradient_checkpointing --n_bootstrap 10000 --no-save_checkpoints --out_dir data/processed/stage2b_grid --drop_prior_groups domains --cell_slug ablate_domains
+
+# Row 5 — no gnomAD. The proxy goes with it; --drop_prior_groups gnomad alone raises.
+python scripts/finetune_esm_mmr.py --mode siamese --esm_model facebook/esm2_t33_650M_UR50D --eval lopo --branch esm+priors --fusion concat --pllr_mode residual --n_unfrozen_layers 0 --seed 42 --batch_size 1 --grad_accum 8 --gradient_checkpointing --n_bootstrap 10000 --no-save_checkpoints --out_dir data/processed/stage2b_grid --drop_prior_groups gnomad prior_scores --cell_slug ablate_gnomad_and_scores
+
+# Row 7 — no external prior scores (the AlphaMissense circularity test §4 asks for)
+python scripts/finetune_esm_mmr.py --mode siamese --esm_model facebook/esm2_t33_650M_UR50D --eval lopo --branch esm+priors --fusion concat --pllr_mode residual --n_unfrozen_layers 0 --seed 42 --batch_size 1 --grad_accum 8 --gradient_checkpointing --n_bootstrap 10000 --no-save_checkpoints --out_dir data/processed/stage2b_grid --drop_prior_groups prior_scores --cell_slug ablate_prior_scores
+```
+**Runtime.** ~11 min each on the CUDA box; the existing frozen cells measured 637–655 s.
 **Check.** `prior_columns` in each summary JSON is the full list minus exactly the dropped
 group, `allow_proxy_leak` is `false` in all four, and the Table 4 row states which proxies
 went with each group. Row 5 removes both families at once, so it bounds the two together —
