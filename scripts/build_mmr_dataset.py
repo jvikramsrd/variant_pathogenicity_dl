@@ -45,7 +45,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.extended_builder import build_extended_dataset  # noqa: E402
+from src.extended_builder import build_extended_dataset, refresh_manifest  # noqa: E402
 from src.gnomad import (  # noqa: E402
     GENE_CONSTRAINT_COLUMNS,
     GNOMAD_FEATURE_COLUMNS,
@@ -187,6 +187,12 @@ def main() -> int:
     master = pd.read_csv(master_path, low_memory=False)
 
     # --- Stage 3: gnomAD v4 allele frequencies --------------------------- #
+    # What stages 3-4 actually did, so the manifest can be corrected afterwards.
+    # `build_extended_dataset` has already written manifest.json by this point,
+    # and it wrote it with include_gnomad=False because this script joins gnomAD
+    # itself rather than delegating.
+    gnomad_record: dict = {"include_gnomad": not args.skip_gnomad,
+                           "include_gnomad_constraint": not args.skip_gnomad_constraint}
     if args.skip_gnomad:
         logger.warning("[3/%d] Skipping gnomAD join (--skip_gnomad).", N)
         for c in GNOMAD_FEATURE_COLUMNS:
@@ -203,6 +209,10 @@ def main() -> int:
         covered = int(master["gnomad_af_joint"].notna().sum())
         logger.info("gnomAD coverage: %d/%d master rows have a joint AF.",
                     covered, len(master))
+        gnomad_record.update(
+            gnomad_rows_panel=int(len(gnomad_all)),
+            gnomad_rows_joined=covered,
+            gnomad_genes_fetched=sorted(tables))
 
     # --- Stage 4: gnomAD gene-level constraint ---------------------------- #
     if args.skip_gnomad_constraint:
@@ -240,6 +250,7 @@ def main() -> int:
             )
         master = attach_gene_constraint(master, constraint_by_gene)
         logger.info("gnomAD constraint: %s", constraint_by_gene)
+        gnomad_record["gnomad_constraint_genes_fetched"] = sorted(constraint_by_gene)
 
     # --- Stage 5: InSiGHT/ClinGen VCEP tiers ------------------------------ #
     logger.info("[5/%d] Adding expert-panel evidence tiers ...", N)
@@ -306,6 +317,25 @@ def main() -> int:
     write_leave_one_gene_out_manifest(processed_root, genes=active_genes)
 
     master.to_csv(master_path, index=False)
+    # The table on disk is no longer the one build_extended_dataset described:
+    # stages 3-4 added the gnomAD columns and this write replaced the file. Re-
+    # stamp the manifest so its parameters, gnomAD stats and artefact checksums
+    # match what is actually there. Without this the recorded SHA-256 is the
+    # pre-join digest, which makes the manifest actively misleading.
+    refresh_manifest(ext_dir, updates={
+        "parameters": {k: v for k, v in gnomad_record.items()
+                       if k.startswith("include_")},
+        "sources": {"gnomad": {
+            "enabled": gnomad_record["include_gnomad"],
+            "api_url": "https://gnomad.broadinstitute.org/api",
+            "dataset": "gnomad_r4",
+            "genes_fetched": gnomad_record.get("gnomad_genes_fetched", []),
+            "constraint_genes_fetched": gnomad_record.get(
+                "gnomad_constraint_genes_fetched", []),
+        }},
+        "stats": {k: v for k, v in gnomad_record.items()
+                  if not k.startswith("include_")},
+    })
     summary = {
         "built_at_utc": datetime.now(timezone.utc).isoformat(),
         "genes": list(active_genes),

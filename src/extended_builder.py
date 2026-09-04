@@ -960,6 +960,47 @@ def validate_master_for_export(master: pd.DataFrame) -> None:
         raise ValueError("Resolved labels are missing a recognized label source.")
 
 
+def refresh_manifest(ext_dir: Path, updates: Optional[Dict[str, Dict]] = None) -> Dict:
+    """Re-stamp ``manifest.json`` against the files now on disk.
+
+    ``build_extended_dataset`` writes the manifest immediately after it writes
+    ``extended_dataset.csv``. Callers that then *modify* the table -- notably
+    ``scripts/build_mmr_dataset.py``, which joins gnomAD allele frequencies and
+    gene constraint in its stages 3 and 4 and rewrites the CSV -- left the
+    manifest describing a file that no longer existed: recorded parameters said
+    ``include_gnomad: false`` and ``gnomad_rows_panel: 0``, and the recorded
+    ``artefacts`` checksum was the pre-join digest. A provenance record whose
+    checksum does not match the file it names is worse than none, because it
+    invites a downstream reader to trust it.
+
+    *updates* is merged one level deep, so a caller can correct
+    ``parameters``/``sources``/``stats`` sub-keys without restating the rest.
+    Artefact checksums are always recomputed from disk. Returns the manifest.
+    """
+    path = Path(ext_dir) / "manifest.json"
+    if not path.exists():
+        raise FileNotFoundError(f"No manifest to refresh at {path}.")
+    manifest = json.loads(path.read_text())
+
+    for section, values in (updates or {}).items():
+        if isinstance(values, dict) and isinstance(manifest.get(section), dict):
+            manifest[section].update(values)
+        else:
+            manifest[section] = values
+
+    manifest["artefacts"] = {
+        p.name: {"sha256": sha256_of(p), "bytes": p.stat().st_size}
+        for p in sorted(Path(ext_dir).glob("*.csv")) + sorted(Path(ext_dir).glob("*.fasta"))
+        if p.is_file()
+    }
+    # Kept distinct from ``built_at_utc`` so the two-phase build stays visible
+    # rather than looking like one atomic write.
+    manifest["refreshed_at_utc"] = datetime.now(timezone.utc).isoformat()
+    path.write_text(json.dumps(manifest, indent=2))
+    logger.info("Manifest refreshed against on-disk artefacts -> %s", path)
+    return manifest
+
+
 def write_fasta(panel: pd.DataFrame, path: Path) -> None:
     with open(path, "w") as fh:
         for _, row in panel.iterrows():
