@@ -141,12 +141,12 @@ are evidence, which are features, and which are labels --- a decision that is
 usually implicit and therefore unauditable.
 
 Second, several sources are label-adjacent. Population allele frequency is a
-benignity criterion in clinical classification guidelines~\cite{acmg};
+benignity criterion in clinical classification guidelines~\cite{richards2015acmg};
 if allele frequency both mints benign labels and enters the feature matrix, a
 classifier recovers the label by construction. Precomputed scores such as
 AlphaMissense were trained on population and clinical data, so using them as
 features while evaluating against clinical labels risks measuring agreement
-with an upstream model rather than with biology. These are not hypothetical
+with an upstream model rather than with biology~\cite{grimm2015circularity}. These are not hypothetical
 failure modes; they are the default outcome of naive merging.
 
 Third, the evaluation split determines what is measured. Under a random split,
@@ -181,16 +181,16 @@ too small to score and a threshold protocol that transfers poorly across genes.
 \subsection{Data sources}
 
 Sources, access URLs and per-file SHA-256 checksums are recorded in the build
-manifest (\texttt{data/mmr/processed/extended/manifest.json}). ClinVar~\cite{clinvar}
+manifest (\texttt{data/mmr/processed/extended/manifest.json}). ClinVar~\cite{landrum2018clinvar}
 (\texttt{variant\_summary.txt.gz}) supplies clinical labels; only assertions at
-two review stars or more were eligible for supervision. ProteinGym v1.3~\cite{proteingym}
+two review stars or more were eligible for supervision. ProteinGym v1.3~\cite{notin2023proteingym}
 supplies DMS fitness scores with an assay-binarised label, a secondary clinical
-benchmark, and precomputed zero-shot model scores. AlphaMissense v1.0~\cite{alphamissense}
-(2023-09-18; CC BY-NC-SA 4.0) supplies a pathogenicity prior. gnomAD v4~\cite{gnomad} supplies
+benchmark, and precomputed zero-shot model scores. AlphaMissense v1.0~\cite{cheng2023alphamissense}
+(2023-09-18; CC BY-NC-SA 4.0) supplies a pathogenicity prior. gnomAD v4~\cite{chen2024gnomad,karczewski2020gnomad} supplies
 allele frequencies and gene-level constraint. UniProt~\cite{uniprot} supplies the canonical
 sequence --- the coordinate authority for the entire table --- plus domain and
-functional-site annotation. AlphaFold DB~\cite{alphafold} (CC-BY-4.0) supplies per-residue
-pLDDT, and InterPro~\cite{interpro} (CC0) domain and family intervals. Adapters for MaveDB~\cite{mavedb} and
+functional-site annotation. AlphaFold DB~\cite{varadi2022afdb,jumper2021alphafold} (CC-BY-4.0) supplies per-residue
+pLDDT, and InterPro~\cite{interpro} (CC0) domain and family intervals. Adapters for MaveDB~\cite{esposito2019mavedb} and
 CIMRA/OddsPath exist and are exercised by the test suite, but the manifest for
 this build records no source block for either, indicating they were not
 enabled \todo{confirm and state explicitly in Table~1}. Per-source counts are
@@ -331,10 +331,10 @@ so that quarantine was not engaged; the gene-constant drop was active.
 \subsection{Models and evaluation}
 
 We evaluate three model families: a head on the 27 curated prior features with
-no ESM input; \texttt{esm2\_t33\_650M\_UR50D}~\cite{esm2} frozen with a trained head; and
+no ESM input; \texttt{esm2\_t33\_650M\_UR50D}~\cite{lin2023esm2} frozen with a trained head; and
 the same backbone fine-tuned, either fully or with the last two layers
 unfrozen. The backbone is used in a siamese configuration comparing wild-type
-and substituted sequences, with a pseudo-log-likelihood-ratio (PLLR) term
+and substituted sequences, with a pseudo-log-likelihood-ratio (PLLR) term~\cite{meier2021pllr}
 enterable as a residual, concatenated, or disabled. Optimisation used
 micro-batch 1 with 8 accumulation steps (effective batch 8), bfloat16 autocast
 and gradient checkpointing, which is what allows a 650M full fine-tune to fit a
@@ -360,8 +360,8 @@ of each class; cohorts failing this are reported as unavailable with a reason
 rather than scored. This rule excludes \gene{PMS2} from every performance table
 below.
 
-Post-hoc calibration was \emph{not} applied. Temperature scaling and isotonic
-regression are implemented, but the fine-tuning script discarded its
+Post-hoc calibration was \emph{not} applied. Temperature scaling~\cite{guo2017calibration}
+and isotonic regression~\cite{zadrozny2002isotonic} are implemented, but the fine-tuning script discarded its
 inner-validation probabilities after using them to select a threshold, leaving
 no leak-free split on which to fit a calibrator; fitting on the held-out gene is
 the leak the protocol forbids. This is corrected in the code but postdates the

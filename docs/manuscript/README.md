@@ -10,7 +10,7 @@ in one, change it in the other.
 | File | What it is |
 |---|---|
 | `main.tex` | The manuscript |
-| `references.bib` | Bibliography, entries deliberately incomplete (see below) |
+| `references.bib` | Bibliography, transcribed from the verified list in `../PAPER.md` §11 (see below) |
 
 ## Building
 
@@ -50,10 +50,19 @@ is the one place the two documents legitimately differ.
 
 ## Before submission
 
-1. Complete `references.bib`. Every entry is a placeholder carrying only fields
-   verifiable from the build manifest (URL, version, checksum). Author lists,
-   titles, years, journals and DOIs must come from the publisher record, not
-   from recollection.
+1. Complete `references.bib`. Entries are transcribed from the list in
+   `../PAPER.md` §11, headed "Verified and safe to cite as listed", plus the
+   citation blocks in `../DATASETS.md` — not from recollection. Two things are
+   still owed, both stated in the file's header comment: **author lists are
+   truncated** (`Richards, S. and others` is what the repository verifies;
+   *Bioinformatics* wants them in full) and **DOIs are absent**. Three entries
+   — `uniprot`, `interpro`, `mane` — remain full `TODO` placeholders because no
+   verified citation for them exists anywhere in the repository. `grep -c TODO
+   references.bib` counts what is left. The predictors listed under a dagger in
+   `../PAPER.md` (VariPred, ProPath, the CSBJ token classifier, MVmamba, the
+   CIMRA/PMS2 OddsPath source) are deliberately absent; verify before citing
+   any of them. Every `\cite` key in `main.tex` resolves to an entry here —
+   `bibtex` warns on any that stops doing so.
 2. Resolve every `\todo`. `grep -c 'todo{' main.tex` gives the count.
 3. Add figures. None exist yet; `MISSING_EVIDENCE.md` item 10 lists all six with
    captions, required input artifacts and output paths.

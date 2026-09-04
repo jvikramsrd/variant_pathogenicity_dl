@@ -5,6 +5,45 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-09-04 (CPU dev box) — feature-family ablation mechanism; no training run
+
+Code and documentation only. **No model was trained and no number in the paper
+changed.**
+
+- **Feature-family ablation** (`MISSING_EVIDENCE.md` item 3, Table 4 rows 4–7).
+  `src/transfer.py` names four families in `PRIOR_FEATURE_GROUPS` — `structure`,
+  `gnomad`, `domains`, `prior_scores` — and `scripts/finetune_esm_mmr.py`
+  exposes `--drop_prior_groups`. The groups partition `TRANSFER_PRIOR_COLS`
+  exactly; a prior column added later without a group now fails a test rather
+  than being silently unablatable.
+- **The proxy guard is the point.** `--drop_prior_groups gnomad` alone *raises*,
+  naming the AlphaMissense/zero-shot columns that survive: those models were
+  trained on population data, so a "without gnomAD" arm that keeps them has
+  removed the legible copy of the signal and nothing else. `--allow_proxy_leak`
+  overrides it for the comparison where the proxy is the subject, and is
+  recorded in the summary JSON.
+- **Provenance.** Each run's summary JSON now records `drop_prior_groups`,
+  `allow_proxy_leak` and the resolved `prior_columns` list — "27 prior columns"
+  in the paper becomes checkable against the artifact instead of asserted.
+- **Tests:** 6 new in `tests/test_mmr_modules.py`; suite 190 → 196, all passing.
+- **Manuscript bibliography.** `docs/manuscript/references.bib` was rewritten
+  from the verified list in `docs/PAPER.md` §11 plus `docs/DATASETS.md`, and the
+  eight now-dangling `\cite` keys in `main.tex` (`acmg`, `clinvar`,
+  `proteingym`, `alphamissense`, `gnomad`, `alphafold`, `mavedb`, `esm2`) were
+  repointed at the new author-year keys; four citations were added where the
+  text names a method the bibliography already covers (PLLR, temperature
+  scaling, isotonic regression, circularity). Every `\cite` key now resolves.
+  **Not verified by a build** — no TeX toolchain on this box; `latexmk -pdf
+  main.tex` still has to run somewhere before submission. Author lists are
+  still truncated to `and others`, DOIs are still absent, and `uniprot`,
+  `interpro` and `mane` are still `TODO` placeholders.
+
+**Still outstanding:** the four ablation runs themselves. Commands are in
+`MISSING_EVIDENCE.md` item 3, pinned to the `esmpri_concat_frozen_pllr-residual_seed42`
+grid cell so only the feature set moves.
+
+---
+
 ## 2026-09-02 (CPU dev box) — Stage-2b ablation grid: plumbing smoke run
 
 End-to-end check of the new grid path before it leaves for the CUDA box. **8M

@@ -1,113 +1,284 @@
 % ====================================================================
 % References for docs/manuscript/main.tex
 %
-% RULE FOR THIS FILE: every field below is either (a) verified from a build
-% manifest or repository artifact, or (b) marked TODO. Author lists, titles,
-% years, journals, volumes and DOIs are NOT filled in from memory. Each of
-% these resources has a well-known primary publication; complete each entry
-% from the publisher record before submission. A citation recalled slightly
-% wrong is indistinguishable from a fabricated one to a reviewer.
+% PROVENANCE OF THIS FILE
+% Entries below are transcribed from the list in docs/PAPER.md 11, which
+% is headed "Verified and safe to cite as listed", supplemented by the
+% per-source citation blocks in docs/DATASETS.md. Nothing here is recalled
+% from memory.
 %
-% Verified fields carry the URL, version string and checksum recorded in
-% data/mmr/processed/extended/manifest.json.
+% TWO CAVEATS THAT MUST BE CLEARED BEFORE SUBMISSION
+%
+% 1. Author lists are truncated. docs/PAPER.md records them as "Richards S.
+%    et al.", so the `and others' below is faithful to what is verified, not
+%    to the papers. Bioinformatics requires full author lists; expand each
+%    from the publisher record.
+%
+% 2. DOIs are absent except where docs/DATASETS.md supplies one. Do not fill
+%    them in from memory.
+%
+% DELIBERATELY NOT INCLUDED
+% docs/PAPER.md carries a second list marked with a dagger --- VariPred,
+% ProPath, the CSBJ token-classifier paper, MVmamba, and the CIMRA/PMS2
+% OddsPath source --- flagged there as "cited in the text but not yet verified
+% against the primary source". Those are omitted rather than guessed. If the
+% manuscript comes to cite any of them, verify first and add here.
 % ====================================================================
 
-@misc{clinvar,
-  title        = {{TODO: ClinVar resource publication title}},
-  author       = {{TODO: author list}},
-  year         = {{TODO}},
-  journal      = {{TODO: Nucleic Acids Research (verify)}},
-  doi          = {{TODO}},
-  howpublished = {\url{https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz}},
-  note         = {Archive file SHA-256 186ad2838a138f0bc7a79b1b7b6dde5533b105175d293e1131652889529804c9 as recorded in the build manifest. TODO: record the release date of the snapshot used; ClinVar is updated weekly.}
+% ---- Clinical interpretation framework ------------------------------
+@article{richards2015acmg,
+  author  = {Richards, S. and others},
+  title   = {Standards and guidelines for the interpretation of sequence variants: a joint consensus recommendation of the American College of Medical Genetics and Genomics and the Association for Molecular Pathology},
+  journal = {Genetics in Medicine},
+  volume  = {17},
+  pages   = {405--424},
+  year    = {2015}
 }
 
-@misc{proteingym,
-  title        = {{TODO: ProteinGym publication title}},
-  author       = {{TODO: author list}},
-  year         = {{TODO}},
-  doi          = {{TODO}},
-  howpublished = {\url{https://marks.hms.harvard.edu/proteingym/ProteinGym_v1.3}},
-  note         = {Version 1.3. Zenodo record 15293562. DMS\_ProteinGym\_substitutions.zip SHA-256 3a83766254ac9ac9984ec25cb73c6e010ea4418f5e35f143933e6b6e6473b921.}
+@article{tavtigian2018bayesian,
+  author  = {Tavtigian, S. V. and others},
+  title   = {Modeling the {ACMG/AMP} variant classification guidelines as a {Bayesian} classification framework},
+  journal = {Genetics in Medicine},
+  volume  = {20},
+  pages   = {1054--1060},
+  year    = {2018}
 }
 
-@misc{alphamissense,
-  title        = {{TODO: AlphaMissense publication title}},
-  author       = {{TODO: author list}},
-  year         = {{TODO}},
-  journal      = {{TODO: Science (verify)}},
-  doi          = {{TODO}},
-  howpublished = {\url{https://storage.googleapis.com/dm_alphamissense/AlphaMissense_aa_substitutions.tsv.gz}},
-  note         = {Version 1.0, 2023-09-18 release. Licence CC BY-NC-SA 4.0.}
+@article{brnich2020ps3,
+  author  = {Brnich, S. E. and others},
+  title   = {Recommendations for application of the functional evidence {PS3/BS3} criterion using the {ACMG/AMP} sequence variant interpretation framework},
+  journal = {Genome Medicine},
+  volume  = {12},
+  pages   = {3},
+  year    = {2020}
 }
 
-@misc{gnomad,
-  title        = {{TODO: gnomAD v4 publication title}},
-  author       = {{TODO: author list}},
-  year         = {{TODO}},
-  doi          = {{TODO}},
-  howpublished = {\url{https://gnomad.broadinstitute.org/api}},
-  note         = {Dataset identifier gnomad\_r4, accessed via the public GraphQL API.}
+@article{thompson2014insight,
+  author  = {Thompson, B. A. and others},
+  title   = {Application of a 5-tiered scheme for standardized classification of 2,360 unique mismatch repair gene variants in the {InSiGHT} locus-specific database},
+  journal = {Nature Genetics},
+  volume  = {46},
+  pages   = {107--115},
+  year    = {2014}
 }
+
+% ---- Circularity and benchmarking -----------------------------------
+@article{grimm2015circularity,
+  author  = {Grimm, D. G. and others},
+  title   = {The evaluation of tools used to predict the impact of missense variants is hindered by two types of circularity},
+  journal = {Human Mutation},
+  volume  = {36},
+  pages   = {513--523},
+  year    = {2015}
+}
+
+@inproceedings{notin2023proteingym,
+  author    = {Notin, P. and others},
+  title     = {{ProteinGym}: large-scale benchmarks for protein fitness prediction and design},
+  booktitle = {Advances in Neural Information Processing Systems 36, Datasets and Benchmarks Track},
+  year      = {2023},
+  note      = {Version 1.3 used here (Zenodo record 15293562, 2025-04-27). Repository licence MIT.}
+}
+
+% ---- Variant databases ----------------------------------------------
+@article{landrum2018clinvar,
+  author  = {Landrum, M. J. and others},
+  title   = {{ClinVar}: improving access to variant interpretations and supporting evidence},
+  journal = {Nucleic Acids Research},
+  volume  = {46},
+  pages   = {D1062--D1067},
+  year    = {2018},
+  note    = {TODO: record the release date of the snapshot used; ClinVar updates weekly.}
+}
+
+@article{chen2024gnomad,
+  author  = {Chen, S. and others},
+  title   = {A genomic mutational constraint map using variation in 76,156 human genomes},
+  journal = {Nature},
+  volume  = {625},
+  pages   = {92--100},
+  year    = {2024},
+  note    = {gnomAD v4; dataset identifier gnomad\_r4.}
+}
+
+@article{karczewski2020gnomad,
+  author  = {Karczewski, K. J. and others},
+  title   = {The mutational constraint spectrum quantified from variation in 141,456 humans},
+  journal = {Nature},
+  volume  = {581},
+  pages   = {434--443},
+  year    = {2020}
+}
+
+@article{esposito2019mavedb,
+  author  = {Esposito, D. and others},
+  title   = {{MaveDB}: an open-source platform to distribute and interpret data from multiplexed assays of variant effect},
+  journal = {Genome Biology},
+  volume  = {20},
+  pages   = {223},
+  year    = {2019}
+}
+
+% ---- Structure -------------------------------------------------------
+@article{jumper2021alphafold,
+  author  = {Jumper, J. and others},
+  title   = {Highly accurate protein structure prediction with {AlphaFold}},
+  journal = {Nature},
+  volume  = {596},
+  pages   = {583--589},
+  year    = {2021}
+}
+
+@article{varadi2022afdb,
+  author  = {Varadi, M. and others},
+  title   = {{AlphaFold} Protein Structure Database},
+  journal = {Nucleic Acids Research},
+  volume  = {50},
+  pages   = {D439--D444},
+  year    = {2022},
+  note    = {Licence CC-BY-4.0.}
+}
+
+% ---- Protein language models and variant-effect predictors -----------
+@article{rives2021esm,
+  author  = {Rives, A. and others},
+  title   = {Biological structure and function emerge from scaling unsupervised learning to 250 million protein sequences},
+  journal = {Proceedings of the National Academy of Sciences},
+  volume  = {118},
+  pages   = {e2016239118},
+  year    = {2021}
+}
+
+@inproceedings{meier2021pllr,
+  author    = {Meier, J. and others},
+  title     = {Language models enable zero-shot prediction of the effects of mutations on protein function},
+  booktitle = {Advances in Neural Information Processing Systems},
+  volume    = {34},
+  year      = {2021},
+  note      = {Source of the masked-marginal PLLR scoring used here.}
+}
+
+@article{lin2023esm2,
+  author  = {Lin, Z. and others},
+  title   = {Evolutionary-scale prediction of atomic-level protein structure with a language model},
+  journal = {Science},
+  volume  = {379},
+  pages   = {1123--1130},
+  year    = {2023},
+  note    = {ESM-2; checkpoint facebook/esm2\_t33\_650M\_UR50D used for all results here.}
+}
+
+@article{cheng2023alphamissense,
+  author  = {Cheng, J. and others},
+  title   = {Accurate proteome-wide missense variant effect prediction with {AlphaMissense}},
+  journal = {Science},
+  volume  = {381},
+  pages   = {eadg7492},
+  year    = {2023},
+  note    = {Release of 2023-09-18. Licence CC BY-NC-SA 4.0, non-commercial only.}
+}
+
+@article{frazer2021eve,
+  author  = {Frazer, J. and others},
+  title   = {Disease variant prediction with deep generative models of evolutionary data},
+  journal = {Nature},
+  volume  = {599},
+  pages   = {91--95},
+  year    = {2021}
+}
+
+@article{laine2019gemme,
+  author  = {Laine, E. and Karami, Y. and Carbone, A.},
+  title   = {{GEMME}: a simple and fast global epistatic model predicting mutational effects},
+  journal = {Molecular Biology and Evolution},
+  volume  = {36},
+  pages   = {2604--2619},
+  year    = {2019}
+}
+
+@article{brandes2023espm,
+  author  = {Brandes, N. and others},
+  title   = {Genome-wide prediction of disease variant effects with a deep protein language model},
+  journal = {Nature Genetics},
+  volume  = {55},
+  pages   = {1512--1522},
+  year    = {2023}
+}
+
+% ---- Functional assays ----------------------------------------------
+@article{jia2021msh2,
+  author  = {Jia, X. and others},
+  title   = {Massively parallel functional testing of {MSH2} missense variants conferring {Lynch} syndrome risk},
+  journal = {American Journal of Human Genetics},
+  volume  = {108},
+  pages   = {163--175},
+  year    = {2021},
+  note    = {MaveDB urn:mavedb:00000050-a-1, PMID 33357406. The single DMS assay covering this panel.}
+}
+
+% ---- Method components ----------------------------------------------
+@inproceedings{guo2017calibration,
+  author    = {Guo, C. and others},
+  title     = {On calibration of modern neural networks},
+  booktitle = {International Conference on Machine Learning},
+  year      = {2017},
+  note      = {Temperature scaling.}
+}
+
+@inproceedings{zadrozny2002isotonic,
+  author    = {Zadrozny, B. and Elkan, C.},
+  title     = {Transforming classifier scores into accurate multiclass probability estimates},
+  booktitle = {Proceedings of the ACM SIGKDD International Conference on Knowledge Discovery and Data Mining},
+  year      = {2002}
+}
+
+@inproceedings{lin2017focal,
+  author    = {Lin, T.-Y. and others},
+  title     = {Focal loss for dense object detection},
+  booktitle = {IEEE International Conference on Computer Vision},
+  year      = {2017}
+}
+
+@inproceedings{loshchilov2019adamw,
+  author    = {Loshchilov, I. and Hutter, F.},
+  title     = {Decoupled weight decay regularization},
+  booktitle = {International Conference on Learning Representations},
+  year      = {2019}
+}
+
+@article{steinegger2017mmseqs2,
+  author  = {Steinegger, M. and S{\"o}ding, J.},
+  title   = {{MMseqs2} enables sensitive protein sequence searching for the analysis of massive data sets},
+  journal = {Nature Biotechnology},
+  volume  = {35},
+  pages   = {1026--1028},
+  year    = {2017}
+}
+
+% ---- Still unverified: no citation available in the repository -------
+% These three resources are used by the pipeline but have no entry in
+% docs/PAPER.md's verified list. Complete from the publisher record.
 
 @misc{uniprot,
-  title        = {{TODO: UniProt database publication title}},
-  author       = {{TODO: UniProt Consortium}},
+  author       = {{TODO: UniProt Consortium --- complete from the publisher record}},
+  title        = {{TODO: UniProt database publication title (Nucleic Acids Research, annual database issue)}},
   year         = {{TODO}},
-  journal      = {{TODO: Nucleic Acids Research (verify)}},
-  doi          = {{TODO}},
   howpublished = {\url{https://rest.uniprot.org/uniprotkb/}},
-  note         = {Canonical sequences for P40692, P43246, P52701, P54278 are the coordinate authority for this work.}
-}
-
-@misc{alphafold,
-  title        = {{TODO: AlphaFold and/or AlphaFold DB publication title(s) --- these are separate papers; cite both if both are used}},
-  author       = {{TODO: author list}},
-  year         = {{TODO}},
-  doi          = {{TODO}},
-  howpublished = {\url{https://alphafold.ebi.ac.uk/api}},
-  note         = {Licence CC-BY-4.0. Per-residue pLDDT for 3912 residues across 4 accessions.}
+  note         = {Canonical sequences for P40692, P43246, P52701 and P54278 are the coordinate authority for this work. No verified citation exists in the repository.}
 }
 
 @misc{interpro,
+  author       = {{TODO: complete from the publisher record}},
   title        = {{TODO: InterPro publication title}},
-  author       = {{TODO: author list}},
   year         = {{TODO}},
-  doi          = {{TODO}},
   howpublished = {\url{https://www.ebi.ac.uk/interpro/api}},
-  note         = {Licence CC0. 123 domain/family intervals on the panel.}
-}
-
-@misc{esm2,
-  title        = {{TODO: ESM-2 publication title}},
-  author       = {{TODO: author list}},
-  year         = {{TODO}},
-  doi          = {{TODO}},
-  howpublished = {\url{https://huggingface.co/facebook/esm2_t33_650M_UR50D}},
-  note         = {Checkpoint facebook/esm2\_t33\_650M\_UR50D, 650M parameters, used for all fine-tuning results.}
-}
-
-@misc{acmg,
-  title        = {{TODO: ACMG/AMP standards and guidelines for the interpretation of sequence variants --- verify exact title}},
-  author       = {{TODO: author list}},
-  year         = {{TODO}},
-  journal      = {{TODO: Genetics in Medicine (verify)}},
-  doi          = {{TODO}},
-  note         = {Cited for the BS1/PM2 allele-frequency criteria motivating the frequency-feature quarantine in Section 2.3.}
+  note         = {Licence CC0. 123 domain/family intervals on the panel. No verified citation exists in the repository.}
 }
 
 @misc{mane,
-  title        = {{TODO: MANE resource publication title}},
-  author       = {{TODO: author list}},
+  author       = {{TODO: complete from the publisher record}},
+  title        = {{TODO: MANE publication title}},
   year         = {{TODO}},
-  doi          = {{TODO}},
-  note         = {MANE Select transcript ENST00000265849 used to derive the PMS2 pseudogene homology range, codons 382--862.}
-}
-
-@misc{mavedb,
-  title        = {{TODO: MaveDB publication title}},
-  author       = {{TODO: author list}},
-  year         = {{TODO}},
-  doi          = {{TODO}},
-  note         = {TODO: cite only if MaveDB contributed rows to the build reported here. The manifest records no MaveDB source block, so it appears not to have been enabled --- confirm before citing.}
+  howpublished = {\url{https://www.ncbi.nlm.nih.gov/refseq/MANE/}},
+  note         = {MANE Select transcript ENST00000265849 used to derive the PMS2 pseudogene homology range, codons 382--862. No verified citation exists in the repository.}
 }
