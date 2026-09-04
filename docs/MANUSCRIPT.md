@@ -88,7 +88,11 @@ Counts are taken from `manifest.json → stats` for the build dated 2026-09-03T1
 | MaveDB | Functional assay | `[TODO]` | `[TODO — likely 0, not enabled]` | — | — | — |
 | CIMRA / OddsPath | Calibrated evidence | `[TODO]` | `[TODO — likely 0, not enabled]` | — | — | — |
 
-**Discrepancy to resolve before submission.** The manifest records `parameters.include_gnomad: false` and `sources.gnomad.enabled: false` with `gnomad_rows_panel: 0`, yet the table it accompanies carries a joint allele frequency for 6,492 variants and gene-level constraint for all 74,328. The cause is a pipeline ordering issue: `scripts/build_mmr_dataset.py` joins gnomAD in its stages 3 and 4, after `src/extended_builder.py` has already written the manifest, and the manifest is not subsequently updated. The data are correct; the manifest under-describes them. `[TODO: fix build_mmr_dataset.py to rewrite the manifest after stages 3–4, then rebuild or patch the manifest, so the recorded provenance matches the table.]`
+**Discrepancy to resolve before submission.** The manifest for the build reported here records `parameters.include_gnomad: false` and `sources.gnomad.enabled: false` with `gnomad_rows_panel: 0`, yet the table it accompanies carries a joint allele frequency for 6,492 variants and gene-level constraint for all 74,328. The recorded artefact checksum is also stale: the manifest names `extended_dataset.csv` at SHA-256 `63fd5288…` and 37,862,375 bytes, while the file is `c2731292…` at 48,450,632 bytes.
+
+The cause is a pipeline ordering issue. `src/extended_builder.py` writes the manifest immediately after writing the table; `scripts/build_mmr_dataset.py` then reads that table back, joins gnomAD in its stages 3 and 4, and rewrites the file without re-stamping the manifest. The data are correct; the provenance record describes the pre-join table.
+
+This is fixed in the code (`extended_builder.refresh_manifest`, called after the final write, with `scripts/repair_manifest.py` to correct manifests from earlier builds in place). The manifests accompanying the results reported here have **not yet been repaired**, so the discrepancy above still holds for the artifacts as archived. `[TODO: run scripts/repair_manifest.py on data/mmr/processed/extended and data/processed/extended, then update the checksum recorded in Section 6.]`
 
 ## 2.2 Variant normalisation and master-table assembly
 

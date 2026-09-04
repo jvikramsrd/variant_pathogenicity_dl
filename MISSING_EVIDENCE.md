@@ -31,7 +31,7 @@ python scripts/run_mmr_transfer.py --scratch --features priors --eval lopo \
 
 ---
 
-## 2. Manifest does not describe the table it accompanies
+## 2. Manifest does not describe the table it accompanies — CODE FIXED, REPAIR RUN OUTSTANDING
 
 **Manuscript location.** §2.1 (discrepancy note), Table 1.
 
@@ -39,14 +39,38 @@ python scripts/run_mmr_transfer.py --scratch --features priors --eval lopo \
 `parameters.include_gnomad: false`, `sources.gnomad.enabled: false` and
 `stats.gnomad_rows_panel: 0`, but the table carries a joint allele frequency for 6,492
 variants and gene constraint for all 74,328. `scripts/build_mmr_dataset.py` joins gnomAD in
-its stages 3–4, after `src/extended_builder.py` has written the manifest, and never rewrites
-it. The data are correct; the provenance record is wrong, which is a reproducibility defect
-in a paper whose contribution is provenance.
+its stages 3–4, after `src/extended_builder.py` has written the manifest, and never rewrote
+it.
 
-**Fix.** Code change in `scripts/build_mmr_dataset.py`: update and rewrite the manifest after
-stages 3 and 4, recording `gnomad_rows_panel`, `gnomad_genes_fetched`,
-`gnomad_constraint_genes_fetched` and the effective `include_gnomad`. Then either rebuild or
-patch the existing manifest in place, and note which was done.
+**The checksum was stale too**, which is worse than the flags. `build_mmr_dataset.py` reads
+the CSV back, adds the gnomAD columns and rewrites the file, so the recorded digest is the
+pre-join one. Measured on the local copy of the build:
+
+| | manifest records | actually on disk |
+|---|---|---|
+| `extended_dataset.csv` SHA-256 | `63fd5288…` | `c2731292…` |
+| bytes | 37,862,375 | 48,450,632 |
+
+A manifest whose checksum does not match the file it names invites a reader to trust it.
+
+**Status.** Fixed in code on `main` (commit `34c5505`): `extended_builder.refresh_manifest`
+re-stamps artefact checksums from disk and merges corrections one level deep, keeping
+`built_at_utc` and adding `refreshed_at_utc` so the two-phase build stays visible;
+`build_mmr_dataset.py` records what stages 3–4 did and calls it after the final write. Four
+tests in `tests/test_merge.py`.
+
+**Outstanding.** The manifests already on disk are still stale. Repair them in place — this
+does not rebuild or modify any dataset:
+
+```bash
+python scripts/repair_manifest.py data/mmr/processed/extended --dry-run   # inspect first
+python scripts/repair_manifest.py data/mmr/processed/extended
+python scripts/repair_manifest.py data/processed/extended
+```
+
+Run this on the machine holding the build that produced the Stage-2b results, then re-record
+the corrected checksum in the manuscript's §6 and re-commit the manifest. Until then, the
+manuscript's §2.1 discrepancy note must stay.
 
 ---
 
