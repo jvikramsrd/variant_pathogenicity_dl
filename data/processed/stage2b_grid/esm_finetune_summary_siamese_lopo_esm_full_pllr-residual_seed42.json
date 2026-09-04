@@ -1,0 +1,29 @@
+{
+  "built_at_utc": "2026-09-04T02:50:15.837874+00:00",
+  "cell": "esm_full_pllr-residual_seed42",
+  "branch": "esm",
+  "fusion": "concat",
+  "pllr_mode": "residual",
+  "seed": 42,
+  "af_labels_active": false,
+  "mode": "siamese",
+  "esm_model": "facebook/esm2_t33_650M_UR50D",
+  "n_unfrozen_layers": -1,
+  "splits_requested": [
+    "MLH1",
+    "MSH2",
+    "MSH6",
+    "PMS2"
+  ],
+  "splits_evaluated": [
+    "MLH1",
+    "MSH2",
+    "MSH6",
+    "PMS2"
+  ],
+  "splits_skipped_no_rows": [],
+  "results_csv": "data\\processed\\stage2b_grid\\esm_finetune_results_siamese_lopo_esm_full_pllr-residual_seed42.csv",
+  "predictions_csv": "data\\processed\\stage2b_grid\\esm_finetune_predictions_siamese_lopo_esm_full_pllr-residual_seed42.csv",
+  "checkpoints": [],
+  "runtime_s": 7706.5
+}

@@ -1,5 +1,5 @@
 {
-  "built_at_utc": "2026-09-03T07:34:40.483088+00:00",
+  "built_at_utc": "2026-09-04T00:31:01.932778+00:00",
   "cell": "esmpri_concat_frozen_pllr-residual_seed43",
   "branch": "esm+priors",
   "fusion": "concat",
@@ -25,5 +25,5 @@
   "results_csv": "data\\processed\\stage2b_grid\\esm_finetune_results_siamese_lopo_esmpri_concat_frozen_pllr-residual_seed43.csv",
   "predictions_csv": "data\\processed\\stage2b_grid\\esm_finetune_predictions_siamese_lopo_esmpri_concat_frozen_pllr-residual_seed43.csv",
   "checkpoints": [],
-  "runtime_s": 578.5
+  "runtime_s": 640.0
 }
