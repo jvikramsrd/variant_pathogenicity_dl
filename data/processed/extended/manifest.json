@@ -1,5 +1,5 @@
 {
-  "built_at_utc": "2026-09-02T14:53:04.718851+00:00",
+  "built_at_utc": "2026-09-03T14:25:43.126673+00:00",
   "parameters": {
     "genes": [
       "ACE2",
@@ -181,7 +181,6 @@
         "MTHFR",
         "NKX3-1",
         "NPC1",
-        "NUDT15",
         "OBSCN",
         "OTC",
         "OTUD7A",
@@ -217,12 +216,13 @@
         "UBE2I",
         "UBE4B",
         "UBR5",
-        "VKORC1",
+        "VKORC1"
+      ],
+      "genes_failed": [
+        "NUDT15",
         "YAP1"
       ],
-      "genes_failed": [],
       "constraint_genes_fetched": [
-        "ACE2",
         "ADRB2",
         "AICDA",
         "AMFR",
@@ -231,7 +231,6 @@
         "BRCA2",
         "CALM1",
         "CARD11",
-        "CASP3",
         "CASP7",
         "CBS",
         "CBX4",
@@ -254,7 +253,6 @@
         "HRAS",
         "ILF3",
         "KCNE1",
-        "KCNH2",
         "KRAS",
         "MAPK1",
         "MET",
@@ -302,7 +300,11 @@
         "VKORC1",
         "YAP1"
       ],
-      "constraint_genes_failed": []
+      "constraint_genes_failed": [
+        "ACE2",
+        "CASP3",
+        "KCNH2"
+      ]
     },
     "alphafold": {
       "enabled": true,
@@ -315,7 +317,7 @@
       "enabled": true,
       "api_url": "https://www.ebi.ac.uk/interpro/api",
       "licence": "CC0",
-      "intervals": 3160
+      "intervals": 3039
     },
     "uniprot_point_features": {
       "enabled": true,
@@ -655,20 +657,16 @@
       "bytes": 33241092
     },
     "extended_dataset.csv": {
-      "sha256": "dbe6bab0278f7a8605796ba62db9ffa5d4a952c96e934caa9099e476941b0cd3",
-      "bytes": 566669081
-    },
-    "extended_dataset_train.csv": {
-      "sha256": "6769b00f87385cb50e23f7b874875ff1646083c8ae69e6c582a91204d9b66910",
-      "bytes": 39980886
+      "sha256": "e742777bcd2a58dd5cb4d475d4d20fae66623c6f9cb224c69adf42a508300bb4",
+      "bytes": 549064040
     },
     "gnomad_subset.csv": {
-      "sha256": "6faffba7bd062fac06f0f1121fdfc91145feb95154ffb1527101297452fee3ed",
-      "bytes": 12072395
+      "sha256": "0d589bc016f132816f1cfb4f1e53b8652c34d62749a7bcbf91d2d40a1d20259b",
+      "bytes": 11903778
     },
     "interpro_intervals.csv": {
-      "sha256": "f4a02d96703f4149e808d299997f7bac3bb604e571bad22f75c361aa0f646189",
-      "bytes": 224800
+      "sha256": "9c9d08cd27f2240e5d41711e28c6c70c40fab98de18631fa819b04e31b1357cd",
+      "bytes": 215209
     },
     "pg_clinical_panel.csv": {
       "sha256": "3e33dceea81f15f4561814acbd9542ec751e5b14511eaac9c3689399593629d3",
@@ -866,7 +864,7 @@
     "clinical_np_matched": 33,
     "clinical_np_unmatched": 2492,
     "alphamissense_rows_panel": 1152863,
-    "gnomad_rows_panel": 66586,
+    "gnomad_rows_panel": 65544,
     "gnomad_genes_fetched": [
       "ACE2",
       "ADRB2",
@@ -909,7 +907,6 @@
       "MTHFR",
       "NKX3-1",
       "NPC1",
-      "NUDT15",
       "OBSCN",
       "OTC",
       "OTUD7A",
@@ -945,12 +942,13 @@
       "UBE2I",
       "UBE4B",
       "UBR5",
-      "VKORC1",
+      "VKORC1"
+    ],
+    "gnomad_genes_failed": [
+      "NUDT15",
       "YAP1"
     ],
-    "gnomad_genes_failed": [],
     "gnomad_constraint_genes_fetched": [
-      "ACE2",
       "ADRB2",
       "AICDA",
       "AMFR",
@@ -959,7 +957,6 @@
       "BRCA2",
       "CALM1",
       "CARD11",
-      "CASP3",
       "CASP7",
       "CBS",
       "CBX4",
@@ -982,7 +979,6 @@
       "HRAS",
       "ILF3",
       "KCNE1",
-      "KCNH2",
       "KRAS",
       "MAPK1",
       "MET",
@@ -1030,10 +1026,14 @@
       "VKORC1",
       "YAP1"
     ],
-    "gnomad_constraint_genes_failed": [],
+    "gnomad_constraint_genes_failed": [
+      "ACE2",
+      "CASP3",
+      "KCNH2"
+    ],
     "alphafold_residues_with_plddt": 46494,
     "alphafold_accessions_covered": 76,
-    "interpro_intervals": 3160,
+    "interpro_intervals": 3039,
     "functional_site_rows": 1435,
     "zeroshot_rows_joined": 2292,
     "domain_intervals": 592,
@@ -1050,9 +1050,9 @@
       "alphamissense": 1152863,
       "zeroshot_models": 2292,
       "domains": 596980,
-      "gnomad": 66584,
+      "gnomad": 65542,
       "alphafold": 883386,
-      "interpro": 1072645,
+      "interpro": 972952,
       "functional_site": 25802
     },
     "clinvar_conflicting_keys": 0,

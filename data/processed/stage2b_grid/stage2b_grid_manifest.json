@@ -1,0 +1,179 @@
+{
+  "built_at_utc": "2026-09-04T09:59:40.067743+00:00",
+  "tiers": [
+    "1",
+    "2",
+    "3",
+    "4",
+    "5"
+  ],
+  "cells": [
+    {
+      "branch": "esm+priors",
+      "n_unfrozen_layers": -1,
+      "pllr_mode": "residual",
+      "seed": 42,
+      "fusion": "concat",
+      "tier": "1",
+      "slug": "esmpri_concat_full_pllr-residual_seed42"
+    },
+    {
+      "branch": "esm+priors",
+      "n_unfrozen_layers": -1,
+      "pllr_mode": "residual",
+      "seed": 43,
+      "fusion": "concat",
+      "tier": "1",
+      "slug": "esmpri_concat_full_pllr-residual_seed43"
+    },
+    {
+      "branch": "esm+priors",
+      "n_unfrozen_layers": -1,
+      "pllr_mode": "residual",
+      "seed": 44,
+      "fusion": "concat",
+      "tier": "1",
+      "slug": "esmpri_concat_full_pllr-residual_seed44"
+    },
+    {
+      "branch": "esm+priors",
+      "n_unfrozen_layers": 0,
+      "pllr_mode": "residual",
+      "seed": 42,
+      "fusion": "concat",
+      "tier": "1",
+      "slug": "esmpri_concat_frozen_pllr-residual_seed42"
+    },
+    {
+      "branch": "esm+priors",
+      "n_unfrozen_layers": 0,
+      "pllr_mode": "residual",
+      "seed": 43,
+      "fusion": "concat",
+      "tier": "1",
+      "slug": "esmpri_concat_frozen_pllr-residual_seed43"
+    },
+    {
+      "branch": "esm+priors",
+      "n_unfrozen_layers": 0,
+      "pllr_mode": "residual",
+      "seed": 44,
+      "fusion": "concat",
+      "tier": "1",
+      "slug": "esmpri_concat_frozen_pllr-residual_seed44"
+    },
+    {
+      "branch": "esm",
+      "n_unfrozen_layers": -1,
+      "pllr_mode": "residual",
+      "seed": 42,
+      "fusion": "concat",
+      "tier": "2",
+      "slug": "esm_full_pllr-residual_seed42"
+    },
+    {
+      "branch": "esm",
+      "n_unfrozen_layers": 0,
+      "pllr_mode": "residual",
+      "seed": 42,
+      "fusion": "concat",
+      "tier": "2",
+      "slug": "esm_frozen_pllr-residual_seed42"
+    },
+    {
+      "branch": "esm+priors",
+      "n_unfrozen_layers": 0,
+      "pllr_mode": "off",
+      "seed": 42,
+      "fusion": "concat",
+      "tier": "3",
+      "slug": "esmpri_concat_frozen_pllr-off_seed42"
+    },
+    {
+      "branch": "esm",
+      "n_unfrozen_layers": 0,
+      "pllr_mode": "off",
+      "seed": 42,
+      "fusion": "concat",
+      "tier": "3",
+      "slug": "esm_frozen_pllr-off_seed42"
+    },
+    {
+      "branch": "esm+priors",
+      "n_unfrozen_layers": 0,
+      "pllr_mode": "concat",
+      "seed": 42,
+      "fusion": "concat",
+      "tier": "3",
+      "slug": "esmpri_concat_frozen_pllr-concat_seed42"
+    },
+    {
+      "branch": "esm",
+      "n_unfrozen_layers": 0,
+      "pllr_mode": "concat",
+      "seed": 42,
+      "fusion": "concat",
+      "tier": "3",
+      "slug": "esm_frozen_pllr-concat_seed42"
+    },
+    {
+      "branch": "esm+priors",
+      "n_unfrozen_layers": 0,
+      "pllr_mode": "residual",
+      "seed": 42,
+      "fusion": "gatewave",
+      "tier": "3",
+      "slug": "esmpri_gatewave_frozen_pllr-residual_seed42"
+    },
+    {
+      "branch": "esm+priors",
+      "n_unfrozen_layers": 2,
+      "pllr_mode": "residual",
+      "seed": 42,
+      "fusion": "concat",
+      "tier": "4",
+      "slug": "esmpri_concat_last2_pllr-residual_seed42"
+    },
+    {
+      "branch": "esm",
+      "n_unfrozen_layers": 2,
+      "pllr_mode": "residual",
+      "seed": 42,
+      "fusion": "concat",
+      "tier": "4",
+      "slug": "esm_last2_pllr-residual_seed42"
+    },
+    {
+      "branch": "esm+priors",
+      "n_unfrozen_layers": -1,
+      "pllr_mode": "off",
+      "seed": 42,
+      "fusion": "concat",
+      "tier": "5",
+      "slug": "esmpri_concat_full_pllr-off_seed42"
+    }
+  ],
+  "completed": [
+    "esmpri_concat_full_pllr-residual_seed42",
+    "esmpri_concat_full_pllr-residual_seed43",
+    "esmpri_concat_full_pllr-residual_seed44",
+    "esmpri_concat_frozen_pllr-residual_seed42",
+    "esmpri_concat_frozen_pllr-residual_seed43",
+    "esmpri_concat_frozen_pllr-residual_seed44",
+    "esm_full_pllr-residual_seed42",
+    "esm_frozen_pllr-residual_seed42",
+    "esmpri_concat_frozen_pllr-off_seed42",
+    "esm_frozen_pllr-off_seed42",
+    "esmpri_concat_frozen_pllr-concat_seed42",
+    "esm_frozen_pllr-concat_seed42",
+    "esmpri_gatewave_frozen_pllr-residual_seed42",
+    "esmpri_concat_last2_pllr-residual_seed42",
+    "esm_last2_pllr-residual_seed42",
+    "esmpri_concat_full_pllr-off_seed42"
+  ],
+  "failed": [],
+  "esm_model": "facebook/esm2_t33_650M_UR50D",
+  "mode": "siamese",
+  "eval": "lopo",
+  "runtime_h": 17.84
+}
