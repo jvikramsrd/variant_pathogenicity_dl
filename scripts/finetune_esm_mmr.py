@@ -335,6 +335,27 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
     predictions["n_unfrozen_layers"] = args.n_unfrozen_layers
     predictions["pllr_mode"] = pllr_mode
 
+    # The inner-validation probabilities are computed above to select `thr` and
+    # were previously discarded, which made every post-hoc calibration step
+    # impossible: temperature scaling, isotonic recalibration and re-selecting a
+    # threshold for a seed-ensembled score all need a held-out-from-training
+    # split that is *not* the holdout gene. Fitting any of those on the holdout
+    # is the leak this project forbids, so without these rows the only way to
+    # recalibrate was to retrain. They are small (one fold of the fine-tune
+    # genes) and cost nothing to keep.
+    val_meta = ft_df.iloc[va_local].reset_index(drop=True)
+    val_kept = val_meta.iloc[[e.row_index for e in val_ex]].reset_index(drop=True)
+    val_predictions = val_kept[[c for c in key_cols if c in val_kept.columns]].copy()
+    val_predictions.insert(0, "holdout_gene", holdout)
+    val_predictions["label"] = val_labels
+    val_predictions["prob"] = val_probs
+    val_predictions["threshold"] = float(thr)
+    val_predictions["seed"] = args.seed
+    val_predictions["cell_slug"] = args.cell_slug
+    val_predictions["branch"] = args.branch
+    val_predictions["n_unfrozen_layers"] = args.n_unfrozen_layers
+    val_predictions["pllr_mode"] = pllr_mode
+
     row = {
         "holdout_gene": holdout, "mode": args.mode, "esm_model": args.esm_model,
         "n_unfrozen_layers": args.n_unfrozen_layers,
@@ -344,6 +365,7 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
         "n_prior_features": 0 if priors is None else priors.train.shape[1],
         "seed": args.seed,
         "_predictions": predictions,
+        "_val_predictions": val_predictions,
         "batch_size": args.batch_size, "grad_accum": args.grad_accum,
         "effective_batch": args.batch_size * args.grad_accum, "amp": args.amp,
         "n_finetune": len(train_ex), "n_inner_val": len(val_ex), "n_holdout": len(ho_ex),
@@ -434,6 +456,8 @@ def main() -> int:
 
     predictions = (pd.concat([r.pop("_predictions") for r in rows],
                              ignore_index=True) if rows else pd.DataFrame())
+    val_predictions = (pd.concat([r.pop("_val_predictions") for r in rows],
+                                 ignore_index=True) if rows else pd.DataFrame())
     results = pd.DataFrame(rows)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     # Every filename carries the cell slug: a grid sweep writes a dozen of
@@ -443,8 +467,10 @@ def main() -> int:
                      args.holdout_gene)
     results_path = args.out_dir / f"esm_finetune_results_{tag}.csv"
     predictions_path = args.out_dir / f"esm_finetune_predictions_{tag}.csv"
+    val_predictions_path = args.out_dir / f"esm_finetune_valpreds_{tag}.csv"
     results.to_csv(results_path, index=False)
     predictions.to_csv(predictions_path, index=False)
+    val_predictions.to_csv(val_predictions_path, index=False)
     checkpoints = [r["checkpoint"] for r in rows if r.get("checkpoint")]
     summary = {
         "built_at_utc": datetime.now(timezone.utc).isoformat(),
@@ -456,6 +482,7 @@ def main() -> int:
         "splits_requested": splits, "splits_evaluated": evaluated,
         "splits_skipped_no_rows": skipped, "results_csv": str(results_path),
         "predictions_csv": str(predictions_path),
+        "val_predictions_csv": str(val_predictions_path),
         "checkpoints": checkpoints,
         "runtime_s": round(time.time() - t0, 1),
     }
