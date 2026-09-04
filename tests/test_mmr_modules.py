@@ -19,6 +19,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import pytest
 import torch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -49,7 +50,11 @@ from src.mmr_dataset import (  # noqa: E402
 )
 from src.mvmamba_features import centered_window_bounds  # noqa: E402
 from src.transfer import (  # noqa: E402
+    ABLATABLE_PRIOR_GROUPS,
     GENE_CONSTANT_PRIOR_COLS,
+    PRIOR_FEATURE_GROUPS,
+    TRANSFER_PRIOR_COLS,
+    drop_prior_groups,
     prior_columns_of,
     add_within_gene_rank_features,
     FeatureBundle,
@@ -556,6 +561,122 @@ def test_gene_constant_priors_are_droppable():
     # the property that makes dropping them correct rather than arbitrary.
     for col in ("gnomad_pli", "gnomad_mis_z"):
         assert (df.groupby("gene")[col].nunique() == 1).all()
+
+
+# --------------------------------------------------------------------------- #
+# Feature-family ablation (MISSING_EVIDENCE item 3, Table 4 rows 4-7)
+# --------------------------------------------------------------------------- #
+def _ablation_fixture():
+    """One column from every ablatable group, plus a DMS column that is never
+    a prior and a label the ablation must not touch."""
+    return pd.DataFrame({
+        "gene": ["MLH1", "MLH1", "MSH2", "MSH2"],
+        "am_pathogenicity": [0.9, 0.1, 0.8, 0.2],
+        "zs_esm1b": [-8.0, -1.0, -7.0, -2.0],
+        "rank_am_pathogenicity": [1.0, 0.0, 1.0, 0.0],
+        "consensus_rank": [0.9, 0.1, 0.8, 0.2],
+        "in_domain": [1, 0, 1, 0],
+        "in_interpro_domain": [1, 0, 0, 1],
+        "is_functional_site": [0, 0, 1, 0],
+        "af_plddt": [95.0, 40.0, 88.0, 35.0],
+        "af_disordered": [0, 1, 0, 1],
+        "gnomad_log10_af": [-5.0, -2.0, -4.5, -2.5],
+        "acmg_ba1": [0, 1, 0, 1],
+        "acmg_bs1": [0, 1, 0, 1],
+        "acmg_pm2": [1, 0, 1, 0],
+        "gnomad_pli": [1.0, 1.0, 0.99, 0.99],
+        "gnomad_mis_z": [3.1, 3.1, 2.7, 2.7],
+        "dms_score_median": [0.5, 0.4, 0.3, 0.2],
+        "label": [1, 0, 1, 0],
+    })
+
+
+def test_every_advertised_ablation_group_removes_something():
+    """A group name the CLI accepts must map to real columns.
+
+    A group that silently matches nothing would report an "ablation" identical
+    to the full model, and the table row would be a lie rather than an error.
+    """
+    df = _ablation_fixture()
+    full = prior_columns_of(df)
+    for group in ABLATABLE_PRIOR_GROUPS:
+        kept = prior_columns_of(df, drop_groups=[group],
+                                allow_proxy_leak=True)
+        assert len(kept) < len(full), f"group {group!r} dropped no columns"
+        assert set(kept) < set(full), f"group {group!r} invented columns"
+
+
+def test_ablation_groups_partition_the_prior_columns():
+    """Dropping every group at once must leave nothing behind.
+
+    A prior column belonging to no group is invisible to the ablation table:
+    it can never be removed, so no row of Table 4 accounts for it.
+    """
+    df = _ablation_fixture()
+    kept = prior_columns_of(df, drop_groups=list(ABLATABLE_PRIOR_GROUPS),
+                            allow_proxy_leak=True)
+    assert kept == [], f"prior columns in no ablation group: {kept}"
+
+    # Checked against the constant as well as the fixture, so a prior column
+    # added later without an ablation group fails here rather than in review.
+    union = set().union(*PRIOR_FEATURE_GROUPS.values())
+    assert union == set(TRANSFER_PRIOR_COLS)
+
+
+def test_prior_scores_group_catches_prefix_families():
+    """zs_*, rank_* and the consensus column go with AlphaMissense.
+
+    They are derived from the same published predictors; removing only the
+    literal am_pathogenicity column would leave the score signal in place.
+    """
+    df = _ablation_fixture()
+    kept = prior_columns_of(df, drop_groups=["prior_scores"])
+    assert "am_pathogenicity" not in kept
+    assert not [c for c in kept if c.startswith(("zs_", "rank_"))]
+    assert "consensus_rank" not in kept
+    # The other families survive untouched.
+    assert {"af_plddt", "in_domain", "gnomad_log10_af"} <= set(kept)
+
+
+def test_dropping_gnomad_while_keeping_prior_scores_is_refused():
+    """The proxy guard, which is the point of the whole mechanism.
+
+    AlphaMissense and the zero-shot models were trained on population data, so
+    a "without gnomAD" arm that keeps them has not removed population
+    information -- it has only removed the legible copy. The mistake shows up
+    in no metric, so it is refused in code.
+    """
+    df = _ablation_fixture()
+    with pytest.raises(ValueError, match="proxy"):
+        prior_columns_of(df, drop_groups=["gnomad"])
+
+    # Dropping the proxy alongside it is the valid form of the experiment.
+    kept = prior_columns_of(df, drop_groups=["gnomad", "prior_scores"])
+    assert not (set(PRIOR_FEATURE_GROUPS["gnomad"]) & set(kept))
+    assert "am_pathogenicity" not in kept
+    assert "af_plddt" in kept
+
+    # And the escape hatch works, for the comparison where the proxy is the
+    # subject rather than a contaminant.
+    leaky = prior_columns_of(df, drop_groups=["gnomad"], allow_proxy_leak=True)
+    assert "am_pathogenicity" in leaky
+    assert "gnomad_log10_af" not in leaky
+
+
+def test_unknown_ablation_group_is_an_error():
+    """A typo must fail loudly, not quietly ablate nothing."""
+    with pytest.raises(ValueError, match="Unknown prior feature group"):
+        drop_prior_groups(["am_pathogenicity"], ["structrue"])
+
+
+def test_ablation_preserves_column_order_and_ignores_non_priors():
+    """Order matters: the checkpoint schema check compares column order."""
+    df = _ablation_fixture()
+    full = prior_columns_of(df)
+    kept = prior_columns_of(df, drop_groups=["structure"])
+    assert kept == [c for c in full if c not in ("af_plddt", "af_disordered")]
+    assert "dms_score_median" not in kept
+    assert "label" not in kept
 
 
 def test_within_gene_rank_features_use_no_labels():

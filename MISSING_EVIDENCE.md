@@ -91,7 +91,7 @@ manuscript's §2.1 discrepancy note must stay.
 
 ---
 
-## 3. Feature-group ablations 4–7 not run
+## 3. Feature-group ablations 4–7 not run — MECHANISM ADDED, RUNS OUTSTANDING
 
 **Manuscript location.** §3.6 Table 4 rows 4–7; §4 (the paragraph on what priors contribute).
 
@@ -99,16 +99,54 @@ manuscript's §2.1 discrepancy note must stay.
 individual feature family, so the paper cannot say which of the 27 prior columns carry the
 +0.031 AUROC.
 
-**Required.** A source/feature inclusion switch at the prior-block level. `src/transfer.py`
-defines the prior column groups (`TRANSFER_PRIOR_COLS`, `GENE_CONSTANT_PRIOR_COLS`,
-`AF_DERIVED_PRIOR_COLS`), but `scripts/finetune_esm_mmr.py` exposes no flag to drop a named
-group. **A CLI flag must be added before these ablations can run** — for example
-`--drop_prior_groups structure,gnomad,domains,prior_scores`.
+**Mechanism — done 2026-09-04.** `src/transfer.py` now names four feature families in
+`PRIOR_FEATURE_GROUPS` (`structure`, `gnomad`, `domains`, `prior_scores`) and
+`scripts/finetune_esm_mmr.py` exposes `--drop_prior_groups`. The groups partition
+`TRANSFER_PRIOR_COLS` exactly — asserted in `tests/test_mmr_modules.py`, so a prior column
+added later without a group fails a test rather than going silently unablatable. The
+`prior_scores` group takes the `zs_*`, `rank_*` and `consensus_rank` families with
+AlphaMissense. Each run's summary JSON records `drop_prior_groups`, `allow_proxy_leak` and
+the resolved `prior_columns` list, so "27 prior columns" in the paper is checkable against
+the artifact rather than asserted.
 
-**Design requirement, not optional.** Each ablation must remove derived proxies as well as the
-named group. In particular ablation 5 ("without gnomAD") is invalid while AlphaMissense
-remains in the feature set, because AlphaMissense was trained on population data and carries
-that signal. State in the table which proxies were removed with each group.
+**Design requirement, enforced in code.** Each ablation must remove derived proxies as well
+as the named group. Ablation 5 ("without gnomAD") is invalid while AlphaMissense remains in
+the feature set, because AlphaMissense was trained on population data and carries that
+signal — so `--drop_prior_groups gnomad` alone now *raises*, naming the surviving proxy
+columns. `--allow_proxy_leak` overrides it for the case where the proxy is itself the subject
+of the comparison; it is recorded in the summary and must be stated in the table.
+
+**Commands.** One run per row, on the build machine, against the dataset SHA-256 above. The
+comparator is the grid cell `esmpri_concat_frozen_pllr-residual_seed42`, so every flag below
+matches it and only the feature set moves — `scripts/finetune_esm_mmr.py` defaults to the 35M
+checkpoint and `wt_site`, which would not be comparable:
+
+```bash
+common=(--mode siamese --esm_model facebook/esm2_t33_650M_UR50D
+        --eval lopo --branch esm+priors --fusion concat --pllr_mode residual
+        --n_unfrozen_layers 0 --seed 42
+        --batch_size 1 --grad_accum 8 --gradient_checkpointing
+        --n_bootstrap 10000 --no-save_checkpoints
+        --out_dir data/processed/stage2b_grid)
+
+# Rows 4 and 6: structure, then domains.
+for g in structure domains; do
+  python scripts/finetune_esm_mmr.py "${common[@]}" \
+    --drop_prior_groups $g --cell_slug ablate_$g
+done
+
+# Row 5 ("without gnomAD") must drop the proxy with it; gnomad alone raises.
+python scripts/finetune_esm_mmr.py "${common[@]}" \
+  --drop_prior_groups gnomad prior_scores --cell_slug ablate_gnomad_and_scores
+
+# Row 7 (AlphaMissense circularity — the test §4 "Residual circularity" calls for).
+python scripts/finetune_esm_mmr.py "${common[@]}" \
+  --drop_prior_groups prior_scores --cell_slug ablate_prior_scores
+```
+**Check.** `prior_columns` in each summary JSON is the full list minus exactly the dropped
+group, `allow_proxy_leak` is `false` in all four, and the Table 4 row states which proxies
+went with each group. Row 5 removes both families at once, so it bounds the two together —
+it is not a gnomAD-only effect, and the text must not read as though it were.
 
 ---
 

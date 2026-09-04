@@ -197,13 +197,95 @@ def add_within_gene_rank_features(
     return out
 
 
+#: Named feature families for source-ablation experiments. Values list the
+#: *literal* columns in the group; ``prior_scores`` additionally captures every
+#: ``zs_*``/``rank_*`` column and :data:`CONSENSUS_COL` by prefix.
+PRIOR_FEATURE_GROUPS: Dict[str, Tuple[str, ...]] = {
+    "structure": ("af_plddt", "af_disordered"),
+    "gnomad": AF_DERIVED_PRIOR_COLS + GENE_CONSTANT_PRIOR_COLS,
+    "domains": ("in_domain", "in_interpro_domain", "is_functional_site"),
+    "prior_scores": ("am_pathogenicity",),
+}
+
+#: Groups that carry a *proxy* for another group, and so must be removed with
+#: it for the ablation to mean anything.
+#:
+#: AlphaMissense and the zero-shot models were trained on population and
+#: clinical data. Dropping the gnomAD columns while leaving them in the feature
+#: set does not remove population information from the model -- it only removes
+#: the most legible copy of it, and the resulting "without gnomAD" number
+#: measures nothing. Encoded here rather than left to the experimenter, because
+#: the mistake is invisible in every metric.
+PRIOR_GROUP_PROXIES: Dict[str, Tuple[str, ...]] = {
+    "gnomad": ("prior_scores",),
+}
+
+#: Ablation group names accepted on the command line.
+ABLATABLE_PRIOR_GROUPS: Tuple[str, ...] = tuple(sorted(PRIOR_FEATURE_GROUPS))
+
+
+def _group_members(group: str, cols: Sequence[str]) -> List[str]:
+    """Columns of *cols* belonging to *group*, prefix families included."""
+    literal = set(PRIOR_FEATURE_GROUPS[group])
+    out = [c for c in cols if c in literal]
+    if group == "prior_scores":
+        out += [c for c in cols
+                if c.startswith(ZS_PREFIX) or c.startswith(RANK_PREFIX)
+                or c == CONSENSUS_COL]
+    return sorted(set(out), key=list(cols).index)
+
+
+def drop_prior_groups(cols: Sequence[str], groups: Sequence[str],
+                      allow_proxy_leak: bool = False) -> List[str]:
+    """Remove whole feature families from a prior column list.
+
+    Raises when a dropped group still has a proxy present in the surviving
+    columns (see :data:`PRIOR_GROUP_PROXIES`) — an ablation that leaves a proxy
+    behind reports a number that cannot be interpreted. *allow_proxy_leak*
+    overrides this for the deliberate case where the proxy itself is the
+    subject of the comparison; it should be recorded in the run summary
+    whenever it is used.
+    """
+    unknown = sorted(set(groups) - set(PRIOR_FEATURE_GROUPS))
+    if unknown:
+        raise ValueError(
+            f"Unknown prior feature group(s) {unknown}. "
+            f"Known groups: {', '.join(ABLATABLE_PRIOR_GROUPS)}.")
+
+    removed = set()
+    for g in groups:
+        removed |= set(_group_members(g, cols))
+    kept = [c for c in cols if c not in removed]
+
+    if not allow_proxy_leak:
+        for g in groups:
+            for proxy in PRIOR_GROUP_PROXIES.get(g, ()):
+                if proxy in groups:
+                    continue
+                survivors = _group_members(proxy, kept)
+                if survivors:
+                    raise ValueError(
+                        f"Ablation of '{g}' leaves its proxy group '{proxy}' in "
+                        f"the feature set ({survivors[:4]}{'...' if len(survivors) > 4 else ''}). "
+                        f"Those columns were trained on the same information, so "
+                        f"the ablation would not measure what it claims. Drop "
+                        f"'{proxy}' as well, or pass allow_proxy_leak=True and "
+                        f"say so in the write-up.")
+    return kept
+
+
 def prior_columns_of(df: pd.DataFrame,
-                     drop_gene_constant: bool = False) -> List[str]:
+                     drop_gene_constant: bool = False,
+                     drop_groups: Sequence[str] = (),
+                     allow_proxy_leak: bool = False) -> List[str]:
     """All leakage-safe prior columns present in *df*.
 
     *drop_gene_constant* removes :data:`GENE_CONSTANT_PRIOR_COLS` — set it for
     any cross-gene (leave-one-gene-out) evaluation, where those columns encode
     gene identity rather than variant evidence.
+
+    *drop_groups* removes whole feature families by name for source-ablation
+    experiments; see :func:`drop_prior_groups`.
     """
     cols = [c for c in df.columns
             if c in TRANSFER_PRIOR_COLS
@@ -212,6 +294,9 @@ def prior_columns_of(df: pd.DataFrame,
             or c == CONSENSUS_COL]
     if drop_gene_constant:
         cols = [c for c in cols if c not in GENE_CONSTANT_PRIOR_COLS]
+    if drop_groups:
+        cols = drop_prior_groups(cols, drop_groups,
+                                 allow_proxy_leak=allow_proxy_leak)
     return cols
 
 
@@ -724,6 +809,8 @@ __all__ = [
     "add_within_gene_rank_features",
     "MMR_GENES", "TRANSFER_PRIOR_COLS", "AF_DERIVED_PRIOR_COLS",
     "assert_af_quarantine",
+    "PRIOR_FEATURE_GROUPS", "PRIOR_GROUP_PROXIES", "ABLATABLE_PRIOR_GROUPS",
+    "drop_prior_groups",
     "TransferConfig", "FeatureBundle",
     "prior_columns_of", "prior_matrix", "prior_impute_values",
     "esm_branch_matrix", "align_rows",

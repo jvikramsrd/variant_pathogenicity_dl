@@ -462,6 +462,16 @@ measured on both sides of the comparison (§4.5 regenerates the comparator on th
 same table); minting *labels* from allele frequency is a supervision change and
 triggers the quarantine in §7.
 
+**Feature-family ablations** — which of the 27 prior columns carry the gain — are
+four separate runs, not grid cells. `scripts/finetune_esm_mmr.py` takes
+`--drop_prior_groups {structure,gnomad,domains,prior_scores}` for them. The
+exact commands, pinned to the `esmpri_concat_frozen_pllr-residual_seed42` cell
+so only the feature set moves, are in `MISSING_EVIDENCE.md` item 3. Run them
+after the grid, on the same dataset build. Note that `--drop_prior_groups
+gnomad` on its own *raises*: AlphaMissense and the zero-shot scores were trained
+on population data, so an arm that keeps them has not removed population
+information. Drop `prior_scores` with it, and say so in the table.
+
 **CPU-only experiments** — leave-one-protein-out on the 80-gene panel, seed
 averaging, the temporal ClinVar holdout — run on the dev box and consume none of
 this budget.

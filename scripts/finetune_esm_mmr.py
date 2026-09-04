@@ -56,6 +56,7 @@ from src.esm_finetune import (  # noqa: E402
 from src.eval_utils import bootstrap_ci, optimal_threshold_by_mcc  # noqa: E402
 from src.finetune_grid import GridCell, output_tag  # noqa: E402
 from src.transfer import (  # noqa: E402
+    ABLATABLE_PRIOR_GROUPS,
     assert_af_quarantine,
     prior_columns_of,
     prior_impute_values,
@@ -113,6 +114,26 @@ def parse_args(argv=None) -> argparse.Namespace:
                         "columns out of the feature set -- labelling and "
                         "featuring on frequency at once makes acmg_bs1 equal "
                         "the label by construction.")
+    p.add_argument("--drop_prior_groups", nargs="*", default=[],
+                   choices=list(ABLATABLE_PRIOR_GROUPS),
+                   help="Feature-family ablation: remove whole prior groups "
+                        "from the feature set. 'structure' = AlphaFold pLDDT "
+                        "and disorder; 'gnomad' = allele frequency, the ACMG "
+                        "frequency flags and gene constraint; 'domains' = "
+                        "UniProt domain, InterPro domain and functional site; "
+                        "'prior_scores' = AlphaMissense plus every zero-shot "
+                        "and rank column. Dropping a group whose information "
+                        "survives elsewhere is refused -- see "
+                        "--allow_proxy_leak.")
+    p.add_argument("--allow_proxy_leak", action="store_true",
+                   help="Permit an ablation that leaves a proxy for the "
+                        "dropped group in the feature set. Dropping 'gnomad' "
+                        "while keeping 'prior_scores' is refused by default: "
+                        "AlphaMissense and the zero-shot models were trained "
+                        "on population data, so the result would not measure "
+                        "the absence of population information. Use only when "
+                        "the proxy is itself the subject of the comparison, "
+                        "and say so in the write-up.")
     p.add_argument("--cell_slug", type=str, default=None,
                    help="Tag for this cell's output files. Defaults to a slug "
                         "derived from the configuration.")
@@ -202,7 +223,9 @@ class PriorInputs:
 
 def build_prior_inputs(ft_df: pd.DataFrame, ho_df: pd.DataFrame,
                        tr_idx, va_idx, *, drop_gene_constant: bool,
-                       af_labels_active: bool) -> PriorInputs:
+                       af_labels_active: bool,
+                       drop_groups: tuple = (),
+                       allow_proxy_leak: bool = False) -> PriorInputs:
     """Prior features for the fine-tune, inner-val and holdout partitions.
 
     Imputation medians and standardisation constants are fitted on the
@@ -217,7 +240,9 @@ def build_prior_inputs(ft_df: pd.DataFrame, ho_df: pd.DataFrame,
     2026-08-28 records MLH1 collapsing to ROC-AUC 0.500 in every seed with
     them kept.
     """
-    columns = prior_columns_of(ft_df, drop_gene_constant=drop_gene_constant)
+    columns = prior_columns_of(ft_df, drop_gene_constant=drop_gene_constant,
+                              drop_groups=drop_groups,
+                              allow_proxy_leak=allow_proxy_leak)
     assert_af_quarantine(columns, af_labels_active)
     if not columns:
         raise ValueError("no prior columns found in the fine-tune table")
@@ -266,9 +291,12 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
         priors = build_prior_inputs(
             ft_df, ho_df, tr_local, va_local,
             drop_gene_constant=(args.eval == "lopo"),
-            af_labels_active=args.af_labels_active)
-        logger.info("Prior branch: %d columns (gene-constant dropped=%s)",
-                    len(priors.columns), args.eval == "lopo")
+            af_labels_active=args.af_labels_active,
+            drop_groups=tuple(args.drop_prior_groups),
+            allow_proxy_leak=args.allow_proxy_leak)
+        logger.info("Prior branch: %d columns (gene-constant dropped=%s, "
+                    "groups dropped=%s)", len(priors.columns),
+                    args.eval == "lopo", list(args.drop_prior_groups) or "none")
 
     pllr_mode = args.pllr_mode if args.use_pllr else "off"
     model = ESMFineTuneClassifier(
@@ -363,6 +391,7 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
         "branch": args.branch, "fusion": args.fusion, "pllr_mode": pllr_mode,
         "cell_slug": args.cell_slug,
         "n_prior_features": 0 if priors is None else priors.train.shape[1],
+        "_prior_columns": [] if priors is None else list(priors.columns),
         "seed": args.seed,
         "_predictions": predictions,
         "_val_predictions": val_predictions,
@@ -458,6 +487,11 @@ def main() -> int:
                              ignore_index=True) if rows else pd.DataFrame())
     val_predictions = (pd.concat([r.pop("_val_predictions") for r in rows],
                                  ignore_index=True) if rows else pd.DataFrame())
+    # Captured then removed: the resolved feature schema belongs in the run
+    # summary, not as a list-valued column in every row of the results CSV.
+    prior_columns = rows[0].get("_prior_columns", []) if rows else []
+    for r in rows:
+        r.pop("_prior_columns", None)
     results = pd.DataFrame(rows)
     args.out_dir.mkdir(parents=True, exist_ok=True)
     # Every filename carries the cell slug: a grid sweep writes a dozen of
@@ -477,6 +511,11 @@ def main() -> int:
         "cell": args.cell_slug, "branch": args.branch, "fusion": args.fusion,
         "pllr_mode": args.pllr_mode if args.use_pllr else "off",
         "seed": args.seed, "af_labels_active": bool(args.af_labels_active),
+        "drop_prior_groups": list(args.drop_prior_groups),
+        "allow_proxy_leak": bool(args.allow_proxy_leak),
+        # The resolved feature schema, recorded rather than reconstructed:
+        # "27 prior columns" in a paper is not checkable, a column list is.
+        "prior_columns": prior_columns,
         "mode": args.mode, "esm_model": args.esm_model,
         "n_unfrozen_layers": args.n_unfrozen_layers,
         "splits_requested": splits, "splits_evaluated": evaluated,
