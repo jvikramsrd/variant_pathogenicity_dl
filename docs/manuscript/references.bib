@@ -1,0 +1,113 @@
+% ====================================================================
+% References for docs/manuscript/main.tex
+%
+% RULE FOR THIS FILE: every field below is either (a) verified from a build
+% manifest or repository artifact, or (b) marked TODO. Author lists, titles,
+% years, journals, volumes and DOIs are NOT filled in from memory. Each of
+% these resources has a well-known primary publication; complete each entry
+% from the publisher record before submission. A citation recalled slightly
+% wrong is indistinguishable from a fabricated one to a reviewer.
+%
+% Verified fields carry the URL, version string and checksum recorded in
+% data/mmr/processed/extended/manifest.json.
+% ====================================================================
+
+@misc{clinvar,
+  title        = {{TODO: ClinVar resource publication title}},
+  author       = {{TODO: author list}},
+  year         = {{TODO}},
+  journal      = {{TODO: Nucleic Acids Research (verify)}},
+  doi          = {{TODO}},
+  howpublished = {\url{https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz}},
+  note         = {Archive file SHA-256 186ad2838a138f0bc7a79b1b7b6dde5533b105175d293e1131652889529804c9 as recorded in the build manifest. TODO: record the release date of the snapshot used; ClinVar is updated weekly.}
+}
+
+@misc{proteingym,
+  title        = {{TODO: ProteinGym publication title}},
+  author       = {{TODO: author list}},
+  year         = {{TODO}},
+  doi          = {{TODO}},
+  howpublished = {\url{https://marks.hms.harvard.edu/proteingym/ProteinGym_v1.3}},
+  note         = {Version 1.3. Zenodo record 15293562. DMS\_ProteinGym\_substitutions.zip SHA-256 3a83766254ac9ac9984ec25cb73c6e010ea4418f5e35f143933e6b6e6473b921.}
+}
+
+@misc{alphamissense,
+  title        = {{TODO: AlphaMissense publication title}},
+  author       = {{TODO: author list}},
+  year         = {{TODO}},
+  journal      = {{TODO: Science (verify)}},
+  doi          = {{TODO}},
+  howpublished = {\url{https://storage.googleapis.com/dm_alphamissense/AlphaMissense_aa_substitutions.tsv.gz}},
+  note         = {Version 1.0, 2023-09-18 release. Licence CC BY-NC-SA 4.0.}
+}
+
+@misc{gnomad,
+  title        = {{TODO: gnomAD v4 publication title}},
+  author       = {{TODO: author list}},
+  year         = {{TODO}},
+  doi          = {{TODO}},
+  howpublished = {\url{https://gnomad.broadinstitute.org/api}},
+  note         = {Dataset identifier gnomad\_r4, accessed via the public GraphQL API.}
+}
+
+@misc{uniprot,
+  title        = {{TODO: UniProt database publication title}},
+  author       = {{TODO: UniProt Consortium}},
+  year         = {{TODO}},
+  journal      = {{TODO: Nucleic Acids Research (verify)}},
+  doi          = {{TODO}},
+  howpublished = {\url{https://rest.uniprot.org/uniprotkb/}},
+  note         = {Canonical sequences for P40692, P43246, P52701, P54278 are the coordinate authority for this work.}
+}
+
+@misc{alphafold,
+  title        = {{TODO: AlphaFold and/or AlphaFold DB publication title(s) --- these are separate papers; cite both if both are used}},
+  author       = {{TODO: author list}},
+  year         = {{TODO}},
+  doi          = {{TODO}},
+  howpublished = {\url{https://alphafold.ebi.ac.uk/api}},
+  note         = {Licence CC-BY-4.0. Per-residue pLDDT for 3912 residues across 4 accessions.}
+}
+
+@misc{interpro,
+  title        = {{TODO: InterPro publication title}},
+  author       = {{TODO: author list}},
+  year         = {{TODO}},
+  doi          = {{TODO}},
+  howpublished = {\url{https://www.ebi.ac.uk/interpro/api}},
+  note         = {Licence CC0. 123 domain/family intervals on the panel.}
+}
+
+@misc{esm2,
+  title        = {{TODO: ESM-2 publication title}},
+  author       = {{TODO: author list}},
+  year         = {{TODO}},
+  doi          = {{TODO}},
+  howpublished = {\url{https://huggingface.co/facebook/esm2_t33_650M_UR50D}},
+  note         = {Checkpoint facebook/esm2\_t33\_650M\_UR50D, 650M parameters, used for all fine-tuning results.}
+}
+
+@misc{acmg,
+  title        = {{TODO: ACMG/AMP standards and guidelines for the interpretation of sequence variants --- verify exact title}},
+  author       = {{TODO: author list}},
+  year         = {{TODO}},
+  journal      = {{TODO: Genetics in Medicine (verify)}},
+  doi          = {{TODO}},
+  note         = {Cited for the BS1/PM2 allele-frequency criteria motivating the frequency-feature quarantine in Section 2.3.}
+}
+
+@misc{mane,
+  title        = {{TODO: MANE resource publication title}},
+  author       = {{TODO: author list}},
+  year         = {{TODO}},
+  doi          = {{TODO}},
+  note         = {MANE Select transcript ENST00000265849 used to derive the PMS2 pseudogene homology range, codons 382--862.}
+}
+
+@misc{mavedb,
+  title        = {{TODO: MaveDB publication title}},
+  author       = {{TODO: author list}},
+  year         = {{TODO}},
+  doi          = {{TODO}},
+  note         = {TODO: cite only if MaveDB contributed rows to the build reported here. The manifest records no MaveDB source block, so it appears not to have been enabled --- confirm before citing.}
+}
