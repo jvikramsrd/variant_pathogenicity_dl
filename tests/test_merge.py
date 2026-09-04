@@ -16,7 +16,9 @@ Run:  python tests/test_merge.py   (or pytest tests/test_merge.py)
 
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +30,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 from src.extended_builder import (  # noqa: E402
     BuildStats,
     assemble_master,
+    refresh_manifest,
     validate_master_for_export,
 )
 
@@ -351,6 +354,82 @@ def test_provenance_records_every_contributing_source():
     tokens = set(str(row["sources"]).split("|"))
     assert {"clinvar", "alphamissense", "zeroshot_models", "domains"} <= tokens
     assert row["n_sources"] == len([t for t in tokens if t])
+
+
+# --------------------------------------------------------------------------- #
+# Manifest refresh
+#
+# build_extended_dataset writes manifest.json immediately after the CSV, but
+# build_mmr_dataset.py then joins gnomAD and rewrites the CSV. Before the
+# refresh existed, the manifest recorded include_gnomad=false and the digest of
+# a file that no longer existed -- a provenance record that actively misleads.
+# --------------------------------------------------------------------------- #
+def _seed_manifest(tmp: Path) -> Path:
+    (tmp / "extended_dataset.csv").write_text("a,b\n1,2\n")
+    (tmp / "manifest.json").write_text(json.dumps({
+        "built_at_utc": "2026-01-01T00:00:00+00:00",
+        "parameters": {"genes": ["MLH1"], "include_gnomad": False, "min_stars": 2},
+        "sources": {"clinvar": {"url": "https://example/clinvar"}},
+        "stats": {"master_rows": 1, "gnomad_rows_panel": 0},
+        "artefacts": {"extended_dataset.csv": {"sha256": "stale", "bytes": 0}},
+    }, indent=2))
+    return tmp / "manifest.json"
+
+
+def test_refresh_manifest_recomputes_stale_checksums():
+    from src.external_datasets import sha256_of
+
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        path = _seed_manifest(tmp)
+        # The table changes after the manifest was written, as the gnomAD join
+        # does; the recorded digest must follow the file, not the other way.
+        (tmp / "extended_dataset.csv").write_text("a,b,gnomad_af_joint\n1,2,0.5\n")
+        out = refresh_manifest(tmp)
+        rec = out["artefacts"]["extended_dataset.csv"]
+        assert rec["sha256"] != "stale"
+        assert rec["sha256"] == sha256_of(tmp / "extended_dataset.csv")
+        assert rec["bytes"] == (tmp / "extended_dataset.csv").stat().st_size
+        assert json.loads(path.read_text())["artefacts"] == out["artefacts"]
+
+
+def test_refresh_manifest_merges_updates_one_level_deep():
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        _seed_manifest(tmp)
+        out = refresh_manifest(tmp, updates={
+            "parameters": {"include_gnomad": True},
+            "stats": {"gnomad_rows_panel": 4321},
+        })
+        # Corrected...
+        assert out["parameters"]["include_gnomad"] is True
+        assert out["stats"]["gnomad_rows_panel"] == 4321
+        # ...without discarding sibling keys the caller did not mention.
+        assert out["parameters"]["min_stars"] == 2
+        assert out["parameters"]["genes"] == ["MLH1"]
+        assert out["stats"]["master_rows"] == 1
+        assert out["sources"]["clinvar"]["url"] == "https://example/clinvar"
+
+
+def test_refresh_manifest_marks_the_second_write():
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        _seed_manifest(tmp)
+        out = refresh_manifest(tmp)
+        # The two-phase build must stay visible, not look like one atomic write.
+        assert out["built_at_utc"] == "2026-01-01T00:00:00+00:00"
+        assert "refreshed_at_utc" in out
+
+
+def test_refresh_manifest_requires_an_existing_manifest():
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        try:
+            refresh_manifest(Path(d))
+        except FileNotFoundError:
+            return
+        raise AssertionError("refreshing a directory with no manifest must raise")
 
 
 if __name__ == "__main__":
