@@ -88,11 +88,13 @@ Counts are taken from `manifest.json → stats` for the build dated 2026-09-03T1
 | MaveDB | Functional assay | `[TODO]` | `[TODO — likely 0, not enabled]` | — | — | — |
 | CIMRA / OddsPath | Calibrated evidence | `[TODO]` | `[TODO — likely 0, not enabled]` | — | — | — |
 
-**Discrepancy to resolve before submission.** The manifest for the build reported here records `parameters.include_gnomad: false` and `sources.gnomad.enabled: false` with `gnomad_rows_panel: 0`, yet the table it accompanies carries a joint allele frequency for 6,492 variants and gene-level constraint for all 74,328. The recorded artefact checksum is also stale: the manifest names `extended_dataset.csv` at SHA-256 `63fd5288…` and 37,862,375 bytes, while the file is `c2731292…` at 48,450,632 bytes.
+**A provenance defect found and corrected during preparation of this manuscript.** As originally written, the MMR manifest described the table as it existed *before* gnomAD was joined. It recorded `parameters.include_gnomad: false` with `gnomad_rows_panel: 0`, and — more seriously — an artefact checksum of `63fd5288…` at 37,862,375 bytes for a file that was by then `78eb5d60…` at 48,522,869 bytes.
 
-The cause is a pipeline ordering issue. `src/extended_builder.py` writes the manifest immediately after writing the table; `scripts/build_mmr_dataset.py` then reads that table back, joins gnomAD in its stages 3 and 4, and rewrites the file without re-stamping the manifest. The data are correct; the provenance record describes the pre-join table.
+The cause was pipeline ordering. `src/extended_builder.py` writes the manifest immediately after writing the table; `scripts/build_mmr_dataset.py` then reads that table back, joins gnomAD allele frequencies and gene constraint in its stages 3 and 4, and rewrites the file. The manifest was not re-stamped. The data were correct throughout; the provenance record was not.
 
-This is fixed in the code (`extended_builder.refresh_manifest`, called after the final write, with `scripts/repair_manifest.py` to correct manifests from earlier builds in place). The manifests accompanying the results reported here have **not yet been repaired**, so the discrepancy above still holds for the artifacts as archived. `[TODO: run scripts/repair_manifest.py on data/mmr/processed/extended and data/processed/extended, then update the checksum recorded in Section 6.]`
+We record this because a checksum that does not match the file it names is worse than no checksum: it invites a reader to trust it. The builder now re-stamps the manifest after any post-hoc modification (`extended_builder.refresh_manifest`), and `scripts/repair_manifest.py` corrects manifests from earlier builds in place by measuring the table rather than trusting the recorded flags. The manifest accompanying the results reported here has been repaired, and its recorded digest for `extended_dataset.csv` now matches both the file on disk and the independent pre-run capture in `data/processed/stage2b_grid/dataset_sha256.txt` (`78eb5d60860cc08eadb6faa0c0d7fbd22adbe6f277bb95e97a3a680264b4430d`).
+
+The broad 79-gene panel was unaffected: its manifest is written by `extended_builder` alone with no subsequent modification of the table, and its checksums verified against disk without change.
 
 ## 2.2 Variant normalisation and master-table assembly
 

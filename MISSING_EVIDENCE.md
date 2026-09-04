@@ -31,7 +31,24 @@ python scripts/run_mmr_transfer.py --scratch --features priors --eval lopo \
 
 ---
 
-## 2. Manifest does not describe the table it accompanies — CODE FIXED, REPAIR RUN OUTSTANDING
+## 2. Manifest does not describe the table it accompanies — RESOLVED
+
+**Resolved 2026-09-04.** Code fixed on `main` (`34c5505`); `scripts/repair_manifest.py` has
+been run on both panels on the build machine. The MMR manifest now records
+`extended_dataset.csv` at `78eb5d60860cc08eadb6faa0c0d7fbd22adbe6f277bb95e97a3a680264b4430d`,
+matching both the file on disk and the independent pre-run capture in
+`data/processed/stage2b_grid/dataset_sha256.txt`, and `parameters.include_gnomad` was
+corrected `false → true` by measuring the table. The broad panel reported
+"all recorded artefact checksums already match disk" — expected, since it is built by
+`extended_builder` alone with no post-hoc modification, which confirms the defect was
+specific to the MMR two-phase path.
+
+**Still to do:** commit the two repaired `manifest.json` files (see below). The original
+problem description is kept for the record.
+
+---
+
+### Original finding
 
 **Manuscript location.** §2.1 (discrepancy note), Table 1.
 
