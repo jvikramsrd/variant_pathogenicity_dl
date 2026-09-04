@@ -10,10 +10,11 @@
     "min_stars": 2,
     "include_alphamissense": true,
     "include_zeroshot": true,
-    "include_gnomad": false,
+    "include_gnomad": true,
     "include_structure": true,
     "include_interpro": true,
-    "include_functional_sites": true
+    "include_functional_sites": true,
+    "include_gnomad_constraint": true
   },
   "sources": {
     "clinvar": {
@@ -120,8 +121,8 @@
       "bytes": 1485160
     },
     "extended_dataset.csv": {
-      "sha256": "63fd528831cdd0ceea43147595e16d9dd1642b9209800602030824bdaabc66ba",
-      "bytes": 37862375
+      "sha256": "78eb5d60860cc08eadb6faa0c0d7fbd22adbe6f277bb95e97a3a680264b4430d",
+      "bytes": 48522869
     },
     "interpro_intervals.csv": {
       "sha256": "24e61d233031520f2269b99c88296f62bb08531c7b050c676a47e212ac094e54",
@@ -176,7 +177,12 @@
     "gnomad_rows_panel": 0,
     "gnomad_genes_fetched": [],
     "gnomad_genes_failed": [],
-    "gnomad_constraint_genes_fetched": [],
+    "gnomad_constraint_genes_fetched": [
+      "MLH1",
+      "MSH2",
+      "MSH6",
+      "PMS2"
+    ],
     "gnomad_constraint_genes_failed": [],
     "alphafold_residues_with_plddt": 3912,
     "alphafold_accessions_covered": 4,
@@ -207,6 +213,9 @@
     "dms_conflicting_keys": 0,
     "master_dropped_synonymous": 0,
     "master_dropped_incomplete_key": 0,
-    "master_gene_relabelled": 0
-  }
+    "master_gene_relabelled": 0,
+    "gnomad_rows_joined": 6492,
+    "gnomad_constraint_rows": 74328
+  },
+  "refreshed_at_utc": "2026-09-04T16:04:35.105387+00:00"
 }

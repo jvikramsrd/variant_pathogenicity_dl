@@ -88,7 +88,8 @@
     "include_gnomad": true,
     "include_structure": true,
     "include_interpro": true,
-    "include_functional_sites": true
+    "include_functional_sites": true,
+    "include_gnomad_constraint": true
   },
   "sources": {
     "clinvar": {
@@ -660,6 +661,10 @@
       "sha256": "e742777bcd2a58dd5cb4d475d4d20fae66623c6f9cb224c69adf42a508300bb4",
       "bytes": 549064040
     },
+    "extended_dataset_train.csv": {
+      "sha256": "c420bd8d57661a8665d1cacdc0ecffc8820ce7e68c4fc47ded5d551edf406d90",
+      "bytes": 39901723
+    },
     "gnomad_subset.csv": {
       "sha256": "0d589bc016f132816f1cfb4f1e53b8652c34d62749a7bcbf91d2d40a1d20259b",
       "bytes": 11903778
@@ -958,9 +963,7 @@
       "CALM1",
       "CARD11",
       "CASP7",
-      "CBS",
       "CBX4",
-      "CCR5",
       "CD19",
       "CPA2",
       "CYP2C9",
@@ -1060,6 +1063,9 @@
     "dms_conflicting_keys": 12491,
     "master_dropped_synonymous": 0,
     "master_dropped_incomplete_key": 0,
-    "master_gene_relabelled": 0
-  }
+    "master_gene_relabelled": 0,
+    "gnomad_rows_joined": 65542,
+    "gnomad_constraint_rows": 1093127
+  },
+  "refreshed_at_utc": "2026-09-04T16:04:40.966122+00:00"
 }
