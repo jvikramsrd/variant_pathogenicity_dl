@@ -164,7 +164,7 @@ For the broad 79-gene build, ClinVar and ProteinGym clinical overlap on 1,258 va
 
 **Seeds.** Seeds 42, 43 and 44 for the primary freeze-depth comparison; seed 42 elsewhere.
 
-**Tracking.** Each grid cell writes a results CSV, a per-variant predictions CSV and a summary JSON, all tagged with a deterministic cell slug. `[TODO: run summaries record hyperparameters but not dataset-manifest, feature-schema or split hashes, so two runs on different dataset builds are not distinguishable from their artifacts alone. See MISSING_EVIDENCE.md item 7.]`
+**Tracking.** Each grid cell writes a results CSV, a per-variant predictions CSV, an inner-validation predictions CSV and a summary JSON, all tagged with a deterministic cell slug. Every summary carries a provenance block (`src/provenance.py`): the SHA-256 of the table actually read, an order-independent hash of the resolved feature schema, a hash of the held-out key assignment, the git commit with a dirty flag, and the versions of `torch`, `transformers`, `scikit-learn`, `numpy` and `pandas`. Aggregation across cells is gated on the first and third of these — `assert_comparable` refuses to pool runs computed on different tables or different splits, and additionally requires an identical feature schema among seed replicates of one arm. Feature schemas are *expected* to differ between an ablation arm and its comparator, so that field is deliberately not part of the pooling gate. `[TODO: runs predating this block are annotated by scripts/backfill_provenance.py, which measures the dataset hash and split but reconstructs the feature schema and cannot recover run-time library versions; those fields are flagged in the artifact.]`
 
 ## 2.6 Evaluation protocol
 

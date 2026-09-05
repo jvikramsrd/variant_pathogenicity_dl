@@ -54,7 +54,8 @@ from src.esm_finetune import (  # noqa: E402
     save_finetuned,
 )
 from src.eval_utils import bootstrap_ci, optimal_threshold_by_mcc  # noqa: E402
-from src.finetune_grid import GridCell, output_tag  # noqa: E402
+from src.finetune_grid import GridCell, output_tag
+from src.provenance import provenance_record  # noqa: E402
 from src.transfer import (  # noqa: E402
     ABLATABLE_PRIOR_GROUPS,
     assert_af_quarantine,
@@ -506,6 +507,23 @@ def main() -> int:
     predictions.to_csv(predictions_path, index=False)
     val_predictions.to_csv(val_predictions_path, index=False)
     checkpoints = [r["checkpoint"] for r in rows if r.get("checkpoint")]
+
+    # Run identity, so two artifacts can be compared without re-running either.
+    # The feature schema covers the representation as well as the prior columns:
+    # an esm+priors cell and a priors-only cell reading the same 27 columns are
+    # not the same feature set, and a schema hash that called them equal would
+    # licence exactly the comparison it exists to police.
+    feature_columns = list(prior_columns) + [
+        f"esm::{args.esm_model}" if args.branch != "priors" else "esm::none",
+        f"pllr::{args.pllr_mode if args.use_pllr else 'off'}",
+        f"fusion::{args.fusion}",
+    ]
+    split_assignments = {
+        gene: (sub.uniprot_id.astype(str) + ":" + sub.position.astype(str)
+               + ":" + sub.wt_aa.astype(str) + ">" + sub.mut_aa.astype(str)).tolist()
+        for gene, sub in predictions.groupby("holdout_gene")
+    } if not predictions.empty else {}
+
     summary = {
         "built_at_utc": datetime.now(timezone.utc).isoformat(),
         "cell": args.cell_slug, "branch": args.branch, "fusion": args.fusion,
@@ -519,6 +537,8 @@ def main() -> int:
         # The resolved feature schema, recorded rather than reconstructed:
         # "27 prior columns" in a paper is not checkable, a column list is.
         "prior_columns": prior_columns,
+        "provenance": provenance_record(args.mmr_csv, feature_columns,
+                                        split_assignments),
         "mode": args.mode, "esm_model": args.esm_model,
         "n_unfrozen_layers": args.n_unfrozen_layers,
         "splits_requested": splits, "splits_evaluated": evaluated,

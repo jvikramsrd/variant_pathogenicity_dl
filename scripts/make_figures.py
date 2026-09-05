@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import argparse
 import glob
+import json
 import re
+import sys
 from pathlib import Path
 
 import matplotlib
@@ -25,6 +27,10 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from src.provenance import (REPLICATE_KEYS, IncomparableRuns,  # noqa: E402
+                            assert_comparable)
 GRID_DIR = ROOT / "data/processed/stage2b_grid"
 BASELINE_CSV = ROOT / "data/processed/mmr_transfer_scratch/mmr_transfer_results_lopo.csv"
 
@@ -261,13 +267,49 @@ def figure6(cells: pd.DataFrame, base: pd.DataFrame, out: Path) -> None:
     plt.close(fig)
 
 
+def check_provenance(strict: bool) -> None:
+    """Refuse to plot cells that were not computed on the same data and splits.
+
+    Pooling incomparable runs into one figure is the same error as pooling them
+    into one table, and a figure is the more persuasive of the two. Summaries
+    written before ``src/provenance.py`` carry no identity block; those are
+    reported and, unless ``strict``, tolerated -- run
+    ``scripts/backfill_provenance.py`` on the build machine to close that gap.
+    """
+    records, missing = {}, []
+    for f in sorted(GRID_DIR.glob("esm_finetune_summary_*.json")):
+        block = json.loads(f.read_text()).get("provenance")
+        slug = f.name[len("esm_finetune_summary_"):-len(".json")]
+        (records.setdefault(slug, block) if block else missing.append(slug))
+    if missing:
+        msg = (f"{len(missing)} of {len(missing) + len(records)} summaries carry "
+               f"no provenance block (e.g. {missing[0]}); comparability is "
+               f"assumed, not verified. Run scripts/backfill_provenance.py on "
+               f"the build machine.")
+        if strict:
+            raise SystemExit("provenance --strict: " + msg)
+        print(f"  WARNING: {msg}")
+    if len(records) > 1:
+        assert_comparable(records)                     # same table, same splits
+        by_arm: dict[str, dict] = {}
+        for slug, rec in records.items():
+            by_arm.setdefault(arm_of(slug), {})[slug] = rec
+        for arm, group in by_arm.items():
+            assert_comparable(group, keys=REPLICATE_KEYS)   # seeds of one arm
+        print(f"  provenance: {len(records)} cells comparable "
+              f"({len(by_arm)} arms)")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out_dir", type=Path, default=ROOT / "docs/figures")
+    ap.add_argument("--strict_provenance", action="store_true",
+                    help="Fail rather than warn when a cell has no identity block.")
     args = ap.parse_args()
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     style()
+    check_provenance(args.strict_provenance)
     cells, base = load_cells(), load_baseline()
     print(f"{cells.cell_slug.nunique()} cells + baseline; "
           f"{len(cells)} cell-gene rows")

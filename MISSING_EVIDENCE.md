@@ -189,24 +189,52 @@ needed**, not just a run.
 
 ---
 
-## 7. Run artifacts carry no dataset, feature-schema or split identity
+## 7. Run artifacts carry no dataset, feature-schema or split identity — MECHANISM DONE, BACKFILL OUTSTANDING
 
 **Manuscript location.** §2.5 (tracking), and implicitly every comparison in the paper.
 
-**Problem.** `esm_finetune_summary_*.json` records cell slug, branch, fusion, PLLR mode, seed,
-model name, freeze depth, split names, checkpoints and runtime — but no dataset-manifest hash,
-feature-schema hash, split hash, git commit, or library versions. Two runs on different
-dataset builds are therefore indistinguishable from their artifacts. Item 1 above is exactly
-this failure occurring in practice.
+**Problem.** `esm_finetune_summary_*.json` recorded cell slug, branch, fusion, PLLR mode, seed,
+model name, freeze depth, split names, checkpoints and runtime — but no dataset hash, feature
+schema, split hash, git commit or library versions. Two runs on different dataset builds were
+therefore indistinguishable from their artifacts. Item 1 is exactly this failure in practice:
+the priors-only baseline was withheld from the paper on a *suspicion* about which table it had
+read, and nothing in the artifact could settle it. Re-running settled it — the suspicion was
+wrong — but that is an expensive way to answer a question a hash answers for free.
 
-The current grid's identity survives only in two loose text files
-(`dataset_sha256.txt`, `git_commit.txt`) captured manually after the fact.
+**Mechanism — done 2026-09-05.** `src/provenance.py` provides `provenance_record()`, written
+into every new run summary: full dataset SHA-256, an order-independent feature-schema hash, a
+split hash taken over the held-out *keys* (not counts — two splits of equal size holding
+different variants are different splits), git commit with a dirty flag, and versions of
+`torch`, `transformers`, `scikit-learn`, `numpy`, `pandas`.
 
-**Required.** A `src/provenance.py` returning dataset SHA-256, sorted-feature-schema hash,
-split-definition hash, git commit and `torch`/`transformers`/`scikit-learn`/`numpy` versions;
-wired into the per-cell summary and the grid manifest; plus a comparability check that refuses
-to aggregate cells whose dataset or schema hashes disagree. A backfill script should annotate
-the existing 16 summaries, since the table that produced them is still on disk and hashable.
+`assert_comparable()` gates aggregation and is wired into `scripts/make_figures.py`, which
+pools cells into one picture and is therefore where an incomparable pool would do the most
+damage. Two gates, deliberately different:
+
+- **`COMPARABILITY_KEYS`** (dataset, split) — required to pool anything at all.
+- **`REPLICATE_KEYS`** (+ feature schema) — required among seeds of one arm.
+
+Feature schema is *not* in the pooling gate: an ablation arm differs from its comparator in
+exactly that field, and a gate that forbade it would forbid the ablation table. A run with no
+provenance block is reported as `<missing>` rather than treated as matching, because a
+pre-provenance artifact is precisely the case that needs flagging. 18 tests.
+
+**Outstanding — run on the build machine.** The 28 existing summaries predate the block.
+`scripts/backfill_provenance.py` annotates them from artifacts that still exist: it measures
+the dataset hash and reads each split from the run's own predictions CSV, reconstructs the
+feature schema (flagged `feature_schema_exact: false` where reconstructed rather than read
+from a recorded `prior_columns`), and records library versions as `null` rather than filling
+in today's, which would be a fabrication.
+
+```powershell
+.\.venv\Scripts\python.exe scripts\backfill_provenance.py data\processed\stage2b_grid --git_commit c84aa26 --dry-run
+.\.venv\Scripts\python.exe scripts\backfill_provenance.py data\processed\stage2b_grid --git_commit c84aa26
+```
+
+Then `python scripts/make_figures.py --strict_provenance` must pass on the dev box, which is
+the check that the whole set is comparable. Note the git commit differs by artifact age: the
+16 grid cells are `c84aa26`, the ablations `a4ed0bb`; run the script once per group if that
+distinction is worth preserving in the record.
 
 ---
 
