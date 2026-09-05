@@ -1,0 +1,45 @@
+{
+  "built_at_utc": "2026-09-05T11:46:52.039997+00:00",
+  "cell": "ablate_prior_scores",
+  "branch": "esm+priors",
+  "fusion": "concat",
+  "pllr_mode": "residual",
+  "seed": 42,
+  "af_labels_active": false,
+  "drop_prior_groups": [
+    "prior_scores"
+  ],
+  "allow_proxy_leak": false,
+  "prior_columns": [
+    "in_domain",
+    "af_plddt",
+    "af_disordered",
+    "in_interpro_domain",
+    "is_functional_site",
+    "gnomad_log10_af",
+    "acmg_ba1",
+    "acmg_bs1",
+    "acmg_pm2"
+  ],
+  "mode": "siamese",
+  "esm_model": "facebook/esm2_t33_650M_UR50D",
+  "n_unfrozen_layers": 0,
+  "splits_requested": [
+    "MLH1",
+    "MSH2",
+    "MSH6",
+    "PMS2"
+  ],
+  "splits_evaluated": [
+    "MLH1",
+    "MSH2",
+    "MSH6",
+    "PMS2"
+  ],
+  "splits_skipped_no_rows": [],
+  "results_csv": "data\\processed\\stage2b_grid\\esm_finetune_results_siamese_lopo_ablate_prior_scores.csv",
+  "predictions_csv": "data\\processed\\stage2b_grid\\esm_finetune_predictions_siamese_lopo_ablate_prior_scores.csv",
+  "val_predictions_csv": "data\\processed\\stage2b_grid\\esm_finetune_valpreds_siamese_lopo_ablate_prior_scores.csv",
+  "checkpoints": [],
+  "runtime_s": 662.5
+}
