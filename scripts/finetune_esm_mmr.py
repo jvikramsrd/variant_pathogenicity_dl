@@ -511,6 +511,9 @@ def main() -> int:
         "cell": args.cell_slug, "branch": args.branch, "fusion": args.fusion,
         "pllr_mode": args.pllr_mode if args.use_pllr else "off",
         "seed": args.seed, "af_labels_active": bool(args.af_labels_active),
+        # The paper's protocol section claims 10,000 resamples; without this
+        # field that claim is not checkable against the artifact.
+        "n_bootstrap": args.n_bootstrap,
         "drop_prior_groups": list(args.drop_prior_groups),
         "allow_proxy_leak": bool(args.allow_proxy_leak),
         # The resolved feature schema, recorded rather than reconstructed:

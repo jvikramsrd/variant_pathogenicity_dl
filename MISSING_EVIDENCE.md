@@ -9,25 +9,35 @@ Anything re-run for comparison must read that table, or the comparison is invali
 
 ---
 
-## 1. Priors-only baseline on the current dataset build — BLOCKS THE HEADLINE CLAIM
+## 1. Priors-only baseline on the current dataset build — RESOLVED
 
-**Manuscript location.** §3.3 Table 3 (last row), §3.6 Table 4 item 1, §5.
+**Resolved 2026-09-05.** Re-run on the build machine against the pinned table
+(`78EB5D60…4B4430D`); the summary is now dated `2026-09-05T10:29:27Z` with
+`gene_constant_priors_dropped: true` and `n_bootstrap: 10000`. Mean AUROC 0.9507 over the
+three scoreable genes (MLH1 0.9651, MSH2 0.9078, MSH6 0.9791, PMS2 1.000), above every cell
+in the grid. Table 3, Table 4 row 1, §3.3, §4 and §5 now state the comparison.
 
-**Problem.** A curated-priors-only head was run under the same LOPO protocol and reached
-mean AUROC 0.951 over the three scoreable genes — higher than any ESM-2 cell in the grid.
-That run (`data/processed/mmr_transfer_scratch/mmr_transfer_summary_lopo.json`) is dated
-`2026-09-02T15:22:43Z` and used the **previous** dataset build, before gnomAD features were
-joined. The grid used the 2026-09-03 build. Comparing across dataset versions is exactly
-what the protocol forbids, so the single most interesting comparison in the paper — protein
-language model versus curated features — currently cannot be made.
+**The original problem statement was wrong, and this is worth recording.** The claim was
+that the 2026-09-02 run predated the gnomAD join and so read a different feature set. It did
+not. `prior_columns_of(df, drop_gene_constant=True)` returns the same 27 columns on both
+builds — including `gnomad_log10_af`, `acmg_ba1`, `acmg_bs1` and `acmg_pm2` — over the same
+clinical cohort, so the priors-only arm saw an identical feature matrix either side of the
+rebuild. The re-run reproduced every metric to the last recorded digit: AUROC, AUPRC, MCC and
+all bootstrap bounds on all four genes, with only `built_at_utc` and `runtime_s` changing.
+The arms were comparable all along; the withheld comparison cost the paper its headline for
+no reason. **Bit-identical metrics across a supposed dataset change are evidence about the
+data, not a coincidence to wave through** — the check that would have caught this in advance
+is item 7's provenance record.
 
-**Command.**
-```bash
-python scripts/run_mmr_transfer.py --scratch --features priors --eval lopo \
-  --n_bootstrap 10000 --out_dir data/processed/mmr_transfer_scratch
+**Outstanding, minor.** `mmr_transfer_predictions_lopo.csv` from the re-run is gitignored and
+has not been committed, so the threshold-dependent columns of Table 3 (accuracy, F1, balanced
+accuracy, precision, recall, specificity, Brier, ECE) are still `[TODO]` for that row. The
+file carries both `holdout` and `inner_val` rows, so the panel can be computed leak-free with
+`src.metrics.evaluation_report` once it is pushed:
+
+```powershell
+git add -f data\processed\mmr_transfer_scratch\mmr_transfer_predictions_lopo.csv
 ```
-**Runtime.** 98 s on the previous build. **Output.** `mmr_transfer_{results,summary,predictions}_lopo.*`.
-**Check.** `gene_constant_priors_dropped: true` and `n_bootstrap: 10000` in the summary.
 
 ---
 
@@ -91,56 +101,39 @@ manuscript's §2.1 discrepancy note must stay.
 
 ---
 
-## 3. Feature-group ablations 4–7 not run — MECHANISM ADDED, RUNS OUTSTANDING
+## 3. Feature-group ablations 4–7 — RESOLVED
 
-**Manuscript location.** §3.6 Table 4 rows 4–7; §4 (the paragraph on what priors contribute).
+**Resolved 2026-09-05.** All four ran on the build machine against the pinned table, at the
+grid cell `esmpri_concat_frozen_pllr-residual_seed42` with only the feature set moving. Each
+summary records the resolved `prior_columns`, the groups dropped, and `allow_proxy_leak:
+false`. Results are in Table 4 rows 4–7 and discussed in §3.6 and §4.
 
-**Problem.** The grid varies branch, freeze depth, PLLR mode and fusion. It never removes an
-individual feature family, so the paper cannot say which of the 27 prior columns carry the
-+0.031 AUROC.
+| Row | Cell slug | Prior cols | AUROC (3 scoreable) | Δ vs comparator 0.9341 |
+|---|---|---|---|---|
+| 4 | `ablate_structure` | 25 | 0.9411 | +0.0070 |
+| 6 | `ablate_domains` | 24 | 0.9429 | +0.0088 |
+| 7 | `ablate_prior_scores` | 9 | 0.8937 | −0.0404 |
+| 5 | `ablate_gnomad_and_scores` | 5 | 0.8704 | −0.0637 |
 
-**Mechanism — done 2026-09-04.** `src/transfer.py` now names four feature families in
-`PRIOR_FEATURE_GROUPS` (`structure`, `gnomad`, `domains`, `prior_scores`) and
-`scripts/finetune_esm_mmr.py` exposes `--drop_prior_groups`. The groups partition
-`TRANSFER_PRIOR_COLS` exactly — asserted in `tests/test_mmr_modules.py`, so a prior column
-added later without a group fails a test rather than going silently unablatable. The
-`prior_scores` group takes the `zs_*`, `rank_*` and `consensus_rank` families with
-AlphaMissense. Each run's summary JSON records `drop_prior_groups`, `allow_proxy_leak` and
-the resolved `prior_columns` list, so "27 prior columns" in the paper is checkable against
-the artifact rather than asserted.
+**Reading.** The three-seed comparator has AUROC SD 0.0097 over the scoreable genes, so a
+difference between two single-seed runs is expected to scatter by about 0.014. Rows 4 and 6
+are inside that and point upward: structural and domain features contribute nothing
+detectable. The 18 external prior-score columns carry essentially the whole prior
+contribution; allele frequency adds a further 0.023 on top (row 5 versus row 7), above the
+noise floor but resting on two single-seed runs.
 
-**Design requirement, enforced in code.** Each ablation must remove derived proxies as well
-as the named group. Ablation 5 ("without gnomAD") is invalid while AlphaMissense remains in
-the feature set, because AlphaMissense was trained on population data and carries that
-signal — so `--drop_prior_groups gnomad` alone now *raises*, naming the surviving proxy
-columns. `--allow_proxy_leak` overrides it for the case where the proxy is itself the subject
-of the comparison; it is recorded in the summary and must be stated in the table.
+**Residual weaknesses, stated rather than fixed.** Each ablation is a single seed against a
+three-seed baseline whose seed-42 draw is the highest of its three (0.9341 / 0.9149 /
+0.9270), so deltas measured from it are slightly generous; against the three-seed mean of
+0.9253 they are +0.016, +0.018, −0.032 and −0.055. Adding seeds 43 and 44 to each ablation
+(~11 min per run, 8 runs) would let rows 4–7 be reported as mean ± SD like the rest of the
+paper. Row 5 bounds gnomAD and the external scores jointly by design — the proxy guard
+forbids removing gnomAD alone — so it is not a gnomAD-only effect and the table says so.
 
-**Commands.** One run per row, on the build machine, against the dataset SHA-256 above. The
-comparator is the grid cell `esmpri_concat_frozen_pllr-residual_seed42`, so every flag below
-matches it and only the feature set moves — `scripts/finetune_esm_mmr.py` defaults to the 35M
-checkpoint and `wt_site`, which would not be comparable. One command per line, no
-continuations — the build machine runs PowerShell, where a backslash continuation or a
-bash array silently does the wrong thing.
-
-```
-# Row 4 — no structural features
-python scripts/finetune_esm_mmr.py --mode siamese --esm_model facebook/esm2_t33_650M_UR50D --eval lopo --branch esm+priors --fusion concat --pllr_mode residual --n_unfrozen_layers 0 --seed 42 --batch_size 1 --grad_accum 8 --gradient_checkpointing --n_bootstrap 10000 --no-save_checkpoints --out_dir data/processed/stage2b_grid --drop_prior_groups structure --cell_slug ablate_structure
-
-# Row 6 — no UniProt/InterPro domains
-python scripts/finetune_esm_mmr.py --mode siamese --esm_model facebook/esm2_t33_650M_UR50D --eval lopo --branch esm+priors --fusion concat --pllr_mode residual --n_unfrozen_layers 0 --seed 42 --batch_size 1 --grad_accum 8 --gradient_checkpointing --n_bootstrap 10000 --no-save_checkpoints --out_dir data/processed/stage2b_grid --drop_prior_groups domains --cell_slug ablate_domains
-
-# Row 5 — no gnomAD. The proxy goes with it; --drop_prior_groups gnomad alone raises.
-python scripts/finetune_esm_mmr.py --mode siamese --esm_model facebook/esm2_t33_650M_UR50D --eval lopo --branch esm+priors --fusion concat --pllr_mode residual --n_unfrozen_layers 0 --seed 42 --batch_size 1 --grad_accum 8 --gradient_checkpointing --n_bootstrap 10000 --no-save_checkpoints --out_dir data/processed/stage2b_grid --drop_prior_groups gnomad prior_scores --cell_slug ablate_gnomad_and_scores
-
-# Row 7 — no external prior scores (the AlphaMissense circularity test §4 asks for)
-python scripts/finetune_esm_mmr.py --mode siamese --esm_model facebook/esm2_t33_650M_UR50D --eval lopo --branch esm+priors --fusion concat --pllr_mode residual --n_unfrozen_layers 0 --seed 42 --batch_size 1 --grad_accum 8 --gradient_checkpointing --n_bootstrap 10000 --no-save_checkpoints --out_dir data/processed/stage2b_grid --drop_prior_groups prior_scores --cell_slug ablate_prior_scores
-```
-**Runtime.** ~11 min each on the CUDA box; the existing frozen cells measured 637–655 s.
-**Check.** `prior_columns` in each summary JSON is the full list minus exactly the dropped
-group, `allow_proxy_leak` is `false` in all four, and the Table 4 row states which proxies
-went with each group. Row 5 removes both families at once, so it bounds the two together —
-it is not a gnomAD-only effect, and the text must not read as though it were.
+**Also outstanding.** `esm_finetune_summary_*.json` does not record `n_bootstrap`, although
+the bootstrap ran and the CIs are in the results CSVs. The manuscript's protocol section
+claims 10,000 resamples; that claim is not checkable against the artifact until the field is
+added.
 
 ---
 
@@ -278,8 +271,8 @@ No `.png`, `.pdf` or `.svg` exists anywhere in the repository.
 - **MaveDB and CIMRA (Table 1).** Adapters exist and are tested, but the build manifest has no
   source block for either, indicating they were not enabled. Confirm and state this explicitly
   rather than omitting the rows.
-- **The 27 prior column names (§2.4).** Reconstructed from source rather than recorded. Emit
-  the resolved list into `esm_finetune_summary_*.json`.
+- **The 27 prior column names (§2.4).** ~~Reconstructed from source rather than recorded.~~
+  Resolved 2026-09-04: `prior_columns` is written into every `esm_finetune_summary_*.json`.
 - **PLLR-mode and fusion axes (§3.6).** Run at a single seed each. The three-seed axis shows
   MCC SD up to 0.056, so these single-seed differences are not interpretable. Either add seeds
   or continue to report them without interpretation.
