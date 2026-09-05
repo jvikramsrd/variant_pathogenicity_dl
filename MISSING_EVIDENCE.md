@@ -105,32 +105,32 @@ grid cell `esmpri_concat_frozen_pllr-residual_seed42` with only the feature set 
 summary records the resolved `prior_columns`, the groups dropped, and `allow_proxy_leak:
 false`. Results are in Table 4 rows 4–7 and discussed in §3.6 and §4.
 
-| Row | Cell slug | Prior cols | AUROC (3 scoreable) | Δ vs comparator 0.9341 |
-|---|---|---|---|---|
-| 4 | `ablate_structure` | 25 | 0.9411 | +0.0070 |
-| 6 | `ablate_domains` | 24 | 0.9429 | +0.0088 |
-| 7 | `ablate_prior_scores` | 9 | 0.8937 | −0.0404 |
-| 5 | `ablate_gnomad_and_scores` | 5 | 0.8704 | −0.0637 |
+| Row | Cell slug | Prior cols | Seeds | AUROC (3 scoreable) | Δ vs comparator |
+|---|---|---|---|---|---|
+| 4 | `ablate_structure` | 25 | 3 | 0.9354 ± 0.0074 | +0.0101 |
+| 6 | `ablate_domains` | 24 | 3 | 0.9353 ± 0.0068 | +0.0100 |
+| 7 | `ablate_prior_scores` | 9 | 3 | 0.8938 ± 0.0075 | −0.0315 |
+| 5 | `ablate_gnomad_and_scores` | 5 | 3 | 0.8727 ± 0.0050 | −0.0526 |
 
-**Reading.** The three-seed comparator has AUROC SD 0.0097 over the scoreable genes, so a
-difference between two single-seed runs is expected to scatter by about 0.014. Rows 4 and 6
-are inside that and point upward: structural and domain features contribute nothing
-detectable. The 18 external prior-score columns carry essentially the whole prior
-contribution; allele frequency adds a further 0.023 on top (row 5 versus row 7), above the
-noise floor but resting on two single-seed runs.
+Comparator: `esmpri_concat_frozen_pllr-residual`, 0.9253 ± 0.0097 over the same three seeds.
+Seed-42 slugs carry no seed suffix; seeds 43 and 44 are suffixed, because `output_tag()` names
+files from the cell slug alone and a reused slug would have overwritten the seed-42 artifacts.
 
-**Residual weaknesses, stated rather than fixed.** Each ablation is a single seed against a
-three-seed baseline whose seed-42 draw is the highest of its three (0.9341 / 0.9149 /
-0.9270), so deltas measured from it are slightly generous; against the three-seed mean of
-0.9253 they are +0.016, +0.018, −0.032 and −0.055. Adding seeds 43 and 44 to each ablation
-(~11 min per run, 8 runs) would let rows 4–7 be reported as mean ± SD like the rest of the
-paper. Row 5 bounds gnomAD and the external scores jointly by design — the proxy guard
-forbids removing gnomAD alone — so it is not a gnomAD-only effect and the table says so.
+**Reading.** Each arm and the comparator are three-seed means, so the scale is the standard
+error of their difference, 0.007. Rows 4 and 6 move the mean by +0.010 — about one and a half
+standard errors, upward — so neither structural nor domain features do detectable work. Row 7
+costs 0.032 and row 5 costs 0.053, four to eight times that scale. Allele frequency's
+increment over the external scores (row 7 versus row 5) is 0.0211 against a standard error of
+0.0052.
 
-**Also outstanding.** `esm_finetune_summary_*.json` does not record `n_bootstrap`, although
-the bootstrap ran and the CIs are in the results CSVs. The manuscript's protocol section
-claims 10,000 resamples; that claim is not checkable against the artifact until the field is
-added.
+**Why the seeds were worth 1.5 GPU-hours.** At seed 42 alone rows 4 and 6 appeared to *beat*
+the comparator by 0.007–0.009, because seed 42 is the highest of the comparator's three draws.
+Averaging moved both back inside noise. The single-seed table would have supported a reading —
+"removing structural features helps" — that three seeds do not.
+
+**Closed alongside.** `esm_finetune_summary_*.json` now records `n_bootstrap`, so the
+manuscript's 10,000-resample claim is checkable against the artifact. The eight seed-43/44
+runs carry the field; the four seed-42 ablations and the 16 grid cells predate it and do not.
 
 ---
 
