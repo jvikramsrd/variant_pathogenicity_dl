@@ -1,0 +1,61 @@
+{
+  "built_at_utc": "2026-09-05T13:12:43.380774+00:00",
+  "cell": "ablate_domains_seed44",
+  "branch": "esm+priors",
+  "fusion": "concat",
+  "pllr_mode": "residual",
+  "seed": 44,
+  "af_labels_active": false,
+  "n_bootstrap": 10000,
+  "drop_prior_groups": [
+    "domains"
+  ],
+  "allow_proxy_leak": false,
+  "prior_columns": [
+    "am_pathogenicity",
+    "af_plddt",
+    "af_disordered",
+    "zs_cadd",
+    "zs_fathmm",
+    "zs_mutationassessor",
+    "zs_sift4g",
+    "zs_mpc",
+    "zs_provean",
+    "zs_deogen2",
+    "zs_polyphen2_hvar",
+    "zs_bayesdel_addaf",
+    "zs_revel",
+    "zs_vest4",
+    "zs_metarnn",
+    "zs_trancepteve_l",
+    "zs_gemme",
+    "zs_eve",
+    "zs_esm1b",
+    "zs_poet",
+    "gnomad_log10_af",
+    "acmg_ba1",
+    "acmg_bs1",
+    "acmg_pm2"
+  ],
+  "mode": "siamese",
+  "esm_model": "facebook/esm2_t33_650M_UR50D",
+  "n_unfrozen_layers": 0,
+  "splits_requested": [
+    "MLH1",
+    "MSH2",
+    "MSH6",
+    "PMS2"
+  ],
+  "splits_evaluated": [
+    "MLH1",
+    "MSH2",
+    "MSH6",
+    "PMS2"
+  ],
+  "splits_skipped_no_rows": [],
+  "results_csv": "data\\processed\\stage2b_grid\\esm_finetune_results_siamese_lopo_ablate_domains_seed44.csv",
+  "predictions_csv": "data\\processed\\stage2b_grid\\esm_finetune_predictions_siamese_lopo_ablate_domains_seed44.csv",
+  "val_predictions_csv": "data\\processed\\stage2b_grid\\esm_finetune_valpreds_siamese_lopo_ablate_domains_seed44.csv",
+  "checkpoints": [],
+  "runtime_s": 664.4
+}
