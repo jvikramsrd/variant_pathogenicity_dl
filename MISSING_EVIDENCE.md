@@ -29,15 +29,12 @@ no reason. **Bit-identical metrics across a supposed dataset change are evidence
 data, not a coincidence to wave through** — the check that would have caught this in advance
 is item 7's provenance record.
 
-**Outstanding, minor.** `mmr_transfer_predictions_lopo.csv` from the re-run is gitignored and
-has not been committed, so the threshold-dependent columns of Table 3 (accuracy, F1, balanced
-accuracy, precision, recall, specificity, Brier, ECE) are still `[TODO]` for that row. The
-file carries both `holdout` and `inner_val` rows, so the panel can be computed leak-free with
-`src.metrics.evaluation_report` once it is pushed:
-
-```powershell
-git add -f data\processed\mmr_transfer_scratch\mmr_transfer_predictions_lopo.csv
-```
+**Table 3 is complete.** The re-run's per-variant predictions were committed (`bf9bd1c`),
+and the threshold-dependent columns were computed from them with
+`src.metrics.evaluation_report`, selecting the threshold on the `inner_val` rows exactly as
+the grid cells do. They reproduce the run's own AUROC, MCC and per-gene thresholds to six
+decimal places, and are appended to `full_metric_panel_by_gene.csv` under the cell slug
+`priors_only`. The baseline leads ten of eleven columns; only recall is lower.
 
 ---
 
@@ -242,18 +239,28 @@ manuscript.
 
 ---
 
-## 10. All six figures missing
+## 10. Figures — 3 of 6 GENERATED
 
-No `.png`, `.pdf` or `.svg` exists anywhere in the repository.
+**Done 2026-09-05.** `scripts/make_figures.py` generates Figures 3, 5 and 6 into
+`docs/figures/` as 300-dpi PNG and vector PDF, reading the committed results CSVs directly —
+no intermediate spreadsheet, so a figure cannot drift from the table it illustrates. It globs
+the cell artifacts, so re-running it after further seeds land refreshes all three unedited.
+Series carry hue *and* marker shape; the palette validates at all pairs for colour-vision
+deficiency (worst CVD dE 9.2, normal-vision dE 24.0) and every series is direct-labelled,
+which is what the below-3:1 contrast of the third hue requires.
 
-| Fig | Caption | Input artifact | How to generate | Output |
-|---|---|---|---|---|
-| 1 | Dataset assembly and evaluation pipeline: sources → wild-type validation → variant keys → evidence columns → conflict screening → master table → features → LOPO splits → models → evaluation. | `manifest.json`, `audit_report.json` | Schematic — draw, do not plot | `docs/figures/fig1_pipeline.svg` |
-| 2 | Dataset composition, source overlap and label provenance for the 74,328-variant panel. | `manifest.json → stats.multi_source_overlaps`, measured `label_source` counts | **No script exists.** Needs an UpSet or stacked-bar plot | `docs/figures/fig2_composition.png` |
-| 3 | Main model comparison under leave-one-gene-out, with bootstrap CIs. | `stage2b_grid_results.csv` | **No script exists** | `docs/figures/fig3_main.png` |
-| 4 | Reliability diagram and confusion matrix at 0.5 and at the validation-selected threshold. | `esm_finetune_predictions_*.csv` | `src.calibration.plot_reliability_diagrams` exists but **no driver calls it on grid outputs** | `docs/figures/fig4_calibration.png` |
-| 5 | Ablation results across the 16 grid cells. | `journal_table_stage2b.csv` | **No script exists** | `docs/figures/fig5_ablation.png` |
-| 6 | Per-gene performance with cohort sizes, showing *PMS2* as unscoreable. | `full_metric_panel_by_gene.csv` | **No script exists** | `docs/figures/fig6_pergene.png` |
+| Fig | Caption | Status |
+|---|---|---|
+| 1 | Dataset assembly and evaluation pipeline. | **Outstanding** — schematic; draw, do not plot. Output `docs/figures/fig1_pipeline.svg` |
+| 2 | Dataset composition, source overlap and label provenance. | **Outstanding** — needs an UpSet or stacked-bar plot; no script exists |
+| 3 | Main model comparison under LOPO with bootstrap CIs. | Generated — `fig3_main.png` / `.pdf` |
+| 4 | Reliability diagram and confusion matrix. | **Outstanding** — `src.calibration.plot_reliability_diagrams` exists but no driver calls it on grid outputs; blocked behind item 5 anyway, since the reported runs have no valpreds |
+| 5 | Ablation results across all cells. | Generated — `fig5_ablation.png` / `.pdf` |
+| 6 | Per-gene performance with cohort sizes. | Generated — `fig6_pergene.png` / `.pdf` |
+
+Figure 4 is the one worth sequencing deliberately: it needs inner-validation predictions,
+which the reported grid cells do not have (item 5), so it should follow the tier-1 re-run
+rather than being attempted against the current artifacts.
 
 ---
 
