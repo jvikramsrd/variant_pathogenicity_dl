@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import glob
+import re
 from pathlib import Path
 
 import matplotlib
@@ -78,6 +79,25 @@ def mean3(d: pd.DataFrame, col: str = "roc_auc") -> pd.Series:
     return d[d.holdout_gene.isin(SCOREABLE)].groupby("cell_slug")[col].mean()
 
 
+def arm_of(slug: str) -> str:
+    """Collapse a cell slug to its arm, dropping the seed suffix.
+
+    Seeds are replicates of one arm, not separate arms: plotting them as
+    separate rows would show the same configuration three times and invite
+    the reader to rank two draws of the same cell against each other.
+    """
+    return re.sub(r"_seed\d+$", "", slug)
+
+
+def by_arm(d: pd.DataFrame) -> pd.DataFrame:
+    """Per-arm mean, SD and seed count of the scoreable-gene AUROC."""
+    per_cell = mean3(d).rename("m").reset_index()
+    per_cell["arm"] = per_cell.cell_slug.map(arm_of)
+    g = per_cell.groupby("arm").m.agg(["mean", "std", "size"])
+    g["std"] = g["std"].fillna(0.0)
+    return g.sort_values("mean")
+
+
 # --------------------------------------------------------------------------- fig 3
 def figure3(cells: pd.DataFrame, base: pd.DataFrame, out: Path) -> None:
     """Per-gene AUROC with bootstrap CIs for the three headline arms."""
@@ -139,47 +159,54 @@ def figure3(cells: pd.DataFrame, base: pd.DataFrame, out: Path) -> None:
 
 # --------------------------------------------------------------------------- fig 5
 def figure5(cells: pd.DataFrame, base: pd.DataFrame, out: Path) -> None:
-    """All cells and feature-family ablations, ranked, against the baseline."""
-    m = mean3(cells).sort_values()
-    fam = cells.groupby("cell_slug").family.first()
+    """All arms, seed-averaged, ranked against the curated-features baseline."""
+    g = by_arm(cells)
+    fam = cells.assign(arm=cells.cell_slug.map(arm_of)).groupby("arm").family.first()
     baseline = mean3(base).iloc[0]
 
-    fig, ax = plt.subplots(figsize=(6.6, 6.4))
+    fig, ax = plt.subplots(figsize=(6.6, 5.4))
     ax.set_axisbelow(True)
     ax.xaxis.grid(True)
 
     ax.axvline(baseline, color=BLUE, lw=1.4, zorder=1)
-    ax.text(baseline + 0.002, len(m) + 0.15,
+    ax.text(baseline + 0.002, len(g) + 0.15,
             f"curated priors only, no ESM · {baseline:.3f}",
             ha="left", va="center", fontsize=7.5, color=BLUE)
 
-    for i, (slug, val) in enumerate(m.items()):
-        is_abl = fam[slug] == "ablation"
+    for i, (arm, row) in enumerate(g.iterrows()):
+        is_abl = fam[arm] == "ablation"
         colour = ORANGE if is_abl else MUTED
+        val, sd, n = row["mean"], row["std"], int(row["size"])
         ax.plot([0.83, val], [i, i], color=GRID, lw=0.8, zorder=1)
+        if n > 1:                                # +- 1 SD over the seeds
+            ax.plot([val - sd, val + sd], [i, i], color=colour, lw=2,
+                    solid_capstyle="round", zorder=2)
         ax.plot([val], [i], "o" if is_abl else "s", ms=6 if is_abl else 4.5,
                 color=colour, mec="white", mew=0.8, zorder=3)
-        ax.text(val + 0.0035, i, f"{val:.3f}", va="center", fontsize=7,
+        label = f"{val:.3f}" + (f" ± {sd:.3f}" if n > 1 else "")
+        ax.text(val + sd + 0.0035, i, label, va="center", fontsize=7,
                 color=INK if is_abl else INK_2,
                 fontweight="bold" if is_abl else "normal",
                 bbox=dict(fc="white", ec="none", pad=0.8))
 
-    ax.set_yticks(range(len(m)))
-    ax.set_yticklabels(m.index, fontsize=7,
-                       color=INK_2)
-    for tick, slug in zip(ax.get_yticklabels(), m.index):
-        if fam[slug] == "ablation":
+    ax.set_yticks(range(len(g)))
+    ax.set_yticklabels(
+        [f"{a}  ({int(g.loc[a, 'size'])} seed{'s' if g.loc[a, 'size'] > 1 else ''})"
+         for a in g.index], fontsize=7, color=INK_2)
+    for tick, arm in zip(ax.get_yticklabels(), g.index):
+        if fam[arm] == "ablation":
             tick.set_color(INK)
             tick.set_fontweight("bold")
-    ax.set_ylim(-0.7, len(m) + 0.5)
+    ax.set_ylim(-0.7, len(g) + 0.5)
     ax.set_xlim(0.83, 0.995)
     ax.set_xlabel("Mean AUROC over the scoreable genes ($\\it{MLH1}$, $\\it{MSH2}$, $\\it{MSH6}$)")
-    ax.set_title("Ablation grid and feature-family removals, ranked",
+    ax.set_title("Every arm, seed-averaged, against the curated-features baseline",
                  color=INK, loc="left", pad=10)
     handles = [plt.Line2D([], [], marker="o", ls="none", color=ORANGE, mec="white",
                           ms=6, label="feature-family ablation"),
                plt.Line2D([], [], marker="s", ls="none", color=MUTED, mec="white",
-                          ms=4.5, label="grid cell")]
+                          ms=4.5, label="grid cell"),
+               plt.Line2D([], [], color=MUTED, lw=2, label="± 1 SD over seeds")]
     ax.legend(handles=handles, loc="lower right", labelcolor=INK_2,
               bbox_to_anchor=(1.0, -0.02))
     fig.savefig(out / "fig5_ablation.png")
