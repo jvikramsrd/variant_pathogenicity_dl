@@ -5,6 +5,61 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-09-06 (CPU dev box) — reproducibility check FAILED, root-caused, fixed
+
+The 2026-09-05 check on the CUDA box (`10fdc98`) ran the same cell twice at one
+commit — `repro_a` / `repro_b`, frozen backbone, `esm+priors`, seed 42. It does
+not reproduce, and the way it fails names the cause.
+
+| holdout | order | predictions differing | max abs prob delta | ROC-AUC a / b |
+|---|---|---|---|---|
+| MLH1 | 1st | 208/208 holdout + 95/95 inner-val | 0.942 | 0.9485 / 0.9276 |
+| MSH2 | 2nd | 0/335 | 0.0 | bit-identical |
+| MSH6 | 3rd | 0/119 | 0.0 | bit-identical |
+| PMS2 | 4th | 0/21 | 0.0 | bit-identical |
+
+**Root cause.** `run_one_split` built `ESMFineTuneClassifier` — which
+initialises the head — before anything seeded the RNG; the only `set_seed` was
+inside `fit_esm_finetune`, several statements later. `main()` never seeded
+either, so the *first* split of a process drew its head from the entropy
+PyTorch seeds its default generator with at import. Every later split inherited
+a state that split one's `set_seed(42)` had already made deterministic, which is
+exactly why three of four folds matched to the last bit. `MMR_GENES` is ordered
+`(MLH1, MSH2, MSH6, PMS2)`, so the unseeded split has always been MLH1.
+
+**Folds 2-4 matching was contingent, not safe.** They inherit the RNG state
+*after* split one's training, so their initialisation depends on how many draws
+split one consumed — which depends on the epoch it early-stops at. Both runs
+here stopped MLH1 at epoch 3. Had they stopped at different epochs, all four
+folds would have moved.
+
+**Fix.** `set_seed(args.seed)` at the top of `run_one_split`, before the model is
+constructed. Per split rather than once in `main()` on purpose: it also makes a
+single gene re-run with `--eval holdout` reproduce what the full sweep computed
+for it, which chained-from-fold-one seeding would not.
+`scripts/compare_finetune_strategies.py` had the same defect in
+`run_frozen_probe` and `run_esm_finetune` — there the unseeded model is whichever
+strategy runs first, so a head-to-head comparison depended on loop order — and is
+fixed the same way. No other driver is affected: `run_mmr_transfer.py`,
+`train_extended.py`, `eval_leave_one_protein_out.py`, `pretrain_esm_80.py` and
+`main.py` all call `set_global_seed` at the top of `main()`.
+
+**Tests:** 1 new in `tests/test_finetune_grid.py`, which aborts `run_one_split` at
+model construction and asserts the head's first RNG draw is the same under two
+different ambient seeds. It fails on the old code in 4 s on CPU. Suite 214 -> 215,
+all passing.
+
+**What this does to the results already in hand.** All 28 grid cells have an
+unseeded MLH1. The measured spread from initialisation alone is 0.021 AUROC on
+MLH1, against a seed-to-seed spread of 0.019-0.049 on the same gene in the
+three-seed arms — so most of what was read as seed variance on MLH1 is
+uncontrolled initialisation, and **no MLH1 difference below about 0.02 AUROC
+separates two cells.** MSH2/MSH6/PMS2 are unaffected as *measurements*. The
+numbers stay valid draws; they are not replayable, and the fix changes every
+fold's initialisation, so restoring replayability means re-running.
+
+---
+
 ## 2026-09-04 (CPU dev box) — feature-family ablation mechanism; no training run
 
 Code and documentation only. **No model was trained and no number in the paper

@@ -49,6 +49,7 @@ from src.esm_finetune import (  # noqa: E402
 )
 from src.eval_utils import bootstrap_ci, optimal_threshold_by_mcc  # noqa: E402
 from src.mvmamba_features import extract_mvmamba_cached  # noqa: E402
+from src.train import set_global_seed  # noqa: E402
 from src.transfer import BranchHead, fit_head  # noqa: E402
 from scripts.finetune_esm_mmr import prepare_split, sample_weights_for  # noqa: E402
 
@@ -115,6 +116,12 @@ def run_frozen_probe(args, extractor_fn, tag, ft_df, ho_df, sequence_by_gene, de
     """Shared driver for strategies A (mvmamba) and B (varipred) -- both are a
     frozen-feature extractor feeding an identical BranchHead linear probe, so
     only the feature-extraction call differs."""
+    # Seed before the head is constructed, not just inside the fitter: a
+    # head built first draws its initial weights from process-start
+    # entropy, which made whichever strategy ran first differ run to run
+    # while the rest -- inheriting an already-seeded state -- matched.
+    # A head-to-head comparison must not depend on loop order.
+    set_global_seed(args.seed)
     pool = pd.concat([ft_df, ho_df], ignore_index=True)
     blocks, metas = [], []
     for gene, sub in pool.groupby("gene"):
@@ -162,6 +169,12 @@ def run_frozen_probe(args, extractor_fn, tag, ft_df, ho_df, sequence_by_gene, de
 
 
 def run_esm_finetune(args, mode, ft_df, ho_df, sequence_by_gene, device) -> dict:
+    # Seed before the head is constructed, not just inside the fitter: a
+    # head built first draws its initial weights from process-start
+    # entropy, which made whichever strategy ran first differ run to run
+    # while the rest -- inheriting an already-seeded state -- matched.
+    # A head-to-head comparison must not depend on loop order.
+    set_global_seed(args.seed)
     positions = ft_df["position"].to_numpy()
     groups = (ft_df["uniprot_id"].astype(str) + ":" + ft_df["position"].astype(str)).to_numpy()
     labels = ft_df["label"].astype(int).to_numpy()

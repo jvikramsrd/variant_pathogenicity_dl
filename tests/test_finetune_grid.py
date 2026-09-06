@@ -286,3 +286,78 @@ def test_cell_is_complete_matches_the_names_the_finetune_script_writes(
                             ("predictions", "csv", "label,prob\n1,0.9\n")):
         (tmp_path / f"esm_finetune_{kind}_{tag}.{ext}").write_text(body)
     assert grid.cell_is_complete(tmp_path, cell, "siamese", eval_mode, gene)
+
+
+# --------------------------------------------------------------------------- #
+# Run-to-run determinism of the very first split
+# --------------------------------------------------------------------------- #
+def _determinism_master(n_per_gene=12):
+    """Clinical-label MMR frame big enough for a 5-fold position-group split."""
+    rng = np.random.default_rng(0)
+    rows = []
+    for gene in ("MLH1", "MSH2"):
+        for i in range(n_per_gene):
+            rows.append({
+                "gene": gene,
+                "uniprot_id": f"U_{gene}",
+                "position": i + 1,
+                "wt_aa": "A",
+                "mut_aa": "V",
+                "label": float(i % 2),
+                "label_source": "clinvar",
+            })
+    return pd.DataFrame(rows).sample(frac=1.0, random_state=int(rng.integers(1 << 30)))
+
+
+class _SentinelStop(Exception):
+    """Aborts run_one_split once the model has been constructed."""
+
+
+def _rng_state_at_model_construction(mod, ambient_seed: int) -> float:
+    """Return the first RNG draw taken as the model head is initialised.
+
+    ``run_one_split`` is aborted at construction: everything after it is a
+    650M-parameter fine-tune, and the value under test is fixed by then.
+    ``ambient_seed`` stands in for the process-start entropy that PyTorch
+    seeds its default generator from, which differs between two runs of the
+    same command.
+    """
+    import torch
+
+    captured = {}
+    real_cls = mod.ESMFineTuneClassifier
+
+    def recorder(*a, **kw):
+        captured["draw"] = float(torch.randn(1).item())
+        raise _SentinelStop
+
+    mod.ESMFineTuneClassifier = recorder
+    try:
+        torch.manual_seed(ambient_seed)
+        args = mod.parse_args(["--eval", "lopo", "--branch", "esm", "--seed", "42"])
+        try:
+            mod.run_one_split(args, _determinism_master(), {"MLH1": "A" * 64,
+                                                            "MSH2": "A" * 64},
+                              torch.device("cpu"), "MLH1")
+        except _SentinelStop:
+            pass
+    finally:
+        mod.ESMFineTuneClassifier = real_cls
+    return captured["draw"]
+
+
+def test_first_split_head_init_depends_on_seed_not_process_entropy():
+    """Two runs of one command at one commit must give the same first split.
+
+    2026-09-05's repro check ran the same cell twice and got MLH1 ROC-AUC
+    0.9485 and 0.9276 while MSH2/MSH6/PMS2 came back bit-identical. The head
+    is built before anything seeds the RNG, so the *first* split initialises
+    from process-start entropy; later splits inherit a state that
+    ``fit_esm_finetune``'s own ``set_seed`` has already made deterministic.
+    """
+    mod = load_finetune_script()
+    a = _rng_state_at_model_construction(mod, ambient_seed=1)
+    b = _rng_state_at_model_construction(mod, ambient_seed=999_983)
+    assert a == b, (
+        "head initialisation differs between two runs of the same command "
+        f"({a} vs {b}): the first split is seeded by process entropy")

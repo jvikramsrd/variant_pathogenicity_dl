@@ -292,6 +292,34 @@ rather than being attempted against the current artifacts.
 
 ---
 
+## 12. MLH1 is unseeded in every grid cell run so far — FIX LANDED, RE-RUN OUTSTANDING
+
+**Found 2026-09-06 by the reproducibility check the previous item asked for.** Two runs of
+one cell at one commit (`data/processed/repro_check/`, `repro_a` / `repro_b`) disagree on
+MLH1 — ROC-AUC 0.9485 vs 0.9276, every one of the 208 held-out and 95 inner-validation
+probabilities different, max difference 0.94 — while MSH2, MSH6 and PMS2 come back
+bit-identical. `run_one_split` constructed the model, and so initialised the head, before
+anything seeded the RNG, so the first split of each process drew its head from process-start
+entropy. `MMR_GENES` is ordered `(MLH1, MSH2, MSH6, PMS2)`; the first split is always MLH1.
+
+**Fixed** in `scripts/finetune_esm_mmr.py` (and the same defect in
+`scripts/compare_finetune_strategies.py`) by seeding per split before construction, with a
+regression test that fails on the old code. See `docs/RUNLOG.md` 2026-09-06.
+
+**What the paper must not claim until a re-run.** Initialisation alone moves MLH1 by 0.021
+AUROC. The three-seed arms show 0.019-0.049 spread on MLH1, so most of that is initialisation,
+not seed. **No MLH1 comparison below ~0.02 AUROC is interpretable**, which includes any Table 4
+or Table 6 row whose MLH1 margin is that small. MSH2/MSH6/PMS2 as measurements are unaffected.
+
+**What a re-run buys, and what it costs.** The existing numbers are valid random draws; they
+are simply not replayable, and the fix changes every fold's initialisation, so re-running
+changes all four genes' numbers, not just MLH1. Deciding scope — the full 28-cell grid, or
+only the tier-1 cells and the ablation arms that Table 4 rests on — is a GPU-budget call, not
+a correctness one. Whatever is re-run must be re-run together: a table mixing pre- and
+post-fix cells is comparing different initialisation regimes.
+
+---
+
 ## 11. Smaller items
 
 - **21-row label discrepancy (§3.2).** Manifest `master_label_counts` totals 17,124; the

@@ -52,6 +52,7 @@ from src.esm_finetune import (  # noqa: E402
     fit_esm_finetune,
     predict_proba,
     save_finetuned,
+    set_seed,
 )
 from src.eval_utils import bootstrap_ci, optimal_threshold_by_mcc  # noqa: E402
 from src.finetune_grid import GridCell, output_tag
@@ -275,6 +276,16 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
                   sequence_by_gene: dict, device: torch.device, holdout: str) -> dict:
     logger.info("=== ESM fine-tune leave-one-gene-out: holdout=%s (mode=%s) ===",
                 holdout, args.mode)
+    # Seed here, not inside fit_esm_finetune: the head is initialised when the
+    # model is constructed, several statements before the fit is called. Seeding
+    # only inside the fit left the *first* split of a process drawing its head
+    # from PyTorch's process-start entropy, so two runs of one command at one
+    # commit disagreed on MLH1 (ROC-AUC 0.9485 vs 0.9276 on 2026-09-05) while
+    # every later split -- inheriting an already-seeded state -- came back
+    # bit-identical. Seeding per split rather than once in main() also makes a
+    # single split reproducible on its own, so re-running one gene with
+    # --eval holdout reproduces what the full sweep computed for it.
+    set_seed(args.seed)
     ft_df, ho_df = prepare_split(master, holdout)
     if ft_df.empty or ho_df.empty:
         raise ValueError(f"Split {holdout}: empty partition "
