@@ -1,11 +1,33 @@
 {
-  "built_at_utc": "2026-09-04T03:44:17.476926+00:00",
+  "built_at_utc": "2026-09-07T06:42:06.713848+00:00",
   "cell": "esm_frozen_pllr-concat_seed42",
   "branch": "esm",
   "fusion": "concat",
   "pllr_mode": "concat",
   "seed": 42,
   "af_labels_active": false,
+  "n_bootstrap": 10000,
+  "drop_prior_groups": [],
+  "allow_proxy_leak": false,
+  "prior_columns": [],
+  "provenance": {
+    "dataset_path": "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\mmr\\processed\\extended\\extended_dataset.csv",
+    "dataset_sha256": "78eb5d60860cc08eadb6faa0c0d7fbd22adbe6f277bb95e97a3a680264b4430d",
+    "feature_schema": "753655559cedaa4b",
+    "n_features": 3,
+    "split_definition": "6f87ecd06877ff66",
+    "git": {
+      "commit": "aec4333593acf71db0eb8974df941b01b548ddf4",
+      "dirty": true
+    },
+    "libraries": {
+      "torch": "2.14.0+cu126",
+      "transformers": "5.16.1",
+      "scikit-learn": "1.9.0",
+      "numpy": "2.5.2",
+      "pandas": "3.0.5"
+    }
+  },
   "mode": "siamese",
   "esm_model": "facebook/esm2_t33_650M_UR50D",
   "n_unfrozen_layers": 0,
@@ -24,6 +46,7 @@
   "splits_skipped_no_rows": [],
   "results_csv": "data\\processed\\stage2b_grid\\esm_finetune_results_siamese_lopo_esm_frozen_pllr-concat_seed42.csv",
   "predictions_csv": "data\\processed\\stage2b_grid\\esm_finetune_predictions_siamese_lopo_esm_frozen_pllr-concat_seed42.csv",
+  "val_predictions_csv": "data\\processed\\stage2b_grid\\esm_finetune_valpreds_siamese_lopo_esm_frozen_pllr-concat_seed42.csv",
   "checkpoints": [],
-  "runtime_s": 642.4
+  "runtime_s": 669.4
 }

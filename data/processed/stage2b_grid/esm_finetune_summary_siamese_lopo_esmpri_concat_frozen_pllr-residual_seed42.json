@@ -1,5 +1,5 @@
 {
-  "built_at_utc": "2026-09-05T14:49:26.740151+00:00",
+  "built_at_utc": "2026-09-07T01:25:13.720208+00:00",
   "cell": "esmpri_concat_frozen_pllr-residual_seed42",
   "branch": "esm+priors",
   "fusion": "concat",
@@ -38,6 +38,24 @@
     "acmg_bs1",
     "acmg_pm2"
   ],
+  "provenance": {
+    "dataset_path": "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\mmr\\processed\\extended\\extended_dataset.csv",
+    "dataset_sha256": "78eb5d60860cc08eadb6faa0c0d7fbd22adbe6f277bb95e97a3a680264b4430d",
+    "feature_schema": "50d2af3ded20b003",
+    "n_features": 30,
+    "split_definition": "6f87ecd06877ff66",
+    "git": {
+      "commit": "aec4333593acf71db0eb8974df941b01b548ddf4",
+      "dirty": true
+    },
+    "libraries": {
+      "torch": "2.14.0+cu126",
+      "transformers": "5.16.1",
+      "scikit-learn": "1.9.0",
+      "numpy": "2.5.2",
+      "pandas": "3.0.5"
+    }
+  },
   "mode": "siamese",
   "esm_model": "facebook/esm2_t33_650M_UR50D",
   "n_unfrozen_layers": 0,
@@ -58,5 +76,5 @@
   "predictions_csv": "data\\processed\\stage2b_grid\\esm_finetune_predictions_siamese_lopo_esmpri_concat_frozen_pllr-residual_seed42.csv",
   "val_predictions_csv": "data\\processed\\stage2b_grid\\esm_finetune_valpreds_siamese_lopo_esmpri_concat_frozen_pllr-residual_seed42.csv",
   "checkpoints": [],
-  "runtime_s": 660.6
+  "runtime_s": 684.0
 }
