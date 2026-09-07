@@ -1,0 +1,66 @@
+{
+  "built_at_utc": "2026-09-07T14:48:16.687725+00:00",
+  "cell": "ablate_gnomad_and_scores_seed42",
+  "branch": "esm+priors",
+  "fusion": "concat",
+  "pllr_mode": "residual",
+  "seed": 42,
+  "af_labels_active": false,
+  "n_bootstrap": 10000,
+  "drop_prior_groups": [
+    "gnomad",
+    "prior_scores"
+  ],
+  "allow_proxy_leak": false,
+  "prior_columns": [
+    "in_domain",
+    "af_plddt",
+    "af_disordered",
+    "in_interpro_domain",
+    "is_functional_site"
+  ],
+  "provenance": {
+    "dataset_path": "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\mmr\\processed\\extended\\extended_dataset.csv",
+    "dataset_sha256": "78eb5d60860cc08eadb6faa0c0d7fbd22adbe6f277bb95e97a3a680264b4430d",
+    "feature_schema": "60a28e4b861f8288",
+    "n_features": 8,
+    "split_definition": "6f87ecd06877ff66",
+    "git": {
+      "commit": "a3acf30c41bc63934e997a07745b155c15d26579",
+      "dirty": true
+    },
+    "libraries": {
+      "torch": "2.14.0+cu126",
+      "transformers": "5.16.1",
+      "scikit-learn": "1.9.0",
+      "numpy": "2.5.2",
+      "pandas": "3.0.5"
+    }
+  },
+  "mode": "siamese",
+  "esm_model": "facebook/esm2_t33_650M_UR50D",
+  "n_unfrozen_layers": 0,
+  "splits_requested": [
+    "MLH1",
+    "MSH2",
+    "MSH6",
+    "PMS2"
+  ],
+  "splits_evaluated": [
+    "MLH1",
+    "MSH2",
+    "MSH6",
+    "PMS2"
+  ],
+  "splits_skipped_no_rows": [],
+  "results_csv": "data\\processed\\stage2b_grid\\esm_finetune_results_siamese_lopo_ablate_gnomad_and_scores_seed42.csv",
+  "predictions_csv": "data\\processed\\stage2b_grid\\esm_finetune_predictions_siamese_lopo_ablate_gnomad_and_scores_seed42.csv",
+  "val_predictions_csv": "data\\processed\\stage2b_grid\\esm_finetune_valpreds_siamese_lopo_ablate_gnomad_and_scores_seed42.csv",
+  "checkpoints": [
+    "data\\processed\\stage2b_grid\\esm_finetune_siamese_holdout_MLH1.pt",
+    "data\\processed\\stage2b_grid\\esm_finetune_siamese_holdout_MSH2.pt",
+    "data\\processed\\stage2b_grid\\esm_finetune_siamese_holdout_MSH6.pt",
+    "data\\processed\\stage2b_grid\\esm_finetune_siamese_holdout_PMS2.pt"
+  ],
+  "runtime_s": 677.0
+}
