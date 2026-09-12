@@ -5,6 +5,163 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-09-12 (read-only dev box, round 2) — fresh-context review; one checkpoint-loading gap closed, inference pipeline added
+
+No training, inference, dataset processing, or benchmark was run (same
+environment as the entry below: no working Python install with
+torch/pandas/pytest here). Scope was a second fresh-context static review of
+this branch, followed by new implementation work for two gaps the review
+found still open: an ECC-plugin-driven audit/hardening pass per the
+project's standing "inspect -> map -> static review -> implement -> static
+test/review -> document -> fresh-context review" loop.
+
+**Found.** `src/esm_finetune.py::save_finetuned` has stamped a `format` tag
+(`FINETUNE_CHECKPOINT_FORMAT`) on every checkpoint since it was introduced,
+but `load_finetuned_model` never checked it back on load — the identical
+defect class already fixed for `src.transfer.load_transfer_head`
+(`TransferHeadFormatError`), just not ported to this sibling function. A
+foreign or future-format `.pt` file would have been accepted silently and
+failed later, deep inside model construction, with an error naming neither
+the checkpoint nor its format.
+
+**Fixed.** `src/esm_finetune.py` — added `FinetuneCheckpointFormatError` and
+a format check in `load_finetuned_model`. Deliberately *not* a byte-for-byte
+mirror of `TransferHeadFormatError`: real legacy checkpoints predating this
+field already exist and are migrated elsewhere in the same function (the
+`use_pllr` -> `pllr_mode` handling just below), so a missing tag is accepted
+(logged as a warning) and only a *present*, *mismatched* tag is rejected.
+Rejecting on missing would have silently broken loading of every
+already-produced checkpoint that predates this session. Two new tests added
+to `tests/test_new_data_sources.py`: a foreign-format rejection, and an
+explicit no-format-tag-still-loads regression (so a future edit can't
+reintroduce the stricter, breaking check by accident). Syntax-checked with
+`python3 -m py_compile`; not run, for the same reason nothing else on this
+branch has been.
+
+**Reviewed, no defect found.** `scripts/run_mmr_transfer.py`'s own load path
+for the stage-1 pretrain checkpoint (`ckpt.get("config")`'s `esm_dim` /
+`feature_columns` check, lines 269-278) already rejects an incompatible
+checkpoint via a targeted schema comparison rather than a version-string
+tag — adequate for what it guards, and not the same gap as the two format-tag
+cases above; left unchanged.
+
+**Added (new capability, not a defect fix).** No inference entry point
+existed anywhere in this codebase — every model-scoring codepath was fused
+into a train-and-evaluate script. Added `src/inference.py` +
+`scripts/predict.py`, scoped deliberately to `arch="priors"` stage-2
+transfer-head checkpoints only (a single named-column feature view; scoring
+an `esm`/`concat`/`gatewave` checkpoint needs an ESM-2 backbone forward pass,
+which this pass does not implement — `UnsupportedArchitectureError` names
+the gap rather than guessing at it). Reuses `load_transfer_head`'s existing
+format versioning and stored per-view scaler statistics; never fits
+anything on the inference input. `tests/test_inference.py` (16 tests,
+synthetic-only: hand-built `torch.nn.Module` stub, no real checkpoint) covers
+malformed/reordered/missing columns, unknown/unseen genes, an unsupported
+architecture, a propagated format error, NaN features, single-row-vs-batch
+consistency, an explicit threshold override, and CPU-only device selection
+with no CUDA visible. See `docs/INFERENCE.md`. Syntax-checked, not run — no
+real `.pt` checkpoint has been loaded through this path in any environment
+yet; see that doc's "Remaining risk".
+
+**Added (portable smoke test, not run here).**
+`scripts/sanity_check_overfit.py` — a tiny synthetic (numpy-generated,
+perfectly-separable) overfit check for `src.transfer.build_model` /
+`fit_head`, for the other PC to run before trusting any real-data result
+from the same training code path.
+
+---
+
+## 2026-09-12 (read-only dev box) — static review of the uncommitted audit branch; one doc/deliverable gap closed
+
+No training, inference, dataset processing, or benchmark was run (no working
+Python environment with pytest/pandas exists on this machine; confirmed by
+import failure in both the system interpreter and `.venv`). Scope was a
+fresh-context static review of the already-uncommitted changes on this
+branch (`docs/PIPELINE_MAP.md`, `docs/HOLDOUT_PROTOCOL.md`,
+`src/data_validation.py`, `src/gene_aliases.py`, `src/split_manifest.py`,
+and the provenance/figure/seeding diffs), plus the `git diff` against `HEAD`.
+
+**Found:** `docs/HOLDOUT_PROTOCOL.md` (written earlier this branch) claims
+`tests/test_split_manifest.py` exists, covers `src/split_manifest.py` and
+`src/gene_aliases.py` with synthetic data, and has been syntax-checked but
+not run. The file did not exist (confirmed via `ls tests/` and `git status`).
+
+**Fixed.** Added `tests/test_split_manifest.py` — 15 tests, synthetic data
+only (a 2-line temp CSV stands in for a dataset file so `sha256_file` has
+real bytes to hash; real MMR gene symbols/accessions from `CANONICAL_GENE_IDS`
+so `resolve_gene_id` exercises the actual alias table). Covers: symbol/
+accession/case resolution, unknown-gene rejection, same-spelling and
+cross-spelling disjointness violations, manifest round-trip through JSON,
+manifest-version rejection, and dataset-checksum verification (match and
+mismatch). Syntax-checked with `python3 -m py_compile`; not run, for the
+same reason nothing else on this branch has been (no pytest/pandas here).
+
+**Reviewed, no defect found.** The seeding fixes in
+`scripts/eval_leave_one_protein_out.py` and `scripts/run_mmr_transfer.py`,
+the SSRF-style hardening in `src/interpro.py`/`src/structure.py`
+(host-prefix checks, page caps), the `download_file` `max_bytes` cap, the
+`refresh_manifest` label-count recomputation, and the `figure2`/`figure4`
+additions in `scripts/make_figures.py` were cross-checked against their
+declared column/schema producers (`src/metrics.py::evaluation_report`,
+`scripts/recalibrate_grid.py`) and found internally consistent.
+`prepare_split` in `scripts/finetune_esm_mmr.py` was checked against
+`assert_disjoint_gene_sets`: not wired in, and correctly so — its two
+partitions are a boolean mask and its exact complement over one column, so
+they are disjoint by construction and an alias-collision check adds no
+protection there; it remains valuable for a future caller that builds
+partitions from independently-specified gene lists.
+
+---
+
+## 2026-09-07 (CUDA box + CPU dev box) — post-seed-fix re-run completed, 28 cells
+
+Two pushes closed the re-run item 12 left open, and the paper's model numbers now
+all come from one initialisation regime.
+
+- **16 grid cells** (`b9a47c3`, run at `aec4333`) — the full freeze-depth x PLLR x
+  branch grid, re-run with the per-split seeding fix.
+- **12 feature-family ablation cells** (`472d20b`, run at `a3acf30`, a descendant
+  of the fix) — re-run after the first push deleted the originals from the branch;
+  see `MISSING_EVIDENCE.md` item 13.
+
+**Provenance holds across the whole set.** All 28 summaries carry a native block,
+one `dataset_sha256` (`78eb5d60860c...`) and one `split_definition`
+(`6f87ecd06877ff66`). `make_figures.py --strict_provenance` passes. No backfill was
+needed, so item 7 closes. Caveat: every summary records `git dirty: true`; what was
+uncommitted on the CUDA box at run time is not recoverable from the artifacts.
+
+**The fix moved all four genes, as item 12 predicted** — 58 of 64 grid rows changed.
+Mean |dAUROC| vs the pre-fix run: MLH1 0.011, MSH2 0.006, MSH6 0.014, PMS2 0.022.
+Largest single shift 0.066 (PMS2, `esm_frozen_pllr-concat`), which is what a
+21-variant holdout with 4 negatives does.
+
+**The pre-registered reading survives.** Mean AUROC over the scoreable genes,
+`pllr=residual`, seed 42:
+
+| branch | frozen | last2 | full |
+|---|---|---|---|
+| `esm+priors` | **0.9449** | 0.9358 | 0.9409 |
+| `esm` only | 0.9042 | 0.9321 | 0.9270 |
+
+Backbone gradients buy nothing once the priors are there. The branch axis added on
+2026-09-02 was the right correction: the 0.880-vs-0.945 gap §6.12 was built around
+was the feature set, not the freeze depth.
+
+**Error analysis (item 9, new).** `scripts/error_analysis.py`, run on both headline
+arms. 85 consensus errors of 683 for the frozen arm, 97 for the full fine-tune. Every
+false positive of the frozen arm is *MSH2*. The covariates that separate errors from
+correct calls are `label_source` and `evidence_tier` (BH p = 1.0e-4), **neither a
+model input**: 44 of 56 false positives are `evidence_tier == unreviewed`
+ProteinGym-clinical benign calls. That is a label-quality finding and it explains the
+*MSH2* MCC anomaly logged on 2026-08-28. 193 of 683 variants flip between seeds of one
+arm — the item-12 spread, measured per variant.
+
+**Figures.** `scripts/make_figures.py` now produces Figures 2-6. Figure 2 (dataset
+composition) is new; panel (c) shows why *MSH2* behaves differently — it carries 144
+of the panel's 180 PG-clinical benign labels against *MLH1*'s 6.
+
+---
+
 ## 2026-09-06 (CPU dev box) — reproducibility check FAILED, root-caused, fixed
 
 The 2026-09-05 check on the CUDA box (`10fdc98`) ran the same cell twice at one

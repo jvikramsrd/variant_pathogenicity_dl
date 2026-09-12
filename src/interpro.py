@@ -27,6 +27,9 @@ from .data_loader import make_session
 logger = logging.getLogger(__name__)
 
 INTERPRO_API_BASE = "https://www.ebi.ac.uk/interpro/api"
+#: Hard cap on paginated `next`-link follows per protein (defence in depth
+#: against a malformed or adversarial response chain that never ends).
+MAX_PAGES = 1000
 
 #: InterPro entry types worth keeping as structural/functional priors.
 #: ("unintegrated" member-database-only signatures are noisier; excluded.)
@@ -49,7 +52,21 @@ def fetch_interpro_entries(uniprot_id: str, raw_dir: Path,
     url = (f"{INTERPRO_API_BASE}/entry/all/protein/uniprot/{uniprot_id}/"
           f"?page_size={page_size}")
     results: List[dict] = []
+    # Defence in depth, not a response to any observed failure: `next` is a
+    # URL taken verbatim from the API's own JSON body, not a hardcoded
+    # constant. A compromised or misconfigured upstream could redirect this
+    # loop to an arbitrary host, or hand back a `next` chain with no end.
+    # Both are cheap to rule out without changing behaviour for any
+    # well-formed InterPro response.
+    pages_fetched = 0
     while url:
+        if pages_fetched >= MAX_PAGES:
+            raise RuntimeError(
+                f"InterPro pagination for {uniprot_id} did not terminate "
+                f"within {MAX_PAGES} pages.")
+        if not url.startswith(INTERPRO_API_BASE):
+            raise ValueError(
+                f"InterPro pagination 'next' left {INTERPRO_API_BASE}: {url!r}")
         resp = sess.get(url, timeout=timeout)
         if resp.status_code == 404:
             break
@@ -57,6 +74,7 @@ def fetch_interpro_entries(uniprot_id: str, raw_dir: Path,
         payload = resp.json()
         results.extend(payload.get("results", []))
         url = payload.get("next")
+        pages_fetched += 1
     cache.write_text(json.dumps(results))
     return results
 

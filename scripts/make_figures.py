@@ -1,8 +1,10 @@
-"""Generate Figures 3, 5 and 6 of the manuscript from committed run artifacts.
+"""Generate Figures 2-6 of the manuscript from committed run artifacts.
 
 Every number plotted here is read from a results CSV in ``data/processed/``;
 nothing is recomputed, so a figure cannot drift from the table it illustrates.
-Figures 1 and 2 are schematics/composition plots and are not produced here.
+Figure 1 is a schematic and is drawn, not plotted; everything else is here.
+Figure 4 needs ``scripts/recalibrate_grid.py`` to have run, and is skipped with
+a note when its inputs are absent.
 
     python scripts/make_figures.py [--out_dir docs/figures]
 
@@ -29,10 +31,22 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.provenance import (REPLICATE_KEYS, IncomparableRuns,  # noqa: E402
-                            assert_comparable)
+from src.provenance import REPLICATE_KEYS, assert_comparable  # noqa: E402
 GRID_DIR = ROOT / "data/processed/stage2b_grid"
 BASELINE_CSV = ROOT / "data/processed/mmr_transfer_scratch/mmr_transfer_results_lopo.csv"
+MASTER_CSV = ROOT / "data/mmr/processed/extended/extended_dataset.csv"
+CALIB_PANEL = GRID_DIR / "calibration_panel.csv"
+CALIB_PROBS = GRID_DIR / "calibration_probs.csv"
+
+#: The label sources leave-one-gene-out trains and scores on. The DMS pool is
+#: excluded upstream by prepare_split, so a composition figure that counted it
+#: as evaluable would overstate the cohort by a factor of 25.
+CLINICAL_SOURCES = ("clinvar", "pg_clinical")
+LABEL_SOURCE_NAMES = {"dms": "DMS (proxy)", "clinvar": "ClinVar",
+                      "pg_clinical": "ProteinGym clinical"}
+
+#: The arm Figures 3 and 6 highlight; Figure 4 reports its calibration.
+HEADLINE_CELL = "esmpri_concat_frozen_pllr-residual_seed42"
 
 SCOREABLE = ["MLH1", "MSH2", "MSH6"]
 GENES = SCOREABLE + ["PMS2"]
@@ -51,7 +65,7 @@ ARMS = [
 
 def style() -> None:
     plt.rcParams.update({
-        "figure.dpi": 150, "savefig.dpi": 300, "savefig.bbox": "tight",
+        "figure.dpi": 150, "savefig.dpi": 300,
         "font.size": 8.5, "axes.titlesize": 9.5, "axes.labelsize": 8.5,
         "axes.edgecolor": MUTED, "axes.linewidth": 0.6, "axes.labelcolor": INK_2,
         "axes.spines.top": False, "axes.spines.right": False,
@@ -118,7 +132,7 @@ def figure3(cells: pd.DataFrame, base: pd.DataFrame, out: Path) -> None:
         ARMS[2][0]: [stem.format("full", s) for s in (43, 44)],
     }
 
-    fig, ax = plt.subplots(figsize=(6.6, 3.5))
+    fig, ax = plt.subplots(figsize=(6.6, 3.6), layout="constrained")
     ax.set_axisbelow(True)
     ax.xaxis.grid(True)
     offsets = [-0.26, 0.0, 0.26]   # legend order, top to bottom
@@ -148,16 +162,16 @@ def figure3(cells: pd.DataFrame, base: pd.DataFrame, out: Path) -> None:
     ax.set_ylim(len(GENES) - 0.5, -0.5)
     ax.set_xlim(0.82, 1.015)
     ax.set_xlabel("AUROC on the held-out gene (95% bootstrap CI, 10,000 resamples)")
-    ax.set_title("Held-out-gene discrimination: curated features versus ESM-2",
-                 color=INK, loc="left", pad=10)
+    fig.suptitle("Held-out-gene discrimination: curated features versus ESM-2",
+                 color=INK, x=0.005, ha="left", fontsize=9.5)
     ax.text(1.012, 3 + 0.42, "not scoreable: 21 variants, 4 negatives",
             ha="right", va="center", fontsize=7, color=INK_2, style="italic")
     handles, _ = ax.get_legend_handles_labels()
     handles.append(plt.Line2D([], [], marker="o", ls="none", mfc="white",
                               mec=MUTED, mew=1.0, ms=4,
                               label="seeds 43, 44 (point only)"))
-    ax.legend(handles=handles, loc="lower left", bbox_to_anchor=(0.0, -0.32),
-              ncol=4, handletextpad=0.4, columnspacing=1.4, labelcolor=INK_2)
+    fig.legend(handles=handles, loc="outside lower center", ncol=2,
+               handletextpad=0.4, columnspacing=1.4, labelcolor=INK_2)
     fig.savefig(out / "fig3_main.png")
     fig.savefig(out / "fig3_main.pdf")
     plt.close(fig)
@@ -170,14 +184,26 @@ def figure5(cells: pd.DataFrame, base: pd.DataFrame, out: Path) -> None:
     fam = cells.assign(arm=cells.cell_slug.map(arm_of)).groupby("arm").family.first()
     baseline = mean3(base).iloc[0]
 
-    fig, ax = plt.subplots(figsize=(6.6, 5.4))
+    # This figure is half a picture without the feature-family ablations, and
+    # it would still render: grid cells alone plot fine and the legend would go
+    # on advertising a series with no points. That is exactly the silent drift
+    # the provenance gate exists to catch, so say it out loud instead.
+    if not (fam == "ablation").any():
+        print("  WARNING: fig 5 has no feature-family ablation arms. "
+              "esm_finetune_results_siamese_lopo_ablate_*.csv is absent from "
+              f"{GRID_DIR.name}; the ablation series will be empty and Table 4 "
+              "has no artifacts behind it.")
+
+    fig, ax = plt.subplots(figsize=(6.6, 4.8), layout="constrained")
     ax.set_axisbelow(True)
     ax.xaxis.grid(True)
 
     ax.axvline(baseline, color=BLUE, lw=1.4, zorder=1)
-    ax.text(baseline + 0.002, len(g) + 0.15,
+    # Right-aligned into the plot: left-aligned, the label runs off the axis
+    # whenever the baseline sits near the upper limit, as it does here.
+    ax.text(baseline - 0.003, len(g) + 0.15,
             f"curated priors only, no ESM · {baseline:.3f}",
-            ha="left", va="center", fontsize=7.5, color=BLUE)
+            ha="right", va="center", fontsize=7.5, color=BLUE)
 
     for i, (arm, row) in enumerate(g.iterrows()):
         is_abl = fam[arm] == "ablation"
@@ -206,15 +232,19 @@ def figure5(cells: pd.DataFrame, base: pd.DataFrame, out: Path) -> None:
     ax.set_ylim(-0.7, len(g) + 0.5)
     ax.set_xlim(0.83, 0.995)
     ax.set_xlabel("Mean AUROC over the scoreable genes ($\\it{MLH1}$, $\\it{MSH2}$, $\\it{MSH6}$)")
-    ax.set_title("Every arm, seed-averaged, against the curated-features baseline",
-                 color=INK, loc="left", pad=10)
-    handles = [plt.Line2D([], [], marker="o", ls="none", color=ORANGE, mec="white",
-                          ms=6, label="feature-family ablation"),
-               plt.Line2D([], [], marker="s", ls="none", color=MUTED, mec="white",
+    fig.suptitle("Every arm, seed-averaged, against the curated-features baseline",
+                 color=INK, x=0.005, ha="left", fontsize=9.5)
+    handles = [plt.Line2D([], [], marker="s", ls="none", color=MUTED, mec="white",
                           ms=4.5, label="grid cell"),
                plt.Line2D([], [], color=MUTED, lw=2, label="± 1 SD over seeds")]
-    ax.legend(handles=handles, loc="lower right", labelcolor=INK_2,
-              bbox_to_anchor=(1.0, -0.02))
+    # Only claim the ablation series when there is one. A legend entry with no
+    # points on the axes is a caption that misdescribes its own figure.
+    if (fam == "ablation").any():
+        handles.insert(0, plt.Line2D([], [], marker="o", ls="none", color=ORANGE,
+                                     mec="white", ms=6,
+                                     label="feature-family ablation"))
+    fig.legend(handles=handles, loc="outside lower center", ncol=3,
+               labelcolor=INK_2, columnspacing=1.6)
     fig.savefig(out / "fig5_ablation.png")
     fig.savefig(out / "fig5_ablation.pdf")
     plt.close(fig)
@@ -229,7 +259,7 @@ def figure6(cells: pd.DataFrame, base: pd.DataFrame, out: Path) -> None:
                  ARMS[1][0]: stem.format("frozen"),
                  ARMS[2][0]: stem.format("full")}
 
-    fig, ax = plt.subplots(figsize=(6.6, 3.6))
+    fig, ax = plt.subplots(figsize=(6.6, 3.7), layout="constrained")
     ax.set_axisbelow(True)
     ax.yaxis.grid(True)
     rng = np.random.default_rng(0)
@@ -256,16 +286,222 @@ def figure6(cells: pd.DataFrame, base: pd.DataFrame, out: Path) -> None:
     ax.set_xticks(range(len(GENES)))
     ax.set_xticklabels([f"$\\it{{{g}}}$\nn = {n_holdout[g]}" for g in GENES])
     ax.set_xlim(-0.5, len(GENES) - 0.5)
-    ax.set_ylim(0.785, 1.02)
+    ax.set_ylim(0.775, 1.02)
     ax.set_ylabel("AUROC on the held-out gene")
-    ax.set_title("Per-gene performance across all arms", color=INK, loc="left",
-                 pad=10)
-    ax.legend(loc="lower left", bbox_to_anchor=(0.0, -0.34), ncol=3,
-              handletextpad=0.4, columnspacing=1.6, labelcolor=INK_2)
+    fig.suptitle("Per-gene performance across all arms", color=INK,
+                 x=0.005, ha="left", fontsize=9.5)
+    fig.legend(loc="outside lower center", ncol=3,
+               handletextpad=0.4, columnspacing=1.6, labelcolor=INK_2)
     fig.savefig(out / "fig6_pergene.png")
     fig.savefig(out / "fig6_pergene.pdf")
     plt.close(fig)
 
+
+# --------------------------------------------------------------------------- fig 2
+def figure2(out: Path) -> None:
+    """Dataset composition: what was assembled, what carries a label, what is scored.
+
+    The three panels narrow deliberately. (a) is the assembled table, (b) the
+    labelled subset, (c) the rows any model actually sees. The drop from 74,328
+    to 683 is the paper's central limitation, and a composition figure that
+    stopped at (b) would hide it behind a five-figure count that is real but
+    is not the evaluation cohort.
+    """
+    m = pd.read_csv(MASTER_CSV, low_memory=False)
+    lab = m[m.label.notna()].copy()
+    clin = lab[lab.label_source.isin(CLINICAL_SOURCES)].copy()
+
+    fig, axes = plt.subplots(1, 3, figsize=(7.4, 3.0), layout="constrained",
+                             gridspec_kw={"width_ratios": [1.05, 1.0, 1.15]})
+
+    # (a) evidence-source coverage over the assembled table -------------------
+    ax = axes[0]
+    counts = (m.sources.fillna("").str.split("|").explode()
+              .replace("", np.nan).dropna().value_counts())
+    y = np.arange(len(counts))[::-1]
+    ax.barh(y, counts.to_numpy(), color=MUTED, height=0.68, zorder=2)
+    for yi, v in zip(y, counts.to_numpy()):
+        ax.text(v + counts.max() * 0.02, yi, f"{v:,}", va="center",
+                fontsize=6.8, color=INK_2)
+    ax.set_yticks(y)
+    ax.set_yticklabels([s.replace("_", " ") for s in counts.index], fontsize=7)
+    ax.set_xlim(0, counts.max() * 1.28)
+    ax.set_xticks([])
+    ax.spines["bottom"].set_visible(False)
+    ax.set_title(f"(a)  Evidence sources\n{len(m):,} assembled variants",
+                 fontsize=8.5, loc="left", color=INK)
+
+    # (b) labelled subset by provenance, benign vs pathogenic -----------------
+    ax = axes[1]
+    order = ["dms", "clinvar", "pg_clinical"]
+    order = [s for s in order if s in set(lab.label_source)]
+    h = 0.34
+    for i, (lv, colour, name) in enumerate([(0.0, BLUE, "benign"),
+                                            (1.0, ORANGE, "pathogenic")]):
+        vals = [int(((lab.label_source == s) & (lab.label == lv)).sum())
+                for s in order]
+        yy = np.arange(len(order))[::-1] + (h / 2 if i == 0 else -h / 2)
+        ax.barh(yy, vals, height=h, color=colour, label=name, zorder=2)
+        for yi, v in zip(yy, vals):
+            ax.text(v * 1.35, yi, f"{v:,}", va="center", fontsize=6.6, color=INK_2)
+    ax.set_xscale("log")
+    ax.set_xlim(1, 10 ** 5.4)
+    ax.set_yticks(np.arange(len(order))[::-1])
+    ax.set_yticklabels([LABEL_SOURCE_NAMES.get(s, s) for s in order], fontsize=7)
+    ax.set_xlabel("variants (log scale)", fontsize=7.5)
+    ax.xaxis.grid(True)
+    ax.set_axisbelow(True)
+    ax.set_title(f"(b)  Labelled subset\n{len(lab):,} of {len(m):,} carry a label",
+                 fontsize=8.5, loc="left", color=INK)
+    # Direct labels rather than a legend: the panel has two series and no room
+    # for a box that does not overlap a value.
+    row_dms = (len(order) - 1) - order.index("dms")
+    # Inside the bar, in white: the only placement on a log axis that cannot
+    # collide with the value label to its right.
+    ax.text(1.7, row_dms + h / 2, "benign", fontsize=6.8, color="white",
+            va="center", ha="left", fontweight="bold")
+    ax.text(1.7, row_dms - h / 2, "pathogenic", fontsize=6.8, color="white",
+            va="center", ha="left", fontweight="bold")
+    ax.text(1.3, row_dms - 0.43, "a single MSH2 assay", fontsize=6.4,
+            style="italic", color=INK_2, va="center")
+
+    # (c) the cohort leave-one-gene-out actually scores ------------------------
+    ax = axes[2]
+    x = np.arange(len(GENES))
+    bottoms = np.zeros(len(GENES))
+    bars = [("clinvar", 0.0, BLUE, "", "ClinVar benign"),
+            ("pg_clinical", 0.0, BLUE, "///", "PG-clinical benign"),
+            ("clinvar", 1.0, ORANGE, "", "ClinVar pathogenic"),
+            ("pg_clinical", 1.0, ORANGE, "///", "PG-clinical pathogenic")]
+    for src, lv, colour, hatch, name in bars:
+        vals = np.array([int(((clin.gene == g) & (clin.label_source == src)
+                              & (clin.label == lv)).sum()) for g in GENES],
+                        dtype=float)
+        ax.bar(x, vals, bottom=bottoms, color=colour, hatch=hatch, width=0.66,
+               edgecolor="white", linewidth=0.7, label=name, zorder=2)
+        bottoms += vals
+    for xi, tot in zip(x, bottoms):
+        ax.text(xi, tot + 4, f"{int(tot)}", ha="center", fontsize=7, color=INK_2)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"$\\it{{{g}}}$" for g in GENES])
+    ax.set_ylabel("clinical labels", fontsize=7.5)
+    ax.set_ylim(0, bottoms.max() * 1.62)
+    ax.yaxis.grid(True)
+    ax.set_axisbelow(True)
+    ax.legend(fontsize=6.4, loc="upper left", handlelength=1.5,
+              labelcolor=INK_2, borderpad=0.3, labelspacing=0.3)
+    ax.set_title(f"(c)  Scored under LOPO\n{len(clin):,} clinical labels",
+                 fontsize=8.5, loc="left", color=INK)
+
+    fig.savefig(out / "fig2_composition.png")
+    fig.savefig(out / "fig2_composition.pdf")
+    plt.close(fig)
+
+
+# --------------------------------------------------------------------------- fig 4
+def _reliability(prob: np.ndarray, truth: np.ndarray, n_bins: int = 10):
+    """Mean predicted probability and observed frequency per equal-width bin."""
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    idx = np.clip(np.digitize(prob, edges[1:-1]), 0, n_bins - 1)
+    xs, ys, ns = [], [], []
+    for b in range(n_bins):
+        sel = idx == b
+        if sel.sum() == 0:
+            continue
+        xs.append(float(prob[sel].mean()))
+        ys.append(float(truth[sel].mean()))
+        ns.append(int(sel.sum()))
+    return np.array(xs), np.array(ys), np.array(ns)
+
+
+def figure4(out: Path) -> None:
+    """Reliability of the headline arm before and after calibration, and its
+    confusion matrix at the selected threshold.
+
+    Reads ``calibration_probs.csv`` / ``calibration_panel.csv`` rather than
+    recalibrating here, so the picture and Table 5 cannot disagree. PMS2 is
+    excluded from the pooled curve for the reason it is excluded from every
+    mean in this paper: 21 held-out variants, 4 of them negative.
+    """
+    probs = pd.read_csv(CALIB_PROBS)
+    panel = pd.read_csv(CALIB_PANEL)
+
+    arm_probs = probs[(probs.cell_slug == HEADLINE_CELL)
+                      & (probs.holdout_gene.isin(SCOREABLE))]
+    arm_panel = panel[(panel.cell_slug == HEADLINE_CELL)
+                      & (panel.holdout_gene.isin(SCOREABLE))]
+    if arm_probs.empty:
+        raise SystemExit(
+            f"{CALIB_PROBS.name} carries no rows for {HEADLINE_CELL}; "
+            "run scripts/recalibrate_grid.py first.")
+
+    series = [("uncalibrated", BLUE, "o"), ("temperature", ORANGE, "s"),
+              ("isotonic", AQUA, "^")]
+
+    fig, axes = plt.subplots(1, 2, figsize=(6.6, 3.2), layout="constrained",
+                             gridspec_kw={"width_ratios": [1.35, 1.0]})
+
+    # (a) reliability ---------------------------------------------------------
+    ax = axes[0]
+    ax.plot([0, 1], [0, 1], ls=(0, (4, 3)), lw=0.9, color=MUTED, zorder=1)
+    ax.text(0.62, 0.55, "perfect", fontsize=6.8, color=MUTED, rotation=38,
+            style="italic")
+    for name, colour, marker in series:
+        d = arm_probs[arm_probs.method == name]
+        if d.empty:
+            continue
+        xs, ys, ns = _reliability(d["prob"].to_numpy(), d["label"].to_numpy())
+        ax.plot(xs, ys, marker=marker, ms=4.6, lw=1.4, color=colour,
+                mec="white", mew=0.8, zorder=3)
+        ece = arm_panel.loc[arm_panel.method == name, "ece_uniform"].mean()
+        ax.plot([], [], marker=marker, ms=4.6, lw=1.4, color=colour,
+                label=f"{name}  (ECE {ece:.3f})")
+    ax.set_xlim(-0.03, 1.03)
+    ax.set_ylim(-0.03, 1.03)
+    ax.set_xlabel("mean predicted probability")
+    ax.set_ylabel("observed fraction pathogenic")
+    ax.xaxis.grid(True)
+    ax.yaxis.grid(True)
+    ax.set_axisbelow(True)
+    ax.legend(loc="upper left", fontsize=7, labelcolor=INK_2)
+    ax.set_title("(a)  Reliability, held-out genes pooled",
+                 fontsize=8.5, loc="left", color=INK)
+
+    # (b) confusion at the selected threshold ---------------------------------
+    ax = axes[1]
+    best = "temperature" if (arm_panel.method == "temperature").any() else "uncalibrated"
+    row = arm_panel[arm_panel.method == best]
+    tn, fp = int(row.tval_tn.sum()), int(row.tval_fp.sum())
+    fn, tp = int(row.tval_fn.sum()), int(row.tval_tp.sum())
+    cm = np.array([[tn, fp], [fn, tp]], dtype=float)
+    row_totals = cm.sum(axis=1, keepdims=True)
+    # A row of zeros (no true-benign or no true-pathogenic examples at all in
+    # the pooled held-out genes) would otherwise divide 0/0 into NaN and let
+    # imshow render an undefined cell silently rather than failing loudly.
+    if (row_totals == 0).any():
+        raise ValueError(
+            "figure4: confusion-matrix row has zero examples "
+            f"(row_totals={row_totals.ravel().tolist()}); cannot normalise.")
+    rates = cm / row_totals
+
+    ax.imshow(rates, cmap="Blues", vmin=0, vmax=1)
+    for i in range(2):
+        for j in range(2):
+            ax.text(j, i, f"{int(cm[i, j])}\n{rates[i, j]:.0%}", ha="center",
+                    va="center", fontsize=8.5,
+                    color="white" if rates[i, j] > 0.55 else INK)
+    ax.set_xticks([0, 1], ["called\nbenign", "called\npathogenic"], fontsize=7.5)
+    ax.set_yticks([0, 1], ["benign", "pathogenic"], fontsize=7.5)
+    ax.set_ylabel("true label", fontsize=7.5)
+    for s in ax.spines.values():
+        s.set_visible(False)
+    ax.tick_params(length=0)
+    ax.set_title(f"(b)  Confusion, {best}\nrow-normalised, n = {int(cm.sum())}",
+                 fontsize=8.5, loc="left", color=INK)
+
+    fig.savefig(out / "fig4_calibration.png")
+    fig.savefig(out / "fig4_calibration.pdf")
+    plt.close(fig)
 
 def check_provenance(strict: bool) -> None:
     """Refuse to plot cells that were not computed on the same data and splits.
@@ -313,11 +549,22 @@ def main() -> None:
     cells, base = load_cells(), load_baseline()
     print(f"{cells.cell_slug.nunique()} cells + baseline; "
           f"{len(cells)} cell-gene rows")
+    figure2(args.out_dir)
     figure3(cells, base, args.out_dir)
     figure5(cells, base, args.out_dir)
     figure6(cells, base, args.out_dir)
+    if CALIB_PROBS.exists() and CALIB_PANEL.exists():
+        figure4(args.out_dir)
+    else:
+        print("  skipping fig 4: run scripts/recalibrate_grid.py first")
     for f in sorted(args.out_dir.glob("fig*")):
-        print(f"  {f.relative_to(ROOT)}  {f.stat().st_size / 1024:.0f} KB")
+        # --out_dir may be given relative, in which case it is not under ROOT
+        # as written; resolve before asking for the repo-relative name.
+        try:
+            name = f.resolve().relative_to(ROOT)
+        except ValueError:
+            name = f
+        print(f"  {name}  {f.stat().st_size / 1024:.0f} KB")
 
 
 if __name__ == "__main__":

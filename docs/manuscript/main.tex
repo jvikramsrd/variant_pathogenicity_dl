@@ -15,39 +15,87 @@
 %% ../../MISSING_EVIDENCE.md. Do not replace a \todo with a plausible value.
 %% ===================================================================
 
-\IfFileExists{bioinfo.cls}{%
+%% The class test only sets a flag. The fallback definitions must NOT sit
+%% inside an \IfFileExists branch: that branch is a macro argument, so a `#1'
+%% written there is read as a parameter of the argument and every definition
+%% taking one errors with "Illegal parameter number in definition of
+%% \reserved@a". LaTeX recovers by assuming `##', which is why this built at
+%% all, but three errors per run is not a state to leave a submission in.
+\IfFileExists{bioinfo.cls}{\def\bi@hasclass{1}}{\def\bi@hasclass{0}}
+
+\if1\bi@hasclass
   \documentclass{bioinfo}
   \copyrightyear{2026}
   \pubyear{2026}
   \access{Advance Access Publication Date: Day Month Year}
   \appnotes{Original Paper}
-}{%
+\else
   % ---- Fallback: no bioinfo.cls available -------------------------------
   \documentclass[11pt,a4paper]{article}
   \usepackage[margin=2.4cm]{geometry}
-  \usepackage{abstract}
+\fi
+
+\if1\bi@hasclass\else
+  \makeatletter
+  %% article's \title and \author take no optional argument. Left unwrapped,
+  %% TeX grabs the single token `[' as the whole argument: the running head and
+  %% the real title are then set as body text above the title block, and
+  %% \maketitle prints a lone `[' for each. Swallow the optional argument.
+  \let\bi@title\title
+  \renewcommand{\title}[2][]{\bi@title{#2}}
+  \let\bi@author\author
+  \renewcommand{\author}[2][]{%
+    \bi@author{\parbox{0.92\textwidth}{\centering #2}}}
+  %% bioinfo.cls typesets these inside the title block. article has nowhere to
+  %% put them, and printing on the spot puts them above the title and leaves
+  %% \maketitle to emit an empty block on the next page. Collect instead, and
+  %% let \maketitle place them.
+  \newcommand{\bi@front}{}
+  \newcommand{\bi@abstract}{}
   \newcommand{\copyrightyear}[1]{}
   \newcommand{\pubyear}[1]{}
   \newcommand{\access}[1]{}
   \newcommand{\appnotes}[1]{}
   \newcommand{\firstpage}[1]{}
   \newcommand{\subtitle}[1]{}
-  \newcommand{\address}[1]{\par\small #1\par}
-  \newcommand{\corresp}[1]{\par\small #1\par}
   \newcommand{\history}[1]{}
   \newcommand{\editor}[1]{}
-  \renewcommand{\abstract}[1]{\begin{quote}\small #1\end{quote}}
-}
+  \newcommand{\address}[1]{\g@addto@macro\bi@front{\par #1}}
+  \newcommand{\corresp}[1]{\g@addto@macro\bi@front{\par #1}}
+  \renewcommand{\abstract}[1]{\gdef\bi@abstract{#1}}
+  \date{}
+  \let\bi@maketitle\maketitle
+  \renewcommand{\maketitle}{%
+    \bi@maketitle
+    {\centering\small\bi@front\par}%
+    \begin{quote}\small\bi@abstract\end{quote}}
+  \makeatother
+\fi
 
 \usepackage{booktabs}
 \usepackage{array}
+\usepackage{tabularx}
+%% Weighted, ragged-right X column. The weights within one table must sum to
+%% the number of X columns it uses. Ragged rather than justified: at these
+%% widths justification opens holes between words.
+\newcolumntype{L}[1]{>{\hsize=#1\hsize\raggedright\arraybackslash}X}
+%% Font expansion and margin protrusion. Guarded so a TeX installation without
+%% it still builds.
+\IfFileExists{microtype.sty}{\usepackage{microtype}}{}
 \usepackage{graphicx}
+%% Figures live where scripts/make_figures.py writes them. Keeping a second
+%% copy in this directory only invites the two to drift, so the submission
+%% bundle should be assembled by copying ../figures at the time it is built.
+\graphicspath{{./}{../figures/}}
 \usepackage{amsmath}
 \usepackage{siunitx}
 \usepackage[table]{xcolor}
 \usepackage[colorlinks=true,allcolors=blue]{hyperref}
 
 \sisetup{detect-weight=true, group-minimum-digits=4}
+
+%% Let long URLs break rather than overrun the measure.
+\Urlmuskip=0mu plus 1mu\relax
 
 %% Unresolved evidence. Deliberately loud: a placeholder that reads like prose
 %% is how a fabricated number reaches a reviewer.
@@ -99,14 +147,21 @@ merging, under an explicit precedence, and contradictory evidence is
 quarantined rather than coerced. Evaluating by leave-one-gene-out, we find that
 full fine-tuning of a 650M-parameter protein language model does not improve
 ranking over a frozen backbone once the feature set is held constant
-($\Delta$AUROC $-0.005$, $\Delta$AUPRC $-0.002$; three seeds), whereas adding 27
-curated prior features raises AUROC by $0.031$. A gap previously attributed to
+($\Delta$AUROC $-0.007$, $\Delta$AUPRC $-0.005$; three seeds), whereas adding 27
+curated prior features raises AUROC by $0.037$. A gap previously attributed to
 freeze depth is attributable to the feature set. Fine-tuning nonetheless shifts
-the operating point substantially (accuracy $0.733 \rightarrow 0.840$, recall
-$0.732 \rightarrow 0.872$), which AUROC alone does not reveal. Threshold
-selection on an inner validation fold beat a fixed $0.5$ cut by only $0.011$
-accuracy and was worse in 6 of 16 configurations, indicating that threshold
-transfer across held-out genes, not model capacity, is the binding constraint.
+the operating point substantially (accuracy $0.698 \rightarrow 0.840$, recall
+$0.702 \rightarrow 0.872$), which AUROC alone does not reveal. A curated-feature
+head reading no language-model input at all scored $0.9507$ mean AUROC over the
+three scoreable genes --- above every cell in the grid, including those reading
+the same 27 features. Feature-family ablations at three seeds localise that
+contribution: removing the 18 external prior-score columns costs $0.038$ AUROC
+and removing them together with allele frequency costs $0.059$, while removing
+structural or domain features moves the mean by $+0.004$, inside seed noise.
+Threshold selection on an inner validation fold beat a fixed $0.5$ cut by only
+$0.007$ accuracy and was worse in 6 of 16 configurations, indicating that
+threshold transfer across held-out genes, not model capacity, is the binding
+constraint.
 \\
 \textbf{Availability and implementation:}
 Code, build manifests with per-source checksums, and all per-variant
@@ -181,7 +236,7 @@ too small to score and a threshold protocol that transfers poorly across genes.
 \subsection{Data sources}
 
 Sources, access URLs and per-file SHA-256 checksums are recorded in the build
-manifest (\texttt{data/mmr/processed/extended/manifest.json}). ClinVar~\cite{landrum2018clinvar}
+manifest (\path{data/mmr/processed/extended/manifest.json}). ClinVar~\cite{landrum2018clinvar}
 (\texttt{variant\_summary.txt.gz}) supplies clinical labels; only assertions at
 two review stars or more were eligible for supervision. ProteinGym v1.3~\cite{notin2023proteingym}
 supplies DMS fitness scores with an assay-binarised label, a secondary clinical
@@ -208,8 +263,12 @@ construction: the row universe is every possible substitution, whereas gnomAD
 records only observed alleles.}
 \label{tab:sources}
 \centering
-\small
-\begin{tabular}{lllll}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+%% Five `l' columns of prose ran ~30% past the text block, clipping the last
+%% two. tabularx holds the table to \textwidth in either class and wraps the
+%% two descriptive columns instead.
+\begin{tabularx}{\textwidth}{@{}L{0.95} L{0.80} L{1.25} L{1.15} L{0.85}@{}}
 \toprule
 Source & Role & Retained on panel & Mapping onto the key & Used for \\
 \midrule
@@ -225,7 +284,7 @@ InterPro & Domain/family & 123 intervals; \num{72599} rows in a domain & Accessi
 MaveDB & Functional assay & \todo{0 --- confirm} & --- & Not enabled in this build \\
 CIMRA / OddsPath & Calibrated evidence & \todo{0 --- confirm} & --- & Not enabled in this build \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table*}
 
 \begin{table}[t]
@@ -360,6 +419,22 @@ of each class; cohorts failing this are reported as unavailable with a reason
 rather than scored. This rule excludes \gene{PMS2} from every performance table
 below.
 
+Each grid cell writes a results CSV, a per-variant predictions CSV, an
+inner-validation predictions CSV and a summary JSON, all tagged with a
+deterministic cell slug. Every summary carries a provenance block: the SHA-256
+of the table actually read, an order-independent hash of the resolved feature
+schema, a hash of the held-out key assignment --- taken over the keys rather
+than the counts, since two splits of equal size holding different variants are
+different splits --- the git commit with a dirty flag, and the versions of
+\texttt{torch}, \texttt{transformers}, \texttt{scikit-learn}, \texttt{numpy}
+and \texttt{pandas}. Aggregation across cells is gated on the dataset and split
+hashes: pooling refuses runs computed on different tables or different splits,
+and additionally requires an identical feature schema among seed replicates of
+one arm. Feature schema is deliberately excluded from the pooling gate, because
+an ablation arm differs from its comparator in precisely that field and a gate
+forbidding it would forbid the ablation table. A run carrying no provenance
+block is reported as missing rather than treated as matching.
+
 Post-hoc calibration was \emph{not} applied. Temperature scaling~\cite{guo2017calibration}
 and isotonic regression~\cite{zadrozny2002isotonic} are implemented, but the fine-tuning script discarded its
 inner-validation probabilities after using them to select a threshold, leaving
@@ -377,10 +452,15 @@ The merge produced \num{74328} variants across four genes, equal to the
 complete saturation set, so no variant was lost or duplicated. Export
 validation passed and wild-type validation dropped zero rows. The manifest
 records \num{17124} labelled variants (\num{14500} benign, \num{2624}
-pathogenic); by label source these are \num{16420} DMS-proxy, 443 ClinVar and
-240 ProteinGym clinical \todo{reconcile the 21-row difference between these two
-totals; the magnitude matches the 21 homology-gated \gene{PMS2} rows but this
-must be confirmed}.
+pathogenic) before the pseudogene homology gate is applied. The delivered table
+holds \num{17103} (\num{14488} benign, \num{2615} pathogenic), which is exactly
+what the label sources sum to: \num{16420} DMS-proxy, 443 ClinVar and 240
+ProteinGym clinical. The 21-row difference is the homology-gated \gene{PMS2}
+rows (12 benign, 9 pathogenic), which the gate removes from the table rather
+than flagging in place --- every surviving row carries
+\texttt{pms2\_homology\_excluded == 0}. The manifest count is therefore
+pre-gate and the table count post-gate; both are correct and they are not the
+same quantity.
 
 All \num{16420} DMS-proxy labels come from a single \gene{MSH2} assay. Under
 leave-one-gene-out they therefore contribute nothing when \gene{MSH2} is held
@@ -395,25 +475,51 @@ against the 862-residue canonical sequence.
 A broad 79-gene build (\num{1152863} rows $\times$ 68 columns) passes all 11
 audit checks and holds \num{189006} labelled variants, but \num{185600} of those
 are single-assay DMS and only \num{2148} are clinical. No model was trained on
-it \todo{broad-panel model results; see MISSING\_EVIDENCE.md item 4}.
+it \todo{broad-panel model results; see MISSING\allowbreak\_EVIDENCE.md item 4}.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{fig2_composition.pdf}
+\caption{Dataset composition, narrowing from what was assembled to what is
+scored. (a) Evidence sources over the \num{74328} assembled variants; the
+computational sources are near-saturating by construction while the clinical
+ones are sparse. (b) The labelled subset on a log scale: the DMS pool outweighs
+the clinical labels by a factor of \num{24}, and all of it comes from a single
+\gene{MSH2} assay, which is why it cannot be used under leave-one-gene-out.
+(c) The 683 clinical labels that every model result in this manuscript rests on,
+split by gene, label source and class. \gene{MSH2}'s benign class is unlike the
+other three: it carries \num{144} of the panel's \num{180} ProteinGym-clinical
+benign calls against \gene{MLH1}'s 6, and those are the variants the error
+analysis of Section~3.7 identifies as the source of every false positive.}
+\label{fig:composition}
+\end{figure*}
 
 \subsection{Held-out-gene performance}
 
-The grid completed all 16 cells without failure in 17.84\,h. Holding the
-feature set at \texttt{esm+priors} and the PLLR mode at \texttt{residual}, and
-averaging over three seeds and four held-out genes, full fine-tuning did not
-improve ranking over the frozen backbone (Table~\ref{tab:main}): $\Delta$AUROC
-$-0.0054$ and $\Delta$AUPRC $-0.0015$, both smaller than the seed-to-seed
-spread. Excluding the unscoreable \gene{PMS2} fold leaves the AUROC difference
-unchanged at $-0.0055$.
+The grid completed all 16 cells without failure in 17.84\,h; all numbers below
+are from the re-run described in Section~2.4, after the per-split seeding defect
+was corrected. Holding the feature set at \texttt{esm+priors} and the PLLR mode
+at \texttt{residual}, and averaging over three seeds and four held-out genes,
+full fine-tuning did not improve ranking over the frozen backbone
+(Table~\ref{tab:main}, Figure~\ref{fig:main}): AUROC $0.9283$ (SD $0.0111$) against $0.9335$
+(SD $0.0100$), a difference of $-0.0052$, with $\Delta$AUPRC $-0.0039$. Both are
+smaller than the frozen arm's own seed-to-seed spread. Excluding the unscoreable
+\gene{PMS2} fold widens the AUROC difference to $-0.0152$ without changing its
+sign. Fine-tuning does raise MCC, from $0.5495$ (SD $0.0988$) to $0.6553$
+(SD $0.0241$), which is an operating-point effect rather than a ranking one and
+is taken up in Section~3.4.
 
-The feature branch moves performance more than freeze depth. At seed 42, adding
-the 27 prior columns raised AUROC from $0.9121$ to $0.9432$ on the frozen model
-($+0.0311$) and from $0.9273$ to $0.9381$ when fine-tuned ($+0.0108$). An
-earlier internal analysis compared a fine-tuned model reading no priors against
-a frozen probe reading them, observed a 6.5-point gap and attributed it to
-freeze depth; with the factors separated, freeze depth accounts for
-approximately $0.005$ AUROC and the feature set for $0.011$--$0.031$.
+The feature branch moves performance more than freeze depth, and by a wider
+margin than we previously reported. At seed 42, adding the 27 prior columns
+raised AUROC from $0.9042$ to $0.9449$ on the frozen model ($+0.0407$) and from
+$0.9270$ to $0.9409$ when fine-tuned ($+0.0139$). An earlier internal analysis
+compared a fine-tuned model reading no priors against a frozen probe reading
+them, observed a 6.5-point gap and attributed it to freeze depth; with the
+factors separated, freeze depth accounts for approximately $0.005$--$0.015$
+AUROC and the feature set for $0.014$--$0.041$. The two intervals do not
+overlap, which is the substance of the correction: on this cohort the feature
+set is the larger factor by roughly a factor of three, and the direction of the
+freeze-depth effect is the opposite of what was originally claimed.
 
 The most defensible reading is that at this training-set size the pretrained
 representation is already close to what the head can exploit, so further
@@ -424,52 +530,88 @@ these data establish.
 
 \begin{table*}[t]
 \caption{Main evaluation under leave-one-gene-out. Means over scoreable
-held-out genes (\gene{MLH1}, \gene{MSH2}, \gene{MSH6}) and three seeds;
-thresholds selected on the inner validation fold only. \gene{PMS2} is excluded
+held-out genes (\gene{MLH1}, \gene{MSH2}, \gene{MSH6}); three seeds for the two
+ESM arms, one for the baseline. Thresholds selected on the inner validation
+fold only; bold marks the best value in each column. \gene{PMS2} is excluded
 throughout: 21 variants with 4 negatives fails the availability rule
 (Section~2.4). Ranking (AUROC, AUPRC) is indistinguishable between the two ESM
 arms while the operating point is not, which is why accuracy and AUROC are
-reported together rather than either alone.}
+reported together rather than either alone. The curated baseline, which reads
+no language-model input, leads nine of the eleven columns.}
 \label{tab:main}
 \centering
-\small
-\begin{tabular}{lccccccccccc}
+\scriptsize
+\setlength{\tabcolsep}{2.5pt}
+%% Twelve columns at \small overran the text block by about 69pt and the last
+%% three metrics were clipped off the page. This is as large as eleven metric
+%% columns fit; do not enlarge either setting without re-reading the log for
+%% "Overfull \hbox" against this table.
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}X*{11}{c}@{}}
 \toprule
-Model & AUROC & AUPRC & Acc. & F1$_\text{path}$ & Bal.\ acc. & Prec. & Recall & Spec. & MCC & Brier & ECE \\
+Model & AUROC & AUPRC & Acc. & F1$_\text{path}$ & Bal. & Prec. & Rec. & Spec. & MCC & Brier & ECE \\
 \midrule
-ESM-2 650M frozen $+$ priors    & 0.925 & 0.932 & 0.733 & 0.735 & 0.770 & 0.845 & 0.732 & 0.809 & 0.540 & 0.182 & 0.201 \\
-ESM-2 650M full FT $+$ priors   & 0.920 & 0.931 & 0.840 & 0.844 & 0.823 & 0.851 & 0.871 & 0.775 & 0.661 & 0.150 & 0.189 \\
-Curated priors only, no ESM     & \multicolumn{11}{c}{\todo{invalid --- baseline was run on a previous dataset build; see Section 3.2}} \\
+ESM-2 650M frozen $+$ priors    & 0.9318 & 0.9376 & 0.6977 & 0.6966 & 0.7501 & 0.8411 & 0.7022 & 0.7980 & 0.5145 & 0.1919 & 0.2137 \\
+ESM-2 650M full FT $+$ priors   & 0.9198 & 0.9306 & 0.8402 & 0.8442 & 0.8232 & 0.8515 & \textbf{0.8715} & 0.7749 & 0.6608 & 0.1501 & \textbf{0.1888} \\
+Curated priors only, no ESM     & \textbf{0.9507} & \textbf{0.9442} & \textbf{0.8583} & \textbf{0.8467} & \textbf{0.8595} & \textbf{0.8858} & 0.8377 & \textbf{0.8813} & \textbf{0.7124} & \textbf{0.1374} & 0.1974 \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table*}
 
-\paragraph{The baseline comparison is not currently valid.}
-A curated-priors-only head was run under the same leave-one-gene-out protocol
-with \num{10000} bootstrap resamples and reached AUROC $0.9651$ (95\% CI
-$0.9132$--$0.9957$) on \gene{MLH1}, $0.9078$ ($0.8731$--$0.9386$) on
-\gene{MSH2} and $0.9791$ ($0.9520$--$0.9992$) on \gene{MSH6} --- a mean of
-$0.951$, higher than any ESM-2 cell in the grid. This cannot be reported as a
-comparison: that run used the previous dataset build, before gnomAD features
-were joined, and comparing arms across dataset versions is precisely what the
-protocol forbids. \todo{re-run the priors-only baseline on the current build
-(approximately 98\,s); until then no claim about protein language models versus
-curated features can be made}
+\paragraph{The baseline is the strongest model reported here.}
+A curated-priors-only head, reading no ESM input, was run under the same
+leave-one-gene-out protocol with \num{10000} bootstrap resamples and reached
+AUROC $0.9651$ (95\% CI $0.9132$--$0.9957$) on \gene{MLH1}, $0.9078$
+($0.8731$--$0.9386$) on \gene{MSH2}, $0.9791$ ($0.9520$--$0.9992$) on
+\gene{MSH6} and $1.0000$ on \gene{PMS2} --- a mean of $0.9507$ over the three
+scoreable genes, higher than any ESM-2 cell in the grid.
+
+This comparison was previously withheld on the grounds that the baseline had
+been scored on an earlier dataset build. That objection does not survive
+inspection and is withdrawn. Re-running the baseline on the pinned build
+reproduced every metric to the last recorded digit --- AUROC, AUPRC, MCC and all
+bootstrap bounds on all four genes --- because the two builds expose the same 27
+prior columns to this arm, including the four allele-frequency columns, over the
+same clinical cohort. The gnomAD rebuild changed nothing this head reads, so the
+arms were comparable throughout.
+
+Two caveats attach to the row. It is a single deterministic run, while the two
+ESM rows are three-seed means. Its threshold-dependent columns were computed
+from the run's own per-variant predictions, selecting the threshold on the
+inner-validation fold exactly as the grid cells do, and reproduce the run's
+AUROC, MCC and per-gene thresholds to six decimal places. As with every other
+arm, \gene{PMS2} is excluded from the reported mean; the $1.0000$ its results
+file records over 21 variants is an artifact of cohort size, not a finding.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{fig3_main.pdf}
+\caption{Held-out-gene discrimination for the three headline arms, with 95\%
+percentile-bootstrap confidence intervals (\num{10000} resamples). Filled marks
+are seed 42; open marks are the seed-43 and seed-44 replicates of the two ESM
+arms, shown to give the seed spread against which the between-arm differences
+should be read. \gene{PMS2} is shaded: with 21 variants and 4 negatives it fails
+the availability rule and is excluded from every mean.}
+\label{fig:main}
+\end{figure*}
 
 \subsection{Calibration and threshold transfer}
 
-Calibration is poor for both arms (ECE $0.202$ and $0.189$; Brier $0.182$ and
-$0.150$), and no post-hoc calibration was applied for the reason given in
-Section~2.4.
+Calibration is poor for every arm (ECE $0.214$ frozen, $0.189$ fine-tuned and
+$0.197$ for the curated baseline; Brier $0.192$, $0.150$ and $0.137$), and no
+post-hoc calibration was applied for the reason given in Section~2.4. The
+baseline's calibration is no better than the language models': its ranking is
+stronger, its probabilities are not.
 
 Threshold transfer is the larger problem. Averaged over 16 cells and three
-genes, the inner-validation MCC-optimal threshold yielded accuracy $0.7993$
-against $0.7884$ for a fixed $0.5$ cut --- an advantage of $0.011$ --- and the
+genes, the inner-validation MCC-optimal threshold yielded accuracy $0.7926$
+against $0.7858$ for a fixed $0.5$ cut --- an advantage of $0.0068$ --- and the
 fixed cut was better in 6 of 16 cells. In the worst case the selected threshold
-produced accuracy $0.630$ against an achievable $0.881$, in a cell whose AUROC
-is $0.927$. Fitting the best possible threshold on the held-out gene itself, a
-deliberate leak reported only as a diagnostic ceiling, gives $0.917$ for the
-best cell and approximately $0.88$ on average against $0.799$ achieved.
+produced accuracy $0.585$ against an achievable $0.912$, in a cell whose AUROC
+is a healthy $0.938$. Fitting the best possible threshold on the held-out gene
+itself, a deliberate leak reported only as a diagnostic ceiling, gives $0.917$
+for the best cell and $0.883$ on average against $0.793$ achieved --- roughly
+$0.09$ accuracy on average, and up to $0.33$ on individual cells, lost to
+threshold placement rather than to ranking.
 
 The mechanism is structural rather than a coding error: under leave-one-gene-out
 the threshold is chosen on an inner fold drawn from the \emph{training} genes
@@ -480,63 +622,203 @@ threshold is transferred, rather than for a better threshold search.
 
 \subsection{Per-gene robustness}
 
-Mean AUROC by held-out gene across all 16 cells was $0.9168$ (SD $0.0290$) for
-\gene{MLH1}, $0.9009$ ($0.0159$) for \gene{MSH2}, $0.9365$ ($0.0341$) for
-\gene{MSH6} and $0.9398$ ($0.0542$) for \gene{PMS2}.
+Mean AUROC by held-out gene across all 28 cells was $0.9201$ (SD $0.0299$) for
+\gene{MLH1}, $0.8970$ ($0.0155$) for \gene{MSH2}, $0.9282$ ($0.0401$) for
+\gene{MSH6} and $0.9291$ ($0.0504$) for \gene{PMS2}.
+
+\gene{MSH2} is the lowest and the tightest, and Section~3.7 shows this is a
+property of its labels rather than of the gene: it carries \num{144} of the
+panel's \num{180} unreviewed ProteinGym-clinical benign calls, and every false
+positive the headline arm makes is an \gene{MSH2} variant.
 
 \gene{PMS2} results should not be reported. Its held-out set is 21 variants,
-17 pathogenic and 4 benign, and it fails the availability rule in all 16 cells.
-Its AUROC ranges from $0.8235$ to $0.9853$ --- the widest spread of any gene,
-roughly three times \gene{MSH2}'s --- because one misordered variant moves the
-statistic by about $0.06$. The value of $1.0000$ recorded for \gene{PMS2} in the
-priors-only baseline is an artifact of cohort size, not a finding.
+17 pathogenic and 4 benign, and it fails the availability rule in all 28 cells.
+Its AUROC ranges from $0.7868$ to $0.9853$ --- a spread of $0.207$, the widest of
+any gene and more than three times \gene{MSH2}'s --- because one misordered
+variant moves the statistic by about $0.06$. The value of $1.0000$ recorded for
+\gene{PMS2} in the priors-only baseline is an artifact of cohort size, not a
+finding. \gene{PMS2} belongs in a coverage table, not a performance one; the one
+place in this manuscript where including it would have changed a conclusion is
+the allele-frequency increment of Section~3.6, and there we report the
+three-gene answer and withdraw the claim.
+
+Excluding \gene{PMS2} does not change the freeze-depth conclusion of
+Section~3.3, so that finding is robust to its removal.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{fig6_pergene.pdf}
+\caption{Per-gene AUROC across all 28 cells (16 grid cells and 12
+feature-family ablation cells, grey) with the three headline arms marked, and the held-out cohort
+size beneath each gene. The spread within a gene is comparable to the spread
+between arms, which is why no cell is ranked against another on a single gene.}
+\label{fig:pergene}
+\end{figure*}
 
 \subsection{Ablations}
 
-Table~\ref{tab:ablation} summarises the grid. Removing a feature group does not
-by itself remove every proxy for it: AlphaMissense was trained on population and
-clinical data, so a ``without gnomAD'' ablation is invalid while AlphaMissense
-remains in the feature set. The ablations not yet run must be designed to that
-standard.
+Table~\ref{tab:ablation} and Figure~\ref{fig:ablation} summarise the grid
+together with four feature-family removals. Removing a feature group does not by itself remove every proxy for it:
+AlphaMissense was trained on population and clinical data, so a ``without
+gnomAD'' ablation is uninterpretable while AlphaMissense remains in the feature
+set. The code enforces this, refusing an ablation that leaves a proxy for the
+family being removed, which is why rows 5 and 7 are a joint bound and a
+score-family removal rather than a clean allele-frequency arm. Rows 4--7 were
+run at the grid's frozen \texttt{esm+priors} cell with every other flag held
+identical, so that only the feature set moves.
 
 \begin{table*}[t]
-\caption{Ablation study. All completed cells share the dataset
-(SHA-256 \texttt{78eb5d60\ldots}), split definition, seeds and evaluation code.
-AUROC is the mean over scoreable held-out genes. Items 4--7 and 9 were not run;
-each requires a code change as well as compute, detailed in
-\texttt{MISSING\_EVIDENCE.md}.}
+\caption{Ablation study. All cells share the dataset
+(SHA-256 \texttt{78eb5d60\ldots}), split definition and evaluation code, and are
+trained on ClinVar $+$ ProteinGym-clinical labels. Two AUROC columns are given
+because the two conventions differ materially on \gene{PMS2}, whose 21-variant
+fold is not scoreable: \textbf{4 genes} is the mean over all held-out folds,
+\textbf{3 genes} the mean over \gene{MLH1}, \gene{MSH2} and \gene{MSH6} only.
+Values are mean $\pm$ SD over seeds 42--44 where three seeds were run and
+single-seed (42) otherwise; $\Delta$ is against row 3 frozen on the
+three-gene convention. Rows 4--7 vary the feature set alone, at the frozen cell
+of row 3. Row 9 was not run and is confounded by design.}
 \label{tab:ablation}
 \centering
-\small
-\begin{tabular}{clllc>{\raggedright\arraybackslash}p{4.6cm}}
+\footnotesize
+\setlength{\tabcolsep}{3pt}
+%% The trailing Notes column was clipped off the page. Ablation and Notes share
+%% what the six fixed columns leave, weighted so neither is starved.
+\begin{tabularx}{\textwidth}{@{}c L{0.95} c c c c c L{1.05}@{}}
 \toprule
-\# & Ablation & Features included & Training labels & AUROC & Notes \\
+\# & Ablation & Priors & Seeds & AUROC (4 genes) & AUROC (3 genes) & $\Delta$ & Notes \\
 \midrule
-1 & Curated tabular only     & 27 priors, no ESM        & ClinVar $+$ PG-clin. & \todo{invalid} & Wrong dataset build (Section 3.2) \\
-2 & ESM-2 embedding only     & ESM $+$ PLLR             & ClinVar $+$ PG-clin. & 0.912 / 0.927 & frozen / full, seed 42 \\
-3 & ESM-2 $+$ curated priors & ESM $+$ PLLR $+$ priors  & ClinVar $+$ PG-clin. & 0.943 / 0.938 & frozen / full, seed 42 \\
-4 & No structural features   & ---                      & ---                  & \todo{not run} & Must also remove structural proxies \\
-5 & No gnomAD/population     & ---                      & ---                  & \todo{not run} & Invalid unless AlphaMissense removed too \\
-6 & No UniProt/InterPro      & ---                      & ---                  & \todo{not run} & Needs a \texttt{--drop\_prior\_groups} flag \\
-7 & No external prior scores & ---                      & ---                  & \todo{not run} & Direct test of AlphaMissense circularity \\
-8 & Frozen vs.\ fine-tuned   & ESM $+$ PLLR $+$ priors  & ClinVar $+$ PG-clin. & $\Delta -0.005$ & Three seeds; primary result \\
-9 & Label-source sensitivity & ---                      & ---                  & \todo{not run} & DMS pool is single-gene; confounded by design \\
+1 & Curated tabular only     & 27, no ESM & 1 & 0.9630 & \textbf{0.9507} & $+0.0197$ & Best arm reported; Section 3.3 \\
+2 & ESM-2 embedding only     & 0  & 1 & 0.9042 / 0.9270 & 0.9017 / 0.9125 & $-0.0293$ & frozen / full, seed 42 \\
+3 & ESM-2 $+$ curated priors & 27 & 3 & $0.9335 \pm 0.0100$ & $0.9310 \pm 0.0055$ & --- & frozen; comparator for 4--7 \\
+  &                          & 27 & 3 & $0.9283 \pm 0.0111$ & $0.9158 \pm 0.0092$ & --- & full fine-tune \\
+4 & No structural features   & 25 & 3 & $0.9360 \pm 0.0105$ & $0.9277 \pm 0.0086$ & $-0.0032$ & pLDDT, disorder; within noise \\
+5 & No gnomAD \emph{and} scores & 5 & 3 & $0.8804 \pm 0.0120$ & $0.8847 \pm 0.0161$ & $\mathbf{-0.0463}$ & Joint bound; proxy guard \\
+6 & No UniProt/InterPro      & 24 & 3 & $0.9356 \pm 0.0051$ & $0.9337 \pm 0.0069$ & $+0.0028$ & Domains; within noise \\
+7 & No external prior scores & 9  & 3 & $0.9075 \pm 0.0012$ & $0.8931 \pm 0.0072$ & $\mathbf{-0.0379}$ & 18 columns removed \\
+8 & Frozen vs.\ fine-tuned   & 27 & 3 & $\Delta -0.0052$ & $\Delta -0.0152$ & --- & Section 3.3; primary result \\
+9 & Label-source sensitivity & --- & --- & \todo{not run} & & & DMS pool single-gene; confounded \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{table*}
+
+\paragraph{Reading rows 4--7 against seed noise.}
+Each ablation arm and its comparator are three-seed means, so the relevant scale
+is the standard error of their difference, which ranges from $0.005$ to $0.010$
+on the three-gene mean depending on the arm's own spread. Removing structural
+features (row 4) moves the mean by $-0.003$ and removing domain features (row 6)
+by $+0.003$ --- $0.55$ and $0.54$ standard errors respectively, the second in the
+wrong direction to be a contribution at all. Neither family does detectable work
+at this cohort size. Removing the external prior scores (row 7) costs $0.038$,
+$7.2$ standard errors, and removing them together with allele frequency (row 5)
+costs $0.046$, $4.7$.
+
+\paragraph{Allele frequency's separate contribution does not survive on the
+scoreable genes.} An earlier version of this table reported the increment of
+row 7 over row 5 --- what allele frequency adds once the external scores are
+already gone --- as $+0.0211$ against a standard error of $0.0052$, and read it
+as a real if smaller effect. Recomputed after the seeding fix
+(Section~2.4) the increment is $+0.0083$ against a standard error of $0.0102$,
+which is indistinguishable from zero.
+
+The reason is worth stating rather than burying, because it is a general hazard
+of small held-out folds. On all four genes the same increment is $+0.0271$
+($3.9$ standard errors) and would read as a clear effect. The entire difference
+between the two conventions is \gene{PMS2} --- 21 variants, 4 of them negative,
+the fold this manuscript declares unscoreable everywhere else. An effect that
+exists only in the fold one has excluded on principle is not an effect one may
+report, so we withdraw the claim. Rows 5 and 7 also differ by two feature
+families, so even the four-gene figure would be the joint bound's remainder
+rather than a clean allele-frequency estimate.
+
+The prior block's contribution is therefore concentrated in 18 of its 27 columns
+--- AlphaMissense, the zero-shot model scores and their rank transforms.
+Structural annotation, domain annotation and, on the evidence available here,
+allele frequency contribute nothing detectable once those 18 are present.
+
+\paragraph{Why three seeds were necessary, and what seeding them properly changed.}
+The comparator's three draws span $0.9253$ to $0.9364$ on the three-gene mean, a
+range of $0.011$ (SD $0.0055$) --- still comparable to the row 4 and row 6
+effects, so a single-seed table would have ranked those arms on a spread larger
+than the differences it reported. Before the seeding fix the same three draws
+spanned $0.027$ (SD $0.0142$). Roughly three-fifths of what this manuscript
+previously attributed to seed variance was uncontrolled head initialisation:
+the first fold of every run drew its classifier weights from process entropy
+rather than from the seed (Section~2.4). Correcting it did not change which
+ablations matter, but it more than halved the noise floor they are read against
+--- and, as above, it removed one claim that had been sitting just above the old
+floor. This is also why no cell is ranked against another on a single gene
+(Figure~\ref{fig:pergene}).
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{fig5_ablation.pdf}
+\caption{Every arm, seed-averaged, ranked by mean AUROC over the scoreable genes
+against the curated-features-only baseline (horizontal line). Bars are $\pm 1$
+SD over seeds where three were run; single-seed arms are plotted as points and
+labelled as such, so a one-draw cell is never read as a measured mean. The two
+ablations that remove structural or domain features sit level with the
+comparator; the two that remove external prior scores sit at the bottom, below
+every cell that keeps them. No configuration reaches the baseline.}
+\label{fig:ablation}
+\end{figure*}
 
 Two further axes --- PLLR mode and fusion --- were varied at a single seed each.
 We do not interpret them: the three-seed axis shows an MCC standard deviation up
-to $0.056$, large enough that single-seed differences should not be read as
+to $0.131$, large enough that single-seed differences should not be read as
 effects.
 
 \subsection{Error analysis}
 
-\todo{not performed --- export high-confidence false positives and negatives
-from the per-variant predictions, join back to the master table for domain
-membership, pLDDT, allele frequency and review status, and inspect for pattern.
-No script currently does this, and without it no biological interpretation of
-individual errors belongs in this manuscript}
+Errors were taken per seed, at the threshold each fold selected on its own inner
+validation, and intersected across the three seeds of an arm. A variant that one
+seed calls wrong and two call right is a draw of the initialisation rather than a
+property of the variant, and \num{193} of the \num{683} held-out variants are of
+that kind for the frozen arm --- a per-variant view of the seed spread quantified
+in Section~3.6. Only the \num{85} variants all three seeds get wrong are counted
+below.
+
+\paragraph{The errors are concentrated in one gene and one label source.}
+The frozen arm makes \num{85} consensus errors on \num{683} held-out variants
+($12.4\%$): \num{56} false positives and \num{29} false negatives. Every one of
+the \num{56} false positives is a \gene{MSH2} variant. \gene{MLH1} and
+\gene{MSH6} produce none at all; their errors are exclusively false negatives.
+The full fine-tune behaves the same way with more errors --- \num{97} total,
+\num{73} false positives, \num{68} of them \gene{MSH2}.
+
+Testing every covariate the master table carries, and separating those the model
+reads from those it does not, two stand out and neither is a model input:
+\texttt{label\_source} and \texttt{evidence\_tier} (Benjamini--Hochberg
+$p = 1.0 \times 10^{-4}$ for the frozen arm, $1 \times 10^{-6}$ for the fine-tuned
+one). This separation matters: an association with a feature the model reads
+would restate the model's own weighting rather than tell us anything about it.
+\num{45} of the \num{56} false positives are ProteinGym-clinical benign calls,
+and \num{44} carry \texttt{evidence\_tier == unreviewed}. The model assigns these
+probabilities above $0.999$.
+
+\paragraph{This explains the \gene{MSH2} operating-point anomaly.}
+\gene{MSH2} has been the outlier in every table in this manuscript --- respectable
+ranking (AUROC $0.897$ averaged over the grid) alongside the weakest
+threshold-dependent performance of any scoreable gene. Figure~\ref{fig:composition}(c)
+shows why. \gene{MSH2} contributes \num{144} of the panel's \num{180}
+ProteinGym-clinical benign labels; \gene{MLH1} contributes \num{6}. Its benign
+class is therefore composed largely of calls that carry no review status, and
+those are precisely the variants the model scores as pathogenic with high
+confidence. The gene is not harder in any biological sense we can demonstrate;
+its negative class is annotated differently from the other three.
+
+\paragraph{What this does not license.} The association is with label provenance,
+not with biology. These \num{45} variants may be mislabelled, or they may be
+genuinely benign variants that every feature in the block scores as damaging;
+distinguishing those requires returning to the primary submissions, which is
+outside the scope of this work. We therefore make no claim about individual
+variants, and we do not report a ``high-confidence false positive'' list as a
+candidate reannotation set. What the analysis does establish is narrower and
+more useful: on this panel, held-out-gene performance is partly a measurement of
+label provenance, and a cohort assembled with uniform review standards would be
+required to separate the two. Per-variant exports are in
+\texttt{error\_analysis\_<arm>\_errors.csv} and the covariate tests, with the
+model-input flag on each, in \texttt{error\_analysis\_<arm>\_covariates.csv}.
 
 % =====================================================================
 \section{Discussion}
@@ -551,11 +833,21 @@ did. We report the correction because the confound is easy to reproduce: any
 comparison between a fine-tuned language model and a feature-based probe must
 hold the feature set constant, or it measures both at once.
 
+The stronger reading is that on this cohort the language model did not earn its
+place at all. A head reading 27 curated columns and no ESM input ranks better
+than every configuration that adds a 650M-parameter backbone, on nine of eleven
+reported metrics. We do not present this as a general result about protein
+language models --- 683 clinical labels across four genes cannot support one ---
+but it does set the bar that a language-model contribution has to clear here,
+and none of the 16 configurations cleared it. The ablations then locate most of
+the curated signal in features that are themselves the outputs of other
+predictors, which is a weaker claim about biology than the raw figure suggests.
+
 Second, the threshold protocol accounts for much of the difference between the
 arms as a user would experience it. The two ESM models are indistinguishable in
-AUROC and AUPRC yet differ by $0.107$ in accuracy and $0.140$ in recall. Under
+AUROC and AUPRC yet differ by $0.143$ in accuracy and $0.169$ in recall. Under
 leave-one-gene-out this is expected, and the diagnostic ceiling suggests roughly
-$0.08$ accuracy is recoverable by calibration. We could not test this, because
+$0.09$ accuracy is recoverable by calibration. We could not test this, because
 the pipeline discarded the predictions a calibrator would need.
 
 Held-out-gene evaluation is why these numbers are as low as they are and why we
@@ -579,8 +871,15 @@ AlphaMissense is in the feature set and was trained on ClinVar-derived data, so
 part of the measured agreement with ClinVar labels may reflect agreement with an
 upstream model. The code quarantines frequency-derived priors when frequency
 mints labels and drops gene-constant priors under leave-one-gene-out, but it
-does not decorrelate AlphaMissense from ClinVar. Ablation 7 is the direct test
-and has not been run.
+does not decorrelate AlphaMissense from ClinVar. Ablation 7 is the direct test,
+and its result supports the concern rather than dispelling it: removing the 18
+external score columns costs more AUROC than removing any other feature family,
+about four standard errors, while removing structure and domain annotation costs
+nothing measurable. The curated block's contribution is therefore concentrated
+in features that encode other predictors' opinions. We cannot separate how much
+of that is independent evidence from how much is agreement with models trained
+on overlapping data; doing so needs a label set disjoint from AlphaMissense's
+training data, which this cohort does not provide.
 
 \paragraph{This is not a clinical tool.}
 It is a research benchmark trained on 683 labelled variants from four genes,
@@ -604,9 +903,13 @@ between models arises from threshold transfer across held-out genes than from
 the models themselves, and that is the most tractable target for improvement.
 The absolute figures rest on 683 clinical labels across four genes with one gene
 unscoreable, and should be read as a benchmark for method development rather
-than as evidence of clinical utility. The comparison that would matter most ---
-protein language model against curated features alone --- is not yet valid,
-because the baseline was run on a previous dataset build.
+than as evidence of clinical utility. The comparison that matters most ---
+protein language model against curated features alone --- goes against the
+language model: a curated head with no ESM input ranks above every cell in the
+grid, and feature-family ablations place most of that curated signal in columns
+inherited from other predictors rather than in structural or domain evidence.
+The most tractable target for improvement is not model capacity but the
+threshold and calibration protocol that transfers across held-out genes.
 
 % =====================================================================
 \section*{Acknowledgements}
@@ -619,11 +922,12 @@ because the baseline was run on a previous dataset build.
 \todo{Declaration}
 
 \section*{Data availability}
-Build manifests with per-source URLs and SHA-256 checksums, all 16 cells'
+Build manifests with per-source URLs and SHA-256 checksums, all 28 cells'
 per-variant predictions, run summaries and hardware/environment captures are in
 the repository. The table underlying every model result reported here is
 identified by SHA-256
-\texttt{78eb5d60860cc08eadb6faa0c0d7fbd22adbe6f277bb95e97a3a680264b4430d}. Grid
+\texttt{78eb5d60860cc08e\allowbreak adb6faa0c0d7fbd2\allowbreak
+2adbe6f277bb95e9\allowbreak 7a3a680264b4430d}. Grid
 cells were run without checkpoint saving, so backbone weights are not
 distributable. AlphaMissense is CC BY-NC-SA 4.0; \todo{confirm redistribution
 terms for any derived table embedding AlphaMissense values}.

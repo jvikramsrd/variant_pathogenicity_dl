@@ -5,8 +5,9 @@ import hashlib
 
 import pytest
 
-from src.provenance import (COMPARABILITY_KEYS, HASH_CHARS, REPLICATE_KEYS,
-                            IncomparableRuns, assert_comparable,
+from src.provenance import (CODE_KEYS, COMPARABILITY_KEYS, HASH_CHARS,
+                            REPLICATE_KEYS, IncomparableRuns,
+                            assert_comparable, assert_no_dirty_code,
                             feature_schema_hash, library_versions,
                             provenance_record, sha256_file,
                             split_definition_hash)
@@ -130,3 +131,48 @@ def test_replicate_keys_reject_a_schema_mismatch_between_seeds():
 def test_feature_schema_is_not_a_default_comparability_key():
     assert "feature_schema" not in COMPARABILITY_KEYS
     assert "feature_schema" in REPLICATE_KEYS
+
+
+def test_git_is_not_a_default_comparability_or_replicate_key():
+    """A seed re-run one commit later for an unrelated fix is still one arm."""
+    assert "git" not in COMPARABILITY_KEYS
+    assert "git" not in REPLICATE_KEYS
+    assert "git" in CODE_KEYS
+
+
+def test_code_keys_reject_a_commit_mismatch_between_seeds():
+    """The exact gap MISSING_EVIDENCE.md item 12 had to resolve by hand:
+    two runs agreeing on dataset/split/schema but not on the code that
+    produced them must not silently pass as comparable."""
+    with pytest.raises(IncomparableRuns):
+        assert_comparable(
+            {"pre_fix": _rec(git={"commit": "aec4333", "dirty": False}),
+             "post_fix": _rec(git={"commit": "b9a47c3", "dirty": False})},
+            keys=REPLICATE_KEYS + CODE_KEYS)
+
+
+def test_code_keys_allow_a_matching_commit_between_seeds():
+    assert_comparable(
+        {"seed42": _rec(git={"commit": "aec4333", "dirty": False}),
+         "seed43": _rec(git={"commit": "aec4333", "dirty": False})},
+        keys=REPLICATE_KEYS + CODE_KEYS)
+
+
+def test_assert_no_dirty_code_flags_a_dirty_run():
+    with pytest.raises(IncomparableRuns) as exc:
+        assert_no_dirty_code(
+            {"clean": _rec(git={"commit": "aec4333", "dirty": False}),
+             "dirty": _rec(git={"commit": "aec4333", "dirty": True})})
+    assert "dirty" in str(exc.value)
+
+
+def test_assert_no_dirty_code_passes_on_clean_runs():
+    assert_no_dirty_code(
+        {"a": _rec(git={"commit": "aec4333", "dirty": False}),
+         "b": _rec(git={"commit": "aec4333", "dirty": False})})
+
+
+def test_assert_no_dirty_code_skips_records_with_no_git_block():
+    """Missing git info is assert_comparable's <missing> case via CODE_KEYS,
+    not this function's job."""
+    assert_no_dirty_code({"pre_provenance": _rec()})

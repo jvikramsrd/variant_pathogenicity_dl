@@ -610,6 +610,20 @@ def load_checkpoint(path: Path) -> Dict:
 TRANSFER_HEAD_FORMAT = "mmr_transfer_head/v1"
 
 
+class TransferHeadFormatError(ValueError):
+    """Raised when a checkpoint's ``format`` tag doesn't match this module's.
+
+    ``TRANSFER_HEAD_FORMAT`` was written by every checkpoint since
+    :func:`save_transfer_head` was introduced, but nothing checked it back on
+    load -- a foreign or future-format ``.pt`` file was accepted silently and
+    failed later, deep inside ``model.load_state_dict`` or a shape-mismatched
+    matmul, with an error that names neither the checkpoint nor its format.
+    Raised eagerly here instead, the same "reject rather than silently
+    reuse" principle this project already applies to
+    ``src.split_manifest.SplitManifest`` (``ManifestVersionError``).
+    """
+
+
 def save_transfer_head(
     path: Path, model: torch.nn.Module, *,
     arch: str, dims: Sequence[int], hidden_dim: int, dropout: float,
@@ -667,6 +681,13 @@ def load_transfer_head(path: Path, device: Optional[torch.device] = None):
     standardised form using the persisted per-view statistics.
     """
     payload = load_checkpoint(Path(path))
+    fmt = payload.get("format")
+    if fmt != TRANSFER_HEAD_FORMAT:
+        raise TransferHeadFormatError(
+            f"{path}: checkpoint format {fmt!r} != expected "
+            f"{TRANSFER_HEAD_FORMAT!r}. Refusing to load a stage-2 head "
+            "written by an incompatible format rather than guessing at its "
+            "payload shape.")
     cfg = payload["config"]
     model = build_model(cfg["arch"], dims=cfg["dims"],
                         hidden_dim=cfg["hidden_dim"], dropout=cfg["dropout"])
@@ -817,5 +838,6 @@ __all__ = [
     "assemble_features", "stage_sample_weights",
     "build_model", "predict_logits", "fit_head", "select_stage_rows",
     "save_checkpoint", "load_checkpoint",
-    "TRANSFER_HEAD_FORMAT", "save_transfer_head", "load_transfer_head",
+    "TRANSFER_HEAD_FORMAT", "TransferHeadFormatError",
+    "save_transfer_head", "load_transfer_head",
 ]

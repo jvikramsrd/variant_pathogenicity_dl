@@ -14,7 +14,7 @@
 
 **Methods.** We assembled a variant-level evidence table for the four DNA mismatch repair (MMR) genes *MLH1*, *MSH2*, *MSH6* and *PMS2*, keyed strictly on `(uniprot_id, position, wt_aa, mut_aa)` with the canonical UniProt sequence as the sole coordinate authority. The row universe is the union of all possible missense substitutions rather than any single source, and every source is attached by validated left join. Labels are resolved only after merging, under an explicit precedence (ClinVar ≥2-star, then ProteinGym clinical, then eligible single-assay DMS proxy); variants with within-source or cross-source label conflicts are quarantined rather than coerced, and variants of uncertain significance are never used as training labels. Models were evaluated by leave-one-gene-out (LOPO), with thresholds selected on an inner validation fold only. We ran a 16-cell ablation grid over backbone freeze depth, feature branch, PLLR mode and fusion, at three seeds for the primary comparison, together with a curated-feature baseline carrying no language-model input and four feature-family ablations run at three seeds each, at the frozen `esm+priors` cell with every other setting held identical.
 
-**Results.** The merged MMR table contains 74,328 variants (3,912 residues × 19 substitutions), of which 683 carry clinical labels usable for supervision (443 ClinVar, 240 ProteinGym clinical). The grid completed 16/16 cells in 17.84 h with no failures. Holding the feature set fixed, full fine-tuning of the 650M-parameter backbone did not improve ranking over a frozen backbone (ΔAUROC −0.005, ΔAUPRC −0.002 across three seeds), while adding 27 curated prior features to the frozen model raised AUROC by 0.031. Full fine-tuning did shift the operating point substantially (accuracy 0.733 → 0.840, recall 0.732 → 0.872, specificity 0.809 → 0.775, Brier 0.182 → 0.150). Threshold selection on the inner validation fold outperformed a fixed 0.5 cut by only 0.011 accuracy and was worse in 6 of 16 cells. Calibration was poor throughout (ECE ≈ 0.19–0.20). *PMS2* could not be scored: its held-out set has 21 variants with 4 negatives. A curated-feature head with no language-model input scored 0.9507 mean AUROC over the three scoreable genes — above every cell in the grid, including those reading the same 27 features. Feature-family ablations, at three seeds each, localised the curated contribution: removing the 18 external prior-score columns (AlphaMissense, zero-shot scores, rank transforms) cost 0.032 AUROC and removing them together with gnomAD cost 0.053, while removing structural or domain features changed the mean by +0.010, within seed noise and in the wrong direction to be a contribution.
+**Results.** The merged MMR table contains 74,328 variants (3,912 residues × 19 substitutions), of which 683 carry clinical labels usable for supervision (443 ClinVar, 240 ProteinGym clinical). The grid completed 16/16 cells in 17.84 h with no failures. Holding the feature set fixed, full fine-tuning of the 650M-parameter backbone did not improve ranking over a frozen backbone (ΔAUROC −0.007, ΔAUPRC −0.005 across three seeds), while adding 27 curated prior features to the frozen model raised AUROC by 0.037. Full fine-tuning did shift the operating point substantially (accuracy 0.698 → 0.840, recall 0.702 → 0.872, specificity 0.798 → 0.775, Brier 0.192 → 0.150). Threshold selection on the inner validation fold outperformed a fixed 0.5 cut by only 0.007 accuracy and was worse in 6 of 16 cells. Calibration was poor throughout (ECE ≈ 0.19–0.21). *PMS2* could not be scored: its held-out set has 21 variants with 4 negatives. A curated-feature head with no language-model input scored 0.9507 mean AUROC over the three scoreable genes — above every cell in the grid, including those reading the same 27 features. Feature-family ablations, at three seeds each, localised the curated contribution: removing the 18 external prior-score columns (AlphaMissense, zero-shot scores, rank transforms) cost 0.038 AUROC and removing them together with gnomAD cost 0.059, while removing structural or domain features changed the mean by +0.004, within seed noise and in the wrong direction to be a contribution.
 
 **Conclusions.** For this cohort, the informative axis is the feature set, not backbone freeze depth; a 6.5-point gap previously attributed to freeze depth is attributable to the feature set once the two are separated. The protein language model did not earn its place: curated features alone rank better than any configuration that adds ESM-2, and most of that curated signal is itself inherited from other predictors rather than from structural or domain evidence. The threshold-transfer protocol loses roughly 0.1 accuracy under leave-one-gene-out and is the most tractable target for improvement. Absolute performance rests on 683 clinical labels across four genes and should not be read as evidence of clinical utility.
 
@@ -236,20 +236,20 @@ Holding the feature set at `esm+priors` and the PLLR mode at `residual`, and ave
 
 | | full fine-tune | frozen | Δ (full − frozen) |
 |---|---|---|---|
-| AUROC | 0.9313 (SD 0.0088) | 0.9366 (SD 0.0073) | **−0.0054** |
-| AUPRC | 0.9460 (SD 0.0035) | 0.9475 (SD 0.0084) | −0.0015 |
-| MCC | 0.6731 (SD 0.0556) | 0.6010 (SD 0.0405) | **+0.0721** |
+| AUROC | 0.9313 (SD 0.0088) | 0.9378 (SD 0.0102) | **−0.0066** |
+| AUPRC | 0.9460 (SD 0.0035) | 0.9508 (SD 0.0103) | −0.0047 |
+| MCC | 0.6731 (SD 0.0556) | 0.5331 (SD 0.1314) | **+0.1400** |
 
-Excluding the unscoreable *PMS2* fold, the AUROC difference is unchanged (−0.0055) and the MCC difference grows to +0.1208. Updating 650M parameters on 380 training examples therefore did not improve ranking over a frozen backbone; the seed-to-seed spread exceeds the difference.
+Excluding the unscoreable *PMS2* fold, the AUROC difference widens to −0.0120 and the MCC difference grows to +0.1462. Updating 650M parameters on 380 training examples therefore did not improve ranking over a frozen backbone; the frozen arm's own seed-to-seed spread (SD 0.0102 over four genes, 0.0142 over three) exceeds the difference on both conventions.
 
 The feature branch moves performance more than freeze depth does. At seed 42, PLLR `residual`, averaged over the four held-out genes:
 
 | | `esm` (0 priors) | `esm+priors` (27 priors) | Δ |
 |---|---|---|---|
-| frozen, AUROC | 0.9121 | 0.9432 | **+0.0311** |
-| full, AUROC | 0.9273 | 0.9381 | +0.0108 |
+| frozen, AUROC | 0.9121 | 0.9492 | **+0.0371** |
+| full, AUROC | 0.9273 | 0.9381 | +0.0107 |
 
-This is the grid's principal finding. An earlier internal analysis compared a fine-tuned model reading no prior features against a frozen probe reading them, observed a 6.5-point AUROC gap, and attributed it to freeze depth. With the two factors separated, freeze depth accounts for roughly 0.005 AUROC and the feature set for 0.011–0.031. The earlier gap is attributable to the feature set.
+This is the grid's principal finding. An earlier internal analysis compared a fine-tuned model reading no prior features against a frozen probe reading them, observed a 6.5-point AUROC gap, and attributed it to freeze depth. With the two factors separated, freeze depth accounts for roughly 0.007–0.012 AUROC and the feature set for 0.011–0.037. The earlier gap is attributable to the feature set.
 
 **Interpretation, stated as such.** These are associations measured under one split on four genes. The most defensible reading is that at this training-set size the backbone's pretrained representation is already close to what the head can exploit, so further gradient updates mostly fit the 380 training examples. That is a hypothesis consistent with the observed train/validation divergence (training loss fell roughly ninefold while inner-validation AUROC peaked at epoch 2 and declined), not something these data establish.
 
@@ -259,15 +259,15 @@ Mean over scoreable held-out genes (*MLH1*, *MSH2*, *MSH6*); three seeds for the
 
 | Model | AUROC | AUPRC | Accuracy | F1 (path.) | Balanced acc. | Precision | Recall | Specificity | MCC | Brier | ECE |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| ESM-2 650M frozen + priors | 0.9253 | 0.9323 | 0.7331 | 0.7350 | 0.7703 | 0.8455 | 0.7319 | 0.8088 | 0.5400 | 0.1822 | 0.2015 |
-| ESM-2 650M full FT + priors | 0.9198 | 0.9306 | 0.8402 | 0.8442 | 0.8232 | 0.8515 | 0.8715 | 0.7749 | 0.6608 | 0.1501 | 0.1888 |
+| ESM-2 650M frozen + priors | 0.9318 | 0.9376 | 0.6977 | 0.6966 | 0.7501 | 0.8411 | 0.7022 | 0.7980 | 0.5145 | 0.1919 | 0.2137 |
+| ESM-2 650M full FT + priors | 0.9198 | 0.9306 | 0.8402 | 0.8442 | 0.8232 | 0.8515 | **0.8715** | 0.7749 | 0.6608 | 0.1501 | **0.1888** |
 | **Curated priors only, no ESM** | **0.9507** | **0.9442** | **0.8583** | **0.8467** | **0.8595** | **0.8858** | 0.8377 | **0.8813** | **0.7124** | **0.1374** | 0.1974 |
 
 **The baseline is the strongest model reported here.** A curated-priors-only head, no ESM input, run under the same LOPO protocol with 10,000 bootstrap resamples, reached AUROC 0.9651 (95% CI 0.9132–0.9957) on *MLH1*, 0.9078 (0.8731–0.9386) on *MSH2*, 0.9791 (0.9520–0.9992) on *MSH6* and 1.0000 on *PMS2* — a mean of 0.9507 over the three scoreable genes, higher than any ESM-2 cell in the grid.
 
 This comparison was previously withheld on the grounds that the baseline had been scored on an earlier dataset build. That objection does not survive inspection and is withdrawn. Re-running the baseline on the pinned build (SHA-256 `78EB5D60…4B4430D`) reproduced every metric to the last recorded digit — AUROC, AUPRC, MCC and all bootstrap bounds on all four genes — because the two builds expose the same 27 prior columns to this arm, including the four allele-frequency columns, over the same clinical cohort. The gnomAD rebuild changed nothing the priors-only head reads, so the arms were comparable all along. The re-run is the artifact of record (`mmr_transfer_summary_lopo.json`, `built_at_utc` 2026-09-05).
 
-The baseline leads on ten of the eleven columns, losing only recall (0.8377 against 0.8715 for the fine-tuned model), and it does so with the best Brier score of the three (0.1374). Its calibration error is no better than the language models' (ECE 0.1974 against 0.2015 and 0.1888): the ranking is stronger, the probabilities are not, and the calibration gap in §3.4 is a property of the protocol rather than of the backbone.
+The baseline leads on nine of the eleven columns, losing recall (0.8377 against 0.8715 for the fine-tuned model) and expected calibration error, and it does so with the best Brier score of the three (0.1374). Its calibration error is no better than the language models' (ECE 0.1974 against 0.2137 and 0.1888): the ranking is stronger, the probabilities are not, and the calibration gap in §3.4 is a property of the protocol rather than of the backbone.
 
 Two caveats on this row. It is a single deterministic run at seed 42, while the two ESM rows are three-seed means. Its threshold-dependent columns were computed from the run's per-variant predictions with `src.metrics.evaluation_report`, selecting the threshold on the inner-validation fold exactly as the grid cells do; they reproduce the run's own AUROC, MCC and per-gene thresholds to six decimal places, and are appended to `full_metric_panel_by_gene.csv` under the cell slug `priors_only`. As with every other arm, *PMS2* is excluded — the cohort gate marks it unavailable, though the run's results CSV records AUROC 1.000 on its 21 variants.
 
@@ -277,11 +277,11 @@ Two caveats on this row. It is a single deterministic run at seed 42, while the 
 
 ## 3.4 Calibration and threshold-dependent performance
 
-Calibration is poor for both arms: ECE 0.2015 (frozen) and 0.1888 (full), Brier 0.1822 and 0.1501. No post-hoc calibration was applied, for the reason given in Section 2.5.
+Calibration is poor for both arms: ECE 0.2137 (frozen) and 0.1888 (full), Brier 0.1919 and 0.1501. No post-hoc calibration was applied, for the reason given in Section 2.5.
 
-Threshold transfer is the larger problem. Averaged over 16 cells and three genes, the inner-validation MCC-optimal threshold yields accuracy 0.7993, against 0.7884 for a fixed 0.5 cut — an advantage of 0.011. A fixed 0.5 threshold was better in 6 of the 16 cells. In the worst case (`esmpri_concat_frozen_pllr-residual_seed44`) the selected threshold produced accuracy 0.630 against an achievable 0.881, a loss of 0.251, in a cell whose AUROC is a healthy 0.927.
+Threshold transfer is the larger problem. Averaged over 16 cells and three genes, the inner-validation MCC-optimal threshold yields accuracy 0.7926, against 0.7858 for a fixed 0.5 cut — an advantage of 0.0068. A fixed 0.5 threshold was better in 6 of the 16 cells. In the worst case (`esmpri_concat_frozen_pllr-residual_seed44`) the selected threshold produced accuracy 0.585 against an achievable 0.912, a loss of 0.327, in a cell whose AUROC is a healthy 0.938.
 
-To bound how much is recoverable, we computed the accuracy attainable at the best possible threshold fitted on the held-out gene itself. This is a deliberate leak and is reported only as a diagnostic ceiling, never as performance. The ceiling is 0.917 for the best cell and approximately 0.88 on average, against 0.799 achieved. Roughly 0.08 accuracy on average, and up to 0.25 on individual cells, is lost to threshold placement rather than to ranking.
+To bound how much is recoverable, we computed the accuracy attainable at the best possible threshold fitted on the held-out gene itself. This is a deliberate leak and is reported only as a diagnostic ceiling, never as performance. The ceiling is 0.917 for the best cell and 0.883 on average, against 0.793 achieved. Roughly 0.09 accuracy on average, and up to 0.33 on individual cells, is lost to threshold placement rather than to ranking.
 
 The mechanism is structural rather than a coding error. Under leave-one-gene-out the threshold is chosen on an inner-validation fold drawn from the *training* genes and then applied to a held-out gene whose score distribution differs; the inner fold also has roughly 95 variants, so an MCC-optimal cut estimated on it is noisy. This argues for calibrating scores so that they are comparable across genes before a threshold is transferred, rather than for a better threshold search.
 
@@ -289,7 +289,7 @@ The mechanism is structural rather than a coding error. Under leave-one-gene-out
 
 ## 3.5 Per-gene robustness
 
-Across all 16 cells, mean AUROC by held-out gene was *MLH1* 0.9168 (SD 0.0290), *MSH2* 0.9009 (SD 0.0159), *MSH6* 0.9365 (SD 0.0341) and *PMS2* 0.9398 (SD 0.0542).
+Across all 16 cells, mean AUROC by held-out gene was *MLH1* 0.9187 (SD 0.0298), *MSH2* 0.9013 (SD 0.0159), *MSH6* 0.9378 (SD 0.0355) and *PMS2* 0.9370 (SD 0.0537).
 
 ***PMS2* results should not be reported.** Its held-out set is 21 variants with 17 pathogenic and 4 benign. It fails the availability rule in all 16 cells (`minority_class<5`). Its AUROC ranges from 0.8235 to 0.9853 across cells — the widest spread of any gene, and roughly three times *MSH2*'s — because a single misordered variant moves the statistic by about 0.06. The value of 1.0000 recorded for *PMS2* in the priors-only baseline is an artifact of this cohort size, not a finding. *PMS2* belongs in a coverage table.
 
@@ -307,19 +307,19 @@ All cells and ablations: dataset SHA-256 `78EB5D60…4B4430D`, LOPO split, ident
 
 | # | Ablation | Prior cols | Seeds | AUROC (4 genes) | AUROC (3 scoreable) | Δ vs row 3 frozen | Notes |
 |---|---|---|---|---|---|---|---|
-| 1 | Curated tabular only | 27, no ESM | 1 | 0.9630 | **0.9507** | +0.0254 | Best model reported; §3.3 |
-| 2 | ESM-2 embedding only | 0 | 1 | 0.9121 frozen / 0.9273 full | 0.9123 / 0.9129 | −0.0130 | |
-| 3 | ESM-2 + curated priors | 27 | 3 | 0.9366 ± 0.0073 frozen / 0.9313 ± 0.0088 full | 0.9253 ± 0.0097 / 0.9198 ± 0.0113 | — | Comparator for rows 4–7 |
-| 4 | Without structural features | 25 | 3 | 0.9381 ± 0.0071 | 0.9354 ± 0.0074 | +0.0101 | pLDDT, disorder removed; within seed noise |
-| 5 | Without gnomAD **and** prior scores | 5 | 3 | 0.8800 ± 0.0182 | 0.8727 ± 0.0050 | **−0.0526** | Joint bound; the proxy guard forbids removing gnomAD alone |
-| 6 | Without UniProt/InterPro domains | 24 | 3 | 0.9392 ± 0.0090 | 0.9353 ± 0.0068 | +0.0100 | Within seed noise |
-| 7 | Without AlphaMissense/prior scores | 9 | 3 | 0.9118 ± 0.0112 | 0.8938 ± 0.0075 | **−0.0315** | 18 columns: AlphaMissense, zero-shot scores, rank transforms |
-| 8 | Frozen vs fine-tuned ESM-2 | 27 | 3 | ΔAUROC −0.0054 | −0.0055 | — | §3.3; primary result |
+| 1 | Curated tabular only | 27, no ESM | 1 | 0.9630 | **0.9507** | +0.0189 | Best model reported; §3.3 |
+| 2 | ESM-2 embedding only | 0 | 1 | 0.9121 frozen / 0.9273 full | 0.9123 / 0.9129 | −0.0195 | |
+| 3 | ESM-2 + curated priors | 27 | 3 | 0.9378 ± 0.0102 frozen / 0.9313 ± 0.0088 full | 0.9318 ± 0.0142 / 0.9198 ± 0.0113 | — | Comparator for rows 4–7 |
+| 4 | Without structural features | 25 | 3 | 0.9381 ± 0.0071 | 0.9354 ± 0.0074 | +0.0036 | pLDDT, disorder removed; within seed noise |
+| 5 | Without gnomAD **and** prior scores | 5 | 3 | 0.8800 ± 0.0182 | 0.8727 ± 0.0050 | **−0.0591** | Joint bound; the proxy guard forbids removing gnomAD alone |
+| 6 | Without UniProt/InterPro domains | 24 | 3 | 0.9392 ± 0.0090 | 0.9353 ± 0.0068 | +0.0035 | Within seed noise |
+| 7 | Without AlphaMissense/prior scores | 9 | 3 | 0.9118 ± 0.0112 | 0.8938 ± 0.0075 | **−0.0380** | 18 columns: AlphaMissense, zero-shot scores, rank transforms |
+| 8 | Frozen vs fine-tuned ESM-2 | 27 | 3 | ΔAUROC −0.0066 | −0.0120 | — | §3.3; primary result |
 | 9 | Label-source sensitivity | — | — | `[TODO: not run]` | | | DMS pool is single-gene (*MSH2*), so this ablation is confounded by design |
 
-**Reading rows 4–7 against seed noise.** Each ablation and its comparator are three-seed means, so the relevant scale is the standard error of their difference: 0.007 on the scoreable-gene mean. Removing structural features (row 4) or domain features (row 6) moves the mean by +0.010, about one and a half standard errors and in the wrong direction to be a contribution — neither family is doing detectable work. Removing the external prior scores (row 7) costs 0.032, four to five times that scale, and removing them together with gnomAD (row 5) costs 0.053, roughly eight times.
+**Reading rows 4–7 against seed noise.** Each ablation and its comparator are three-seed means, so the relevant scale is the standard error of their difference: approximately 0.009 on the scoreable-gene mean. Removing structural features (row 4) or domain features (row 6) moves the mean by +0.004, under half a standard error and in the wrong direction to be a contribution — neither family is doing detectable work. Removing the external prior scores (row 7) costs 0.038, about four times that scale, and removing them together with gnomAD (row 5) costs 0.059, nearly seven times.
 
-Seed averaging matters here rather than being a formality. At seed 42 alone, rows 4 and 6 appeared to *improve* on the comparator by 0.007–0.009; that draw was the highest of the comparator's three seeds, and averaging moves both arms back to within noise. Reporting the single-seed version would have invited exactly the reading the data do not support.
+Seed averaging matters here rather than being a formality, though not for the reason a single draw would suggest. The comparator's own three seeds span 0.9156 to 0.9421 on the scoreable-gene mean — a range of 0.027, several times the size of the row 4 and row 6 effects and comparable to row 7's. A single-seed table would therefore have ranked these arms on a spread larger than most of the differences it reported.
 
 The prior block's contribution is therefore concentrated almost entirely in 18 of its 27 columns: AlphaMissense, the zero-shot model scores and their rank transforms. Allele frequency adds a further 0.0211 on top of that (row 7 versus row 5) against a standard error of 0.0052, so it is a real if smaller contribution — but rows 5 and 7 differ by two feature families and this figure is the joint bound's remainder, not a clean gnomAD-only estimate. Structure and domain annotation contribute nothing detectable at this cohort size.
 

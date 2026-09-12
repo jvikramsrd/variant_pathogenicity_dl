@@ -975,7 +975,10 @@ def refresh_manifest(ext_dir: Path, updates: Optional[Dict[str, Dict]] = None) -
 
     *updates* is merged one level deep, so a caller can correct
     ``parameters``/``sources``/``stats`` sub-keys without restating the rest.
-    Artefact checksums are always recomputed from disk. Returns the manifest.
+    Artefact checksums are always recomputed from disk, and so is
+    ``stats.master_label_counts`` (see below) -- both describe the file now
+    on disk, never the file ``build_extended_dataset`` originally wrote.
+    Returns the manifest.
     """
     path = Path(ext_dir) / "manifest.json"
     if not path.exists():
@@ -993,6 +996,22 @@ def refresh_manifest(ext_dir: Path, updates: Optional[Dict[str, Dict]] = None) -
         for p in sorted(Path(ext_dir).glob("*.csv")) + sorted(Path(ext_dir).glob("*.fasta"))
         if p.is_file()
     }
+    # build_extended_dataset stamps stats.master_label_counts once, from the
+    # table it just wrote. A caller that mutates labels afterwards --
+    # scripts/build_mmr_dataset.py's PMS2 homology gate nulls 21 rows' labels
+    # post-hoc and rewrites the CSV -- left that count permanently describing
+    # the pre-mutation table, because `updates` is opt-in and no caller
+    # passed a correction (the 21-row master_label_counts/label_source
+    # discrepancy this recomputation closes). Recomputed unconditionally,
+    # from whichever CSV is actually on disk, in the same
+    # ``{"nan"|"0"|"1": count}`` shape build_extended_dataset uses.
+    dataset_csv = Path(ext_dir) / "extended_dataset.csv"
+    if dataset_csv.exists():
+        vc = pd.read_csv(dataset_csv, usecols=["label"],
+                         low_memory=False)["label"].value_counts(dropna=False)
+        manifest.setdefault("stats", {})["master_label_counts"] = {
+            ("nan" if pd.isna(k) else str(int(k))): int(v) for k, v in vc.items()
+        }
     # Kept distinct from ``built_at_utc`` so the two-phase build stays visible
     # rather than looking like one atomic write.
     manifest["refreshed_at_utc"] = datetime.now(timezone.utc).isoformat()

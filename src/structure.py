@@ -95,6 +95,13 @@ def fetch_alphafold_pdb(uniprot_id: str, pdb_url: str, raw_dir: Path,
     dest = cache_dir / f"{uniprot_id}.pdb"
     if dest.exists() and not overwrite:
         return dest
+    # pdb_url comes from the AlphaFold metadata API's own JSON response
+    # (load_alphafold_plddt's meta["pdbUrl"]), not a hardcoded constant.
+    # Defence in depth against a compromised/misconfigured upstream handing
+    # back a URL to an arbitrary host -- normal behaviour is unaffected,
+    # since every genuine AlphaFold response already points here.
+    if not pdb_url.startswith("https://alphafold.ebi.ac.uk/"):
+        raise ValueError(f"AlphaFold pdbUrl left the expected host: {pdb_url!r}")
     sess = session or make_session()
     resp = sess.get(pdb_url, timeout=timeout)
     resp.raise_for_status()

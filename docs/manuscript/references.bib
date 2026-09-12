@@ -2,38 +2,584 @@
 % References for docs/manuscript/main.tex
 %
 % PROVENANCE OF THIS FILE
-% Entries below are transcribed from the list in docs/PAPER.md 11, which
-% is headed "Verified and safe to cite as listed", supplemented by the
-% per-source citation blocks in docs/DATASETS.md. Nothing here is recalled
-% from memory.
+% The entries cited by main.tex were completed on 2026-09-06 against the
+% publisher record: DOI, full author list, journal, volume, pages and year
+% come from the Crossref REST API, matched on exact title (Crossref's
+% rank-0 result is unreliable -- Faculty Opinions review stubs outrank the
+% papers they review -- so a match was accepted only when the returned
+% title was identical to the expected one). The three conference papers
+% below are not in Crossref and were taken from DBLP and the NeurIPS
+% proceedings pages, which are named in each entry's note.
 %
-% TWO CAVEATS THAT MUST BE CLEARED BEFORE SUBMISSION
+% Where Crossref's `issued' date is the online-first date rather than the
+% printed issue (ClinVar 2017/2018, AlphaFold DB 2021/2022, gnomAD v4
+% 2023/2024, UniProt and InterPro 2024/2025), the printed-issue year is
+% recorded here, because it is the one that matches the volume.
 %
-% 1. Author lists are truncated. docs/PAPER.md records them as "Richards S.
-%    et al.", so the `and others' below is faithful to what is verified, not
-%    to the papers. Bioinformatics requires full author lists; expand each
-%    from the publisher record.
+% BibTeX is not 8-bit clean and main.tex loads no inputenc, so accented
+% characters are written as LaTeX escapes; this file is pure ASCII.
 %
-% 2. DOIs are absent except where docs/DATASETS.md supplies one. Do not fill
-%    them in from memory.
+% AUTHOR LISTS
+% Complete, except for three consortium papers whose lists exceed 40 names
+% (gnomAD v4, 239; gnomAD v2, 178; UniProt, 100). Those are truncated at 30
+% followed by `and others', and each note records the true count and the DOI
+% the full list can be read from. Expand them if the journal requires it.
+%
+% STILL OUTSTANDING
+% The entries in the final section are NOT cited by main.tex and were left
+% as they were: author lists truncated as `and others', no DOIs. They do not
+% reach the typeset bibliography. Complete them the same way before citing
+% any of them.
 %
 % DELIBERATELY NOT INCLUDED
 % docs/PAPER.md carries a second list marked with a dagger --- VariPred,
 % ProPath, the CSBJ token-classifier paper, MVmamba, and the CIMRA/PMS2
-% OddsPath source --- flagged there as "cited in the text but not yet verified
-% against the primary source". Those are omitted rather than guessed. If the
-% manuscript comes to cite any of them, verify first and add here.
+% OddsPath source --- flagged there as "cited in the text but not yet
+% verified against the primary source". Those are omitted rather than
+% guessed. If the manuscript comes to cite any of them, verify first.
 % ====================================================================
 
-% ---- Clinical interpretation framework ------------------------------
 @article{richards2015acmg,
-  author  = {Richards, S. and others},
-  title   = {Standards and guidelines for the interpretation of sequence variants: a joint consensus recommendation of the American College of Medical Genetics and Genomics and the Association for Molecular Pathology},
+  author  = {
+              Richards, Sue and
+              Aziz, Nazneen and
+              Bale, Sherri and
+              Bick, David and
+              Das, Soma and
+              Gastier-Foster, Julie and
+              Grody, Wayne W. and
+              Hegde, Madhuri and
+              Lyon, Elaine and
+              Spector, Elaine and
+              Voelkerding, Karl and
+              Rehm, Heidi L.},
+  title   = {Standards and guidelines for the interpretation of sequence variants: a joint consensus recommendation of the {American} College of Medical Genetics and Genomics and the {Association} for Molecular Pathology},
   journal = {Genetics in Medicine},
   volume  = {17},
   pages   = {405--424},
-  year    = {2015}
+  year    = {2015},
+  doi     = {10.1038/gim.2015.30}
 }
+
+@article{grimm2015circularity,
+  author  = {
+              Grimm, Dominik G. and
+              Azencott, Chlo{\'e}-Agathe and
+              Aicheler, Fabian and
+              Gieraths, Udo and
+              MacArthur, Daniel G. and
+              Samocha, Kaitlin E. and
+              Cooper, David N. and
+              Stenson, Peter D. and
+              Daly, Mark J. and
+              Smoller, Jordan W. and
+              Duncan, Laramie E. and
+              Borgwardt, Karsten M.},
+  title   = {The Evaluation of Tools Used to Predict the Impact of Missense Variants Is Hindered by Two Types of Circularity},
+  journal = {Human Mutation},
+  volume  = {36},
+  pages   = {513--523},
+  year    = {2015},
+  doi     = {10.1002/humu.22768}
+}
+
+@article{landrum2018clinvar,
+  author  = {
+              Landrum, Melissa J and
+              Lee, Jennifer M and
+              Benson, Mark and
+              Brown, Garth R and
+              Chao, Chen and
+              Chitipiralla, Shanmuga and
+              Gu, Baoshan and
+              Hart, Jennifer and
+              Hoffman, Douglas and
+              Jang, Wonhee and
+              Karapetyan, Karen and
+              Katz, Kenneth and
+              Liu, Chunlei and
+              Maddipatla, Zenith and
+              Malheiro, Adriana and
+              McDaniel, Kurt and
+              Ovetsky, Michael and
+              Riley, George and
+              Zhou, George and
+              Holmes, J Bradley and
+              Kattman, Brandi L and
+              Maglott, Donna R},
+  title   = {{ClinVar}: improving access to variant interpretations and supporting evidence},
+  journal = {Nucleic Acids Research},
+  volume  = {46},
+  pages   = {D1062--D1067},
+  year    = {2018},
+  doi     = {10.1093/nar/gkx1153},
+  note    = {TODO: record the release date of the snapshot used; ClinVar updates
+             weekly.}
+}
+
+@article{chen2024gnomad,
+  author  = {
+              Chen, Siwei and
+              Francioli, Laurent C. and
+              Goodrich, Julia K. and
+              Collins, Ryan L. and
+              Kanai, Masahiro and
+              Wang, Qingbo and
+              Alf{\"o}ldi, Jessica and
+              Watts, Nicholas A. and
+              Vittal, Christopher and
+              Gauthier, Laura D. and
+              Poterba, Timothy and
+              Wilson, Michael W. and
+              Tarasova, Yekaterina and
+              Phu, William and
+              Grant, Riley and
+              Yohannes, Mary T. and
+              Koenig, Zan and
+              Farjoun, Yossi and
+              Banks, Eric and
+              Donnelly, Stacey and
+              Gabriel, Stacey and
+              Gupta, Namrata and
+              Ferriera, Steven and
+              Tolonen, Charlotte and
+              Novod, Sam and
+              Bergelson, Louis and
+              Roazen, David and
+              Ruano-Rubio, Valentin and
+              Covarrubias, Miguel and
+              Llanwarne, Christopher
+              and others},
+  title   = {A genomic mutational constraint map using variation in 76,156 human genomes},
+  journal = {Nature},
+  volume  = {625},
+  pages   = {92--100},
+  year    = {2024},
+  doi     = {10.1038/s41586-023-06045-0},
+  note    = {gnomAD v4; dataset identifier gnomad\_r4. Author list truncated at 30 of
+             239; the complete list is in the publisher record at the DOI
+             above.}
+}
+
+@article{karczewski2020gnomad,
+  author  = {
+              Karczewski, Konrad J. and
+              Francioli, Laurent C. and
+              Tiao, Grace and
+              Cummings, Beryl B. and
+              Alf{\"o}ldi, Jessica and
+              Wang, Qingbo and
+              Collins, Ryan L. and
+              Laricchia, Kristen M. and
+              Ganna, Andrea and
+              Birnbaum, Daniel P. and
+              Gauthier, Laura D. and
+              Brand, Harrison and
+              Solomonson, Matthew and
+              Watts, Nicholas A. and
+              Rhodes, Daniel and
+              Singer-Berk, Moriel and
+              England, Eleina M. and
+              Seaby, Eleanor G. and
+              Kosmicki, Jack A. and
+              Walters, Raymond K. and
+              Tashman, Katherine and
+              Farjoun, Yossi and
+              Banks, Eric and
+              Poterba, Timothy and
+              Wang, Arcturus and
+              Seed, Cotton and
+              Whiffin, Nicola and
+              Chong, Jessica X. and
+              Samocha, Kaitlin E. and
+              Pierce-Hoffman, Emma
+              and others},
+  title   = {The mutational constraint spectrum quantified from variation in 141,456 humans},
+  journal = {Nature},
+  volume  = {581},
+  pages   = {434--443},
+  year    = {2020},
+  doi     = {10.1038/s41586-020-2308-7},
+  note    = {Author list truncated at 30 of 178; the complete list is in the publisher
+             record at the DOI above.}
+}
+
+@article{esposito2019mavedb,
+  author  = {
+              Esposito, Daniel and
+              Weile, Jochen and
+              Shendure, Jay and
+              Starita, Lea M. and
+              Papenfuss, Anthony T. and
+              Roth, Frederick P. and
+              Fowler, Douglas M. and
+              Rubin, Alan F.},
+  title   = {{MaveDB}: an open-source platform to distribute and interpret data from multiplexed assays of variant effect},
+  journal = {Genome Biology},
+  volume  = {20},
+  year    = {2019},
+  doi     = {10.1186/s13059-019-1845-6}
+}
+
+@article{jumper2021alphafold,
+  author  = {
+              Jumper, John and
+              Evans, Richard and
+              Pritzel, Alexander and
+              Green, Tim and
+              Figurnov, Michael and
+              Ronneberger, Olaf and
+              Tunyasuvunakool, Kathryn and
+              Bates, Russ and
+              {\v{Z}}{\'i}dek, Augustin and
+              Potapenko, Anna and
+              Bridgland, Alex and
+              Meyer, Clemens and
+              Kohl, Simon A. A. and
+              Ballard, Andrew J. and
+              Cowie, Andrew and
+              Romera-Paredes, Bernardino and
+              Nikolov, Stanislav and
+              Jain, Rishub and
+              Adler, Jonas and
+              Back, Trevor and
+              Petersen, Stig and
+              Reiman, David and
+              Clancy, Ellen and
+              Zielinski, Michal and
+              Steinegger, Martin and
+              Pacholska, Michalina and
+              Berghammer, Tamas and
+              Bodenstein, Sebastian and
+              Silver, David and
+              Vinyals, Oriol and
+              Senior, Andrew W. and
+              Kavukcuoglu, Koray and
+              Kohli, Pushmeet and
+              Hassabis, Demis},
+  title   = {Highly accurate protein structure prediction with {AlphaFold}},
+  journal = {Nature},
+  volume  = {596},
+  pages   = {583--589},
+  year    = {2021},
+  doi     = {10.1038/s41586-021-03819-2}
+}
+
+@article{varadi2022afdb,
+  author  = {
+              Varadi, Mihaly and
+              Anyango, Stephen and
+              Deshpande, Mandar and
+              Nair, Sreenath and
+              Natassia, Cindy and
+              Yordanova, Galabina and
+              Yuan, David and
+              Stroe, Oana and
+              Wood, Gemma and
+              Laydon, Agata and
+              {\v{Z}}{\'i}dek, Augustin and
+              Green, Tim and
+              Tunyasuvunakool, Kathryn and
+              Petersen, Stig and
+              Jumper, John and
+              Clancy, Ellen and
+              Green, Richard and
+              Vora, Ankur and
+              Lutfi, Mira and
+              Figurnov, Michael and
+              Cowie, Andrew and
+              Hobbs, Nicole and
+              Kohli, Pushmeet and
+              Kleywegt, Gerard and
+              Birney, Ewan and
+              Hassabis, Demis and
+              Velankar, Sameer},
+  title   = {{AlphaFold} Protein Structure Database: massively expanding the structural coverage of protein-sequence space with high-accuracy models},
+  journal = {Nucleic Acids Research},
+  volume  = {50},
+  pages   = {D439--D444},
+  year    = {2022},
+  doi     = {10.1093/nar/gkab1061},
+  note    = {Licence CC-BY-4.0.}
+}
+
+@article{lin2023esm2,
+  author  = {
+              Lin, Zeming and
+              Akin, Halil and
+              Rao, Roshan and
+              Hie, Brian and
+              Zhu, Zhongkai and
+              Lu, Wenting and
+              Smetanin, Nikita and
+              Verkuil, Robert and
+              Kabeli, Ori and
+              Shmueli, Yaniv and
+              dos Santos Costa, Allan and
+              Fazel-Zarandi, Maryam and
+              Sercu, Tom and
+              Candido, Salvatore and
+              Rives, Alexander},
+  title   = {Evolutionary-scale prediction of atomic-level protein structure with a language model},
+  journal = {Science},
+  volume  = {379},
+  pages   = {1123--1130},
+  year    = {2023},
+  doi     = {10.1126/science.ade2574},
+  note    = {ESM-2; checkpoint facebook/esm2\_t33\_650M\_UR50D used for all results
+             here.}
+}
+
+@article{cheng2023alphamissense,
+  author  = {
+              Cheng, Jun and
+              Novati, Guido and
+              Pan, Joshua and
+              Bycroft, Clare and
+              {\v{Z}}emgulyt{\.e}, Akvil{\.e} and
+              Applebaum, Taylor and
+              Pritzel, Alexander and
+              Wong, Lai Hong and
+              Zielinski, Michal and
+              Sargeant, Tobias and
+              Schneider, Rosalia G. and
+              Senior, Andrew W. and
+              Jumper, John and
+              Hassabis, Demis and
+              Kohli, Pushmeet and
+              Avsec, {\v{Z}}iga},
+  title   = {Accurate proteome-wide missense variant effect prediction with {AlphaMissense}},
+  journal = {Science},
+  volume  = {381},
+  year    = {2023},
+  doi     = {10.1126/science.adg7492},
+  note    = {Release of 2023-09-18. Licence CC BY-NC-SA 4.0, non-commercial only.}
+}
+
+@article{uniprot,
+  author  = {
+              {The UniProt Consortium} and
+              Bateman, Alex and
+              Martin, Maria-Jesus and
+              Orchard, Sandra and
+              Magrane, Michele and
+              Adesina, Aduragbemi and
+              Ahmad, Shadab and
+              Bowler-Barnett, Emily H and
+              Bye-A-Jee, Hema and
+              Carpentier, David and
+              Denny, Paul and
+              Fan, Jun and
+              Garmiri, Penelope and
+              Gonzales, Leonardo Jose da Costa and
+              Hussein, Abdulrahman and
+              Ignatchenko, Alexandr and
+              Insana, Giuseppe and
+              Ishtiaq, Rizwan and
+              Joshi, Vishal and
+              Jyothi, Dushyanth and
+              Kandasaamy, Swaathi and
+              Lock, Antonia and
+              Luciani, Aurelien and
+              Luo, Jie and
+              Lussi, Yvonne and
+              Marin, Juan Sebastian Martinez and
+              Raposo, Pedro and
+              Rice, Daniel L and
+              Santos, Rafael and
+              Speretta, Elena
+              and others},
+  title   = {{UniProt}: the Universal Protein Knowledgebase in 2025},
+  journal = {Nucleic Acids Research},
+  volume  = {53},
+  pages   = {D609--D617},
+  year    = {2025},
+  doi     = {10.1093/nar/gkae1010},
+  note    = {Canonical sequences for P40692, P43246, P52701 and P54278 are the
+             coordinate authority for this work. Accessed via the REST
+             API; TODO: record the access date. Author list truncated at
+             30 of 100; the complete list is in the publisher record at
+             the DOI above.}
+}
+
+@article{interpro,
+  author  = {
+              Blum, Matthias and
+              Andreeva, Antonina and
+              Florentino, Laise Cavalcanti and
+              Chuguransky, Sara Rocio and
+              Grego, Tiago and
+              Hobbs, Emma and
+              Pinto, Beatriz Lazaro and
+              Orr, Ailsa and
+              Paysan-Lafosse, Typhaine and
+              Ponamareva, Irina and
+              Salazar, Gustavo A and
+              Bordin, Nicola and
+              Bork, Peer and
+              Bridge, Alan and
+              Colwell, Lucy and
+              Gough, Julian and
+              Haft, Daniel H and
+              Letunic, Ivica and
+              Llinares-L{\'o}pez, Felipe and
+              Marchler-Bauer, Aron and
+              Meng-Papaxanthos, Laetitia and
+              Mi, Huaiyu and
+              Natale, Darren A and
+              Orengo, Christine A and
+              Pandurangan, Arun P and
+              Piovesan, Damiano and
+              Rivoire, Catherine and
+              Sigrist, Christian J A and
+              Thanki, Narmada and
+              Thibaud-Nissen, Fran{\c{c}}oise and
+              Thomas, Paul D and
+              Tosatto, Silvio C E and
+              Wu, Cathy H and
+              Bateman, Alex},
+  title   = {{InterPro}: the protein sequence classification resource in 2025},
+  journal = {Nucleic Acids Research},
+  volume  = {53},
+  pages   = {D444--D456},
+  year    = {2025},
+  doi     = {10.1093/nar/gkae1082},
+  note    = {Licence CC0. 123 domain/family intervals on the panel. Accessed via the
+             REST API; TODO: record the access date.}
+}
+
+@article{mane,
+  author  = {
+              Morales, Joannella and
+              Pujar, Shashikant and
+              Loveland, Jane E. and
+              Astashyn, Alex and
+              Bennett, Ruth and
+              Berry, Andrew and
+              Cox, Eric and
+              Davidson, Claire and
+              Ermolaeva, Olga and
+              Farrell, Catherine M. and
+              Fatima, Reham and
+              Gil, Laurent and
+              Goldfarb, Tamara and
+              Gonzalez, Jose M. and
+              Haddad, Diana and
+              Hardy, Matthew and
+              Hunt, Toby and
+              Jackson, John and
+              Joardar, Vinita S. and
+              Kay, Michael and
+              Kodali, Vamsi K. and
+              McGarvey, Kelly M. and
+              McMahon, Aoife and
+              Mudge, Jonathan M. and
+              Murphy, Daniel N. and
+              Murphy, Michael R. and
+              Rajput, Bhanu and
+              Rangwala, Sanjida H. and
+              Riddick, Lillian D. and
+              Thibaud-Nissen, Fran{\c{c}}oise and
+              Threadgold, Glen and
+              Vatsan, Anjana R. and
+              Wallin, Craig and
+              Webb, David and
+              Flicek, Paul and
+              Birney, Ewan and
+              Pruitt, Kim D. and
+              Frankish, Adam and
+              Cunningham, Fiona and
+              Murphy, Terence D.},
+  title   = {A joint {NCBI} and {EMBL-EBI} transcript set for clinical genomics and research},
+  journal = {Nature},
+  volume  = {604},
+  pages   = {310--315},
+  year    = {2022},
+  doi     = {10.1038/s41586-022-04558-8},
+  note    = {MANE Select transcript ENST00000265849 used to derive the \gene{PMS2}
+             pseudogene homology range, codons 382--862.}
+}
+
+% ---- Conference papers: not in Crossref ------------------------------
+% Verified against DBLP and the NeurIPS/PMLR proceedings listings.
+
+@inproceedings{guo2017calibration,
+  author    = {Guo, Chuan and
+               Pleiss, Geoff and
+               Sun, Yu and
+               Weinberger, Kilian Q.},
+  title     = {On Calibration of Modern Neural Networks},
+  booktitle = {Proceedings of the 34th International Conference on Machine
+               Learning},
+  series    = {Proceedings of Machine Learning Research},
+  volume    = {70},
+  pages     = {1321--1330},
+  year      = {2017},
+  note      = {Temperature scaling. Verified against DBLP; PMLR volume 70
+               carries no DOI.}
+}
+
+@inproceedings{zadrozny2002isotonic,
+  author    = {Zadrozny, Bianca and
+               Elkan, Charles},
+  title     = {Transforming classifier scores into accurate multiclass
+               probability estimates},
+  booktitle = {Proceedings of the Eighth ACM SIGKDD International Conference
+               on Knowledge Discovery and Data Mining},
+  pages     = {694--699},
+  year      = {2002},
+  doi       = {10.1145/775047.775151},
+  note      = {Isotonic regression.}
+}
+
+@inproceedings{meier2021pllr,
+  author    = {Meier, Joshua and
+               Rao, Roshan and
+               Verkuil, Robert and
+               Liu, Jason and
+               Sercu, Tom and
+               Rives, Alexander},
+  title     = {Language models enable zero-shot prediction of the effects of
+               mutations on protein function},
+  booktitle = {Advances in Neural Information Processing Systems 34
+               (NeurIPS 2021)},
+  pages     = {29287--29303},
+  year      = {2021},
+  note      = {Source of the masked-marginal PLLR scoring used here.
+               Verified against DBLP; the NeurIPS 2021 proceedings entry is
+               also indexed as ACM 10.5555/3540261.3542504.}
+}
+
+@inproceedings{notin2023proteingym,
+  author    = {Notin, Pascal and
+               Kollasch, Aaron and
+               Ritter, Daniel and
+               van Niekerk, Lood and
+               Paul, Steffanie and
+               Spinner, Han and
+               Rollins, Nathan and
+               Shaw, Ada and
+               Orenbuch, Rose and
+               Weitzman, Ruben and
+               Frazer, Jonathan and
+               Dias, Mafalda and
+               Franceschi, Dinko and
+               Gal, Yarin and
+               Marks, Debora},
+  title     = {{ProteinGym}: Large-Scale Benchmarks for Protein Fitness
+               Prediction and Design},
+  booktitle = {Advances in Neural Information Processing Systems 36
+               (NeurIPS 2023), Datasets and Benchmarks Track},
+  year      = {2023},
+  note      = {Version 1.3 used here (Zenodo record 15293562, 2025-04-27).
+               Repository licence MIT. Author list verified against the
+               NeurIPS proceedings page for paper
+               cac723e5ff29f65e3fcbb0739ae91bee.}
+}
+
+% ---- Not cited by main.tex: still truncated, no DOIs -----------------
+% These entries are unchanged. bibtex does not emit them, since nothing
+% cites them. Complete them as above before adding a \cite.
 
 @article{tavtigian2018bayesian,
   author  = {Tavtigian, S. V. and others},
@@ -44,6 +590,7 @@
   year    = {2018}
 }
 
+
 @article{brnich2020ps3,
   author  = {Brnich, S. E. and others},
   title   = {Recommendations for application of the functional evidence {PS3/BS3} criterion using the {ACMG/AMP} sequence variant interpretation framework},
@@ -52,6 +599,7 @@
   pages   = {3},
   year    = {2020}
 }
+
 
 @article{thompson2014insight,
   author  = {Thompson, B. A. and others},
@@ -62,84 +610,7 @@
   year    = {2014}
 }
 
-% ---- Circularity and benchmarking -----------------------------------
-@article{grimm2015circularity,
-  author  = {Grimm, D. G. and others},
-  title   = {The evaluation of tools used to predict the impact of missense variants is hindered by two types of circularity},
-  journal = {Human Mutation},
-  volume  = {36},
-  pages   = {513--523},
-  year    = {2015}
-}
 
-@inproceedings{notin2023proteingym,
-  author    = {Notin, P. and others},
-  title     = {{ProteinGym}: large-scale benchmarks for protein fitness prediction and design},
-  booktitle = {Advances in Neural Information Processing Systems 36, Datasets and Benchmarks Track},
-  year      = {2023},
-  note      = {Version 1.3 used here (Zenodo record 15293562, 2025-04-27). Repository licence MIT.}
-}
-
-% ---- Variant databases ----------------------------------------------
-@article{landrum2018clinvar,
-  author  = {Landrum, M. J. and others},
-  title   = {{ClinVar}: improving access to variant interpretations and supporting evidence},
-  journal = {Nucleic Acids Research},
-  volume  = {46},
-  pages   = {D1062--D1067},
-  year    = {2018},
-  note    = {TODO: record the release date of the snapshot used; ClinVar updates weekly.}
-}
-
-@article{chen2024gnomad,
-  author  = {Chen, S. and others},
-  title   = {A genomic mutational constraint map using variation in 76,156 human genomes},
-  journal = {Nature},
-  volume  = {625},
-  pages   = {92--100},
-  year    = {2024},
-  note    = {gnomAD v4; dataset identifier gnomad\_r4.}
-}
-
-@article{karczewski2020gnomad,
-  author  = {Karczewski, K. J. and others},
-  title   = {The mutational constraint spectrum quantified from variation in 141,456 humans},
-  journal = {Nature},
-  volume  = {581},
-  pages   = {434--443},
-  year    = {2020}
-}
-
-@article{esposito2019mavedb,
-  author  = {Esposito, D. and others},
-  title   = {{MaveDB}: an open-source platform to distribute and interpret data from multiplexed assays of variant effect},
-  journal = {Genome Biology},
-  volume  = {20},
-  pages   = {223},
-  year    = {2019}
-}
-
-% ---- Structure -------------------------------------------------------
-@article{jumper2021alphafold,
-  author  = {Jumper, J. and others},
-  title   = {Highly accurate protein structure prediction with {AlphaFold}},
-  journal = {Nature},
-  volume  = {596},
-  pages   = {583--589},
-  year    = {2021}
-}
-
-@article{varadi2022afdb,
-  author  = {Varadi, M. and others},
-  title   = {{AlphaFold} Protein Structure Database},
-  journal = {Nucleic Acids Research},
-  volume  = {50},
-  pages   = {D439--D444},
-  year    = {2022},
-  note    = {Licence CC-BY-4.0.}
-}
-
-% ---- Protein language models and variant-effect predictors -----------
 @article{rives2021esm,
   author  = {Rives, A. and others},
   title   = {Biological structure and function emerge from scaling unsupervised learning to 250 million protein sequences},
@@ -149,34 +620,6 @@
   year    = {2021}
 }
 
-@inproceedings{meier2021pllr,
-  author    = {Meier, J. and others},
-  title     = {Language models enable zero-shot prediction of the effects of mutations on protein function},
-  booktitle = {Advances in Neural Information Processing Systems},
-  volume    = {34},
-  year      = {2021},
-  note      = {Source of the masked-marginal PLLR scoring used here.}
-}
-
-@article{lin2023esm2,
-  author  = {Lin, Z. and others},
-  title   = {Evolutionary-scale prediction of atomic-level protein structure with a language model},
-  journal = {Science},
-  volume  = {379},
-  pages   = {1123--1130},
-  year    = {2023},
-  note    = {ESM-2; checkpoint facebook/esm2\_t33\_650M\_UR50D used for all results here.}
-}
-
-@article{cheng2023alphamissense,
-  author  = {Cheng, J. and others},
-  title   = {Accurate proteome-wide missense variant effect prediction with {AlphaMissense}},
-  journal = {Science},
-  volume  = {381},
-  pages   = {eadg7492},
-  year    = {2023},
-  note    = {Release of 2023-09-18. Licence CC BY-NC-SA 4.0, non-commercial only.}
-}
 
 @article{frazer2021eve,
   author  = {Frazer, J. and others},
@@ -187,6 +630,7 @@
   year    = {2021}
 }
 
+
 @article{laine2019gemme,
   author  = {Laine, E. and Karami, Y. and Carbone, A.},
   title   = {{GEMME}: a simple and fast global epistatic model predicting mutational effects},
@@ -195,6 +639,7 @@
   pages   = {2604--2619},
   year    = {2019}
 }
+
 
 @article{brandes2023espm,
   author  = {Brandes, N. and others},
@@ -205,7 +650,7 @@
   year    = {2023}
 }
 
-% ---- Functional assays ----------------------------------------------
+
 @article{jia2021msh2,
   author  = {Jia, X. and others},
   title   = {Massively parallel functional testing of {MSH2} missense variants conferring {Lynch} syndrome risk},
@@ -216,21 +661,6 @@
   note    = {MaveDB urn:mavedb:00000050-a-1, PMID 33357406. The single DMS assay covering this panel.}
 }
 
-% ---- Method components ----------------------------------------------
-@inproceedings{guo2017calibration,
-  author    = {Guo, C. and others},
-  title     = {On calibration of modern neural networks},
-  booktitle = {International Conference on Machine Learning},
-  year      = {2017},
-  note      = {Temperature scaling.}
-}
-
-@inproceedings{zadrozny2002isotonic,
-  author    = {Zadrozny, B. and Elkan, C.},
-  title     = {Transforming classifier scores into accurate multiclass probability estimates},
-  booktitle = {Proceedings of the ACM SIGKDD International Conference on Knowledge Discovery and Data Mining},
-  year      = {2002}
-}
 
 @inproceedings{lin2017focal,
   author    = {Lin, T.-Y. and others},
@@ -239,12 +669,14 @@
   year      = {2017}
 }
 
+
 @inproceedings{loshchilov2019adamw,
   author    = {Loshchilov, I. and Hutter, F.},
   title     = {Decoupled weight decay regularization},
   booktitle = {International Conference on Learning Representations},
   year      = {2019}
 }
+
 
 @article{steinegger2017mmseqs2,
   author  = {Steinegger, M. and S{\"o}ding, J.},
@@ -255,30 +687,3 @@
   year    = {2017}
 }
 
-% ---- Still unverified: no citation available in the repository -------
-% These three resources are used by the pipeline but have no entry in
-% docs/PAPER.md's verified list. Complete from the publisher record.
-
-@misc{uniprot,
-  author       = {{TODO: UniProt Consortium --- complete from the publisher record}},
-  title        = {{TODO: UniProt database publication title (Nucleic Acids Research, annual database issue)}},
-  year         = {{TODO}},
-  howpublished = {\url{https://rest.uniprot.org/uniprotkb/}},
-  note         = {Canonical sequences for P40692, P43246, P52701 and P54278 are the coordinate authority for this work. No verified citation exists in the repository.}
-}
-
-@misc{interpro,
-  author       = {{TODO: complete from the publisher record}},
-  title        = {{TODO: InterPro publication title}},
-  year         = {{TODO}},
-  howpublished = {\url{https://www.ebi.ac.uk/interpro/api}},
-  note         = {Licence CC0. 123 domain/family intervals on the panel. No verified citation exists in the repository.}
-}
-
-@misc{mane,
-  author       = {{TODO: complete from the publisher record}},
-  title        = {{TODO: MANE publication title}},
-  year         = {{TODO}},
-  howpublished = {\url{https://www.ncbi.nlm.nih.gov/refseq/MANE/}},
-  note         = {MANE Select transcript ENST00000265849 used to derive the PMS2 pseudogene homology range, codons 382--862. No verified citation exists in the repository.}
-}

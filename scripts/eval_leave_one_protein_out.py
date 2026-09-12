@@ -158,6 +158,14 @@ def main() -> int:
         X_ho = scaler.transform(X[held_idx]).astype(np.float32)
         weights = stage_sample_weights(meta, args.clinical_weight)
 
+        # Seed before construction, not just inside fit_head: build_model
+        # initialises the head's weights immediately, several statements
+        # before fit_head's own set_global_seed call runs. Seeding only once
+        # in main() left every protein but the first drawing its head from
+        # whatever RNG state the previous protein's training loop happened
+        # to leave behind -- the same defect class documented in
+        # docs/RUNLOG.md 2026-09-06 for scripts/finetune_esm_mmr.py.
+        set_global_seed(args.seed)
         model = build_model("esm", dims=[X.shape[1]], hidden_dim=args.hidden_dim,
                             dropout=args.dropout)
         model, best_epoch = fit_head(

@@ -317,6 +317,16 @@ def run_one_split(args: argparse.Namespace, master: pd.DataFrame,
             logger.info("%s: no checkpoint available; training from scratch.", name)
 
         dims = [m.shape[1] for m in mats]
+        # Seed before construction, not just inside fit_head: build_model
+        # initialises the head's weights immediately, several statements
+        # before fit_head's own set_global_seed call runs. Seeding only
+        # there left every architecture but the first drawing its head from
+        # whatever RNG state the previous architecture's training loop
+        # happened to leave behind -- the same defect class documented in
+        # docs/RUNLOG.md 2026-09-06 for scripts/finetune_esm_mmr.py, here
+        # affecting architecture order within one gene rather than gene
+        # order within one sweep.
+        set_global_seed(args.seed + ARCH_SEED_OFFSET[kind])
         model = build_model(kind, dims=dims, hidden_dim=args.hidden_dim,
                             dropout=args.dropout)
         if this_init is not None:

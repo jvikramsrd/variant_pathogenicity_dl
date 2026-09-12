@@ -25,7 +25,6 @@ from typing import Optional, Sequence, Tuple
 
 import pandas as pd
 import requests
-import urllib3
 from tqdm.auto import tqdm
 from urllib3.util.retry import Retry
 
@@ -94,8 +93,11 @@ def make_session(max_retries: int = 5, backoff_factor: float = 1.5) -> requests.
     session.headers.update({"User-Agent": "variant-pathogenicity-dl/1.0"})
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    # Surface urllib3 warnings (e.g. TLS) at WARNING level instead of crashing.
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    # No `verify=False` exists anywhere in this codebase, so
+    # InsecureRequestWarning never fires today -- and it must stay that way:
+    # a blanket disable_warnings() here would silently mask the warning if
+    # one were ever added by mistake, which is the one case this warning
+    # exists to catch.
     return session
 
 

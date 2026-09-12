@@ -892,6 +892,40 @@ def test_transfer_head_checkpoint_roundtrips_weights_scalers_and_threshold():
     assert payload["config"]["arch"] == "concat"
     assert payload["feature_columns"] == ["a", "b", "c", "d"]
 
+
+def test_load_transfer_head_rejects_a_foreign_format_tag():
+    """TRANSFER_HEAD_FORMAT is stamped by save_transfer_head but was never
+    checked back on load -- a foreign or future-format .pt file was accepted
+    silently and failed later with an opaque error deep inside model
+    construction, instead of a clear, named rejection at load time."""
+    import torch
+    from src.transfer import TransferHeadFormatError, load_transfer_head
+
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "not_a_transfer_head.pt"
+        torch.save({"format": "some_other_format/v3", "config": {}}, path)
+        try:
+            load_transfer_head(path, device=torch.device("cpu"))
+            assert False, "expected TransferHeadFormatError"
+        except TransferHeadFormatError as exc:
+            assert "some_other_format/v3" in str(exc)
+
+
+def test_load_transfer_head_rejects_a_payload_with_no_format_tag():
+    """A checkpoint predating the format field must be named explicitly as
+    missing, not treated as compatible-by-default."""
+    import torch
+    from src.transfer import TransferHeadFormatError, load_transfer_head
+
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "pre_format_field.pt"
+        torch.save({"config": {}}, path)
+        try:
+            load_transfer_head(path, device=torch.device("cpu"))
+            assert False, "expected TransferHeadFormatError"
+        except TransferHeadFormatError as exc:
+            assert "None" in str(exc)
+
     # Wrong number of feature views is a loud error, not a silent misalign.
     try:
         scale_views(raws[:1])

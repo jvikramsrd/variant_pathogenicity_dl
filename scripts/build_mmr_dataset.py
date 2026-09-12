@@ -325,14 +325,32 @@ def main() -> int:
     refresh_manifest(ext_dir, updates={
         "parameters": {k: v for k, v in gnomad_record.items()
                        if k.startswith("include_")},
-        "sources": {"gnomad": {
-            "enabled": gnomad_record["include_gnomad"],
-            "api_url": "https://gnomad.broadinstitute.org/api",
-            "dataset": "gnomad_r4",
-            "genes_fetched": gnomad_record.get("gnomad_genes_fetched", []),
-            "constraint_genes_fetched": gnomad_record.get(
-                "gnomad_constraint_genes_fetched", []),
-        }},
+        # MaveDB and CIMRA are both joined above (stages 7-8), before this
+        # write, but neither ever got a manifest source block -- the
+        # manifest looked identical whether or not they ran, which
+        # MISSING_EVIDENCE.md read as "not enabled" for both when MaveDB, in
+        # fact, was (mavedb_rows_with_score below is the same figure the
+        # run summary records).
+        "sources": {
+            "gnomad": {
+                "enabled": gnomad_record["include_gnomad"],
+                "api_url": "https://gnomad.broadinstitute.org/api",
+                "dataset": "gnomad_r4",
+                "genes_fetched": gnomad_record.get("gnomad_genes_fetched", []),
+                "constraint_genes_fetched": gnomad_record.get(
+                    "gnomad_constraint_genes_fetched", []),
+            },
+            "mavedb": {
+                "enabled": not args.skip_mavedb,
+                "rows_with_score": n_mave,
+                "check_for_new": bool(args.mavedb_check_for_new),
+            },
+            "cimra": {
+                "enabled": args.cimra_csv is not None,
+                "csv": str(args.cimra_csv) if args.cimra_csv is not None else None,
+                "rows_with_oddspath": n_cimra,
+            },
+        },
         "stats": {k: v for k, v in gnomad_record.items()
                   if not k.startswith("include_")},
     })

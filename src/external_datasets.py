@@ -117,6 +117,7 @@ def download_file(
     overwrite: bool = False,
     expected_sha256: Optional[str] = None,
     min_bytes: int = 1024,
+    max_bytes: Optional[int] = None,
     timeout: int = 180,
     max_attempts: int = 5,
 ) -> Path:
@@ -127,6 +128,13 @@ def download_file(
     bytes and
     passes *expected_sha256* (if provided); otherwise the transfer resumes via
     HTTP Range requests when the server supports them.
+
+    *max_bytes* is an optional ceiling on how much a single attempt will
+    stream before aborting -- every URL passed to this function today is a
+    hardcoded, trusted constant, so this defends only against a compromised
+    or misconfigured mirror serving something far larger than expected, not
+    against anything currently reachable. ``None`` (the default) preserves
+    the historical unlimited behaviour.
 
     *max_attempts* bounds the resume loop. Five is fine for a small artefact,
     but a multi-hundred-megabyte file on a link that drops every few megabytes
@@ -178,6 +186,10 @@ def download_file(
                     for chunk in resp.iter_content(chunk_size=1 << 20):
                         fh.write(chunk)
                         done += len(chunk)
+                        if max_bytes is not None and done > max_bytes:
+                            raise IOError(
+                                f"{dest.name} exceeded max_bytes={max_bytes} "
+                                f"({done} bytes streamed so far); aborting.")
                         now = time.time()
                         if total and now - t_last > 10:
                             t_last = now

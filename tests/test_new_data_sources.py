@@ -37,6 +37,7 @@ from src.esm_finetune import (  # noqa: E402
     FINETUNE_CHECKPOINT_FORMAT,
     ESMFineTuneClassifier,
     FineTuneExample,
+    FinetuneCheckpointFormatError,
     build_examples,
     load_finetuned_model,
     save_finetuned,
@@ -340,6 +341,57 @@ def test_load_finetuned_model_migrates_legacy_use_pllr_true_to_concat():
 
     assert seen["init"]["pllr_mode"] == "concat"
     assert "use_pllr" not in seen["init"]
+
+
+def test_load_finetuned_model_rejects_a_foreign_format_tag():
+    """FINETUNE_CHECKPOINT_FORMAT is stamped by save_finetuned but was never
+    checked back on load -- the same defect class already fixed for
+    src.transfer.load_transfer_head (TransferHeadFormatError)."""
+    payload = {"format": "some_other_format/v9", "config": {}, "model_state_dict": {}}
+    orig_load = transfer.load_checkpoint
+    transfer.load_checkpoint = lambda p: payload
+    try:
+        try:
+            load_finetuned_model(Path("x.pt"))
+            assert False, "expected FinetuneCheckpointFormatError"
+        except FinetuneCheckpointFormatError as exc:
+            assert "some_other_format/v9" in str(exc)
+    finally:
+        transfer.load_checkpoint = orig_load
+
+
+def test_load_finetuned_model_accepts_a_payload_with_no_format_tag():
+    """Unlike TransferHeadFormatError, a missing format tag must still load:
+    real checkpoints predating this field exist (see the use_pllr migration
+    test above), and rejecting them would silently break loading a
+    previously-valid checkpoint moved to another machine."""
+    payload = {
+        "config": {"model_name": "facebook/esm2_t6_8M_UR50D", "mode": "wt_site",
+                   "n_unfrozen_layers": 2, "hidden_dim": 128, "dropout": 0.2,
+                   "use_pllr": False},
+        "model_state_dict": {},
+    }
+
+    class FakeModel:
+        def __init__(self, **kw):
+            pass
+
+        def load_state_dict(self, sd, strict=True):
+            pass
+
+        def eval(self):
+            pass
+
+    orig_load = transfer.load_checkpoint
+    orig_cls = esm_finetune.ESMFineTuneClassifier
+    transfer.load_checkpoint = lambda p: payload
+    esm_finetune.ESMFineTuneClassifier = FakeModel
+    try:
+        model, got = load_finetuned_model(Path("x.pt"))  # must not raise
+        assert got is payload
+    finally:
+        transfer.load_checkpoint = orig_load
+        esm_finetune.ESMFineTuneClassifier = orig_cls
 
 
 # --------------------------------------------------------------------------- #

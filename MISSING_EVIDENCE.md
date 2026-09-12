@@ -189,7 +189,7 @@ needed**, not just a run.
 
 ---
 
-## 7. Run artifacts carry no dataset, feature-schema or split identity — MECHANISM DONE, BACKFILL OUTSTANDING
+## 7. Run artifacts carry no dataset, feature-schema or split identity — RESOLVED
 
 **Manuscript location.** §2.5 (tracking), and implicitly every comparison in the paper.
 
@@ -219,7 +219,19 @@ exactly that field, and a gate that forbade it would forbid the ablation table. 
 provenance block is reported as `<missing>` rather than treated as matching, because a
 pre-provenance artifact is precisely the case that needs flagging. 18 tests.
 
-**Outstanding — run on the build machine.** The 28 existing summaries predate the block.
+**Resolved 2026-09-07 — no backfill was needed.** The post-seed-fix re-runs (`b9a47c3`,
+`472d20b`) wrote provenance natively, and the 12 pre-provenance ablation summaries were
+superseded by the re-run rather than annotated. All 28 summaries now carry a block, and they
+agree: one `dataset_sha256` (`78eb5d60860c…`) and one `split_definition` (`6f87ecd06877ff66`)
+across every cell, so `COMPARABILITY_KEYS` passes for the whole set.
+`python scripts/make_figures.py --strict_provenance` runs clean — 28 cells, 16 arms.
+
+Two commits appear across the set, both carrying the seeding fix: the 16 grid cells ran at
+`aec4333`, the 12 ablations at `a3acf30` (a descendant). Every summary records `dirty: true`;
+what was uncommitted on the CUDA box at run time is not on the record, and that is the one
+identity claim these artifacts still cannot make.
+
+**Superseded — the backfill route, kept for the record.** The 28 pre-fix summaries predated the block.
 `scripts/backfill_provenance.py` annotates them from artifacts that still exist: it measures
 the dataset hash and reads each split from the run's own predictions CSV, reconstructs the
 feature schema (flagged `feature_schema_exact: false` where reconstructed rather than read
@@ -255,15 +267,44 @@ genes, or run it here and report it explicitly as a single-gene result. `prepare
 
 ---
 
-## 9. No error analysis
+## 9. No error analysis — RESOLVED
 
-**Manuscript location.** §3.7 (section is a placeholder).
+**Manuscript location.** §3.7 (was a placeholder).
 
-**Required.** Export high-confidence false positives and false negatives from
-`esm_finetune_predictions_*.csv`, join back to the master table for domain membership, pLDDT,
-allele frequency, ClinVar review status and label source, and inspect for pattern. No script
-does this. Until it exists, no biological interpretation of individual errors belongs in the
-manuscript.
+**Done 2026-09-07.** `scripts/error_analysis.py` intersects the errors across the seeds of one
+arm, scores each seed at the threshold its own fold selected, joins the master table back on,
+and tests every covariate — reporting model inputs and independent covariates **apart**, since
+an association with a feature the model reads restates the model's own weighting rather than
+telling us anything about it.
+
+    python scripts/error_analysis.py
+    python scripts/error_analysis.py --arm esmpri_concat_full_pllr-residual
+
+**What it found, and it is a label-quality result rather than a model result.**
+
+| arm | consensus errors / 683 | FP | FN | seed-unstable |
+|---|---|---|---|---|
+| `esmpri_concat_frozen_pllr-residual` | 85 (12.4%) | 56 | 29 | 193 |
+| `esmpri_concat_full_pllr-residual` | 97 (14.2%) | 73 | 24 | 113 |
+
+- **Every false positive of the frozen arm is *MSH2*** (56/56); the full fine-tune adds 5
+  elsewhere out of 73. *MLH1* and *MSH6* produce none.
+- The two covariates separating errors from correct calls are `label_source` and
+  `evidence_tier` (BH-corrected p = 1.0e-4 frozen, 1e-6 full), and **neither is a model
+  input**. 45 of the 56 frozen-arm false positives are ProteinGym-clinical benign calls; 44
+  carry `evidence_tier == unreviewed`.
+- This explains the *MSH2* MCC anomaly first flagged on 2026-08-28 (ROC-AUC 0.878 against MCC
+  0.297). *MSH2* contributes 144 of the 180 PG-clinical benign labels in the whole panel —
+  *MLH1* contributes 6 — so *MSH2*'s benign class is largely unreviewed calls that the model
+  scores pathogenic at >0.999. See Figure 2(c).
+- 193 of 683 variants flip between the three seeds of one arm without being consensus errors.
+  That is the item-12 initialisation spread measured per variant, and it belongs next to any
+  per-variant claim.
+
+**What this does not license.** The association is with label provenance, not with biology. No
+claim that these variants are misannotated belongs in the paper without going back to the
+ClinVar submissions themselves. Artifacts:
+`data/processed/stage2b_grid/error_analysis_<arm>_{errors,covariates}.csv`.
 
 ---
 
@@ -292,7 +333,7 @@ rather than being attempted against the current artifacts.
 
 ---
 
-## 12. MLH1 is unseeded in every grid cell run so far — FIX LANDED, RE-RUN OUTSTANDING
+## 12. MLH1 is unseeded in every grid cell run so far — RESOLVED
 
 **Found 2026-09-06 by the reproducibility check the previous item asked for.** Two runs of
 one cell at one commit (`data/processed/repro_check/`, `repro_a` / `repro_b`) disagree on
@@ -311,12 +352,51 @@ AUROC. The three-seed arms show 0.019-0.049 spread on MLH1, so most of that is i
 not seed. **No MLH1 comparison below ~0.02 AUROC is interpretable**, which includes any Table 4
 or Table 6 row whose MLH1 margin is that small. MSH2/MSH6/PMS2 as measurements are unaffected.
 
-**What a re-run buys, and what it costs.** The existing numbers are valid random draws; they
-are simply not replayable, and the fix changes every fold's initialisation, so re-running
-changes all four genes' numbers, not just MLH1. Deciding scope — the full 28-cell grid, or
-only the tier-1 cells and the ablation arms that Table 4 rests on — is a GPU-budget call, not
-a correctness one. Whatever is re-run must be re-run together: a table mixing pre- and
-post-fix cells is comparing different initialisation regimes.
+**Re-run completed 2026-09-07 — all 28 cells, nothing mixed.** The 16 grid cells came back in
+`b9a47c3` and the 12 feature-family ablations in `472d20b`. As predicted, the fix moved all
+four genes rather than MLH1 alone: 58 of 64 grid rows changed, mean |dAUROC| 0.011 (MLH1),
+0.006 (MSH2), 0.014 (MSH6), 0.022 (PMS2). Every number in the paper now comes from one
+initialisation regime, and `--strict_provenance` confirms one dataset and one split across
+the set.
+
+**The pre-registered reading survives the re-run**, which is the result that mattered. At
+`pllr=residual`, seed 42, mean AUROC over the scoreable genes:
+
+| branch | frozen | last2 | full |
+|---|---|---|---|
+| `esm+priors` | **0.945** | 0.936 | 0.941 |
+| `esm` only | 0.904 | 0.932 | 0.927 |
+
+Backbone gradients buy nothing once the priors are present; they only recover ground the
+esm-only branch was missing. The 6.5-point gap §6.12 was built around was the feature set,
+not the freeze depth.
+
+**What the caveat becomes.** The MLH1 warning is retired for these artifacts — they are
+replayable. It still binds anything quoted from a pre-2026-09-07 run, and the seed spread it
+exposed is real and unchanged: see item 9 for the 193-of-683 per-variant flip rate.
+
+---
+
+## 13. The ablation artifacts were deleted by a push, and nearly went unnoticed
+
+**Recorded 2026-09-07, resolved the same day.** The grid re-run push (`b9a47c3`) staged 48
+deletions alongside its additions — every `ablate_*` results, predictions, summary and
+valpreds file, the artifacts behind Table 4 and the ablation series of Figure 5. The CUDA
+box's working tree simply did not have them, and a broad `git add` recorded that absence as
+an intended removal.
+
+Nothing failed. `make_figures.py` regenerated Figure 5 without complaint, legend still
+advertising a "feature-family ablation" series with no points in it.
+
+**Two guards added.** `figure5` now prints a WARNING naming the missing glob when no ablation
+arm is present, and drops the legend entry rather than captioning an empty series. The push
+procedure in `docs/GPU_RUN_SHEET_2026-09-07.md` uses path-scoped `git add` and requires
+reading `git status` for `deleted:` lines before committing.
+
+**The general lesson, which the provenance work had not covered.** `src/provenance.py` gates
+whether artifacts that *are* present may be pooled. It says nothing about artifacts that have
+gone missing, because a figure built from a subset is still internally consistent. Absence
+needs its own check.
 
 ---
 

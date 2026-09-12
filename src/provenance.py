@@ -146,6 +146,32 @@ class IncomparableRuns(ValueError):
 COMPARABILITY_KEYS = ("dataset_sha256", "split_definition")
 #: Additionally required among seed replicates of a single arm.
 REPLICATE_KEYS = COMPARABILITY_KEYS + ("feature_schema",)
+#: Additionally required to trust that identical dataset/split/schema were
+#: also produced by identical code. Two runs can agree on all of
+#: COMPARABILITY_KEYS and REPLICATE_KEYS while one predates a correctness
+#: fix and one postdates it -- exactly the seeding-bug situation
+#: MISSING_EVIDENCE.md item 12 had to resolve by manually reading commit
+#: messages across the 28-summary set, because nothing in assert_comparable
+#: itself would have caught a pre-fix/post-fix mix. Not folded into
+#: REPLICATE_KEYS by default: a seed re-run one commit later to pick up an
+#: unrelated fix is still the same arm, and requiring an identical commit
+#: would make that ordinary case unaggregatable. Pass
+#: ``keys=REPLICATE_KEYS + CODE_KEYS`` for the stronger guarantee.
+CODE_KEYS = ("git",)
+
+
+def _hashable(value: object) -> object:
+    """Coerce a provenance value into something usable as a grouping key.
+
+    Every COMPARABILITY_KEYS/REPLICATE_KEYS value is a hashable string, but
+    ``git`` (see :data:`CODE_KEYS`) is a nested ``{"commit": ..., "dirty":
+    ...}`` dict, which ``dict.setdefault`` cannot use as a key directly.
+    Sorted items rather than ``str(dict)``: item order is not part of the
+    value being compared.
+    """
+    if isinstance(value, dict):
+        return tuple(sorted(value.items()))
+    return value
 
 
 def assert_comparable(records: Mapping[str, Mapping[str, object]],
@@ -158,7 +184,9 @@ def assert_comparable(records: Mapping[str, Mapping[str, object]],
     treating "unknown" as "matching" would reintroduce the failure.
 
     Pass ``keys=REPLICATE_KEYS`` when the runs are meant to be seeds of one arm,
-    which additionally requires an identical feature schema.
+    which additionally requires an identical feature schema. Pass
+    ``keys=REPLICATE_KEYS + CODE_KEYS`` to additionally require an identical
+    git commit (see :data:`CODE_KEYS`).
     """
     if len(records) < 2:
         return
@@ -166,7 +194,7 @@ def assert_comparable(records: Mapping[str, Mapping[str, object]],
     for key in keys:
         seen: Dict[object, list] = {}
         for label, rec in records.items():
-            seen.setdefault(rec.get(key, "<missing>"), []).append(label)
+            seen.setdefault(_hashable(rec.get(key, "<missing>")), []).append(label)
         if len(seen) > 1:
             groups = "; ".join(
                 f"{value!r}: {', '.join(sorted(labels))}"
@@ -180,3 +208,26 @@ def assert_comparable(records: Mapping[str, Mapping[str, object]],
               "splits. Re-run the odd one out, or aggregate the matching subset "
               "explicitly."
         )
+
+
+def assert_no_dirty_code(records: Mapping[str, Mapping[str, object]]) -> None:
+    """Name runs whose working tree was dirty when they started.
+
+    A dirty run's recorded ``git.commit`` is only a lower bound on what code
+    actually executed -- the every-summary-in-the-current-grid case
+    docs/RUNLOG.md 2026-09-07 already flags as "not recoverable from the
+    artifacts." This is opt-in and separate from :func:`assert_comparable`
+    (not folded into COMPARABILITY_KEYS/REPLICATE_KEYS/CODE_KEYS) because it
+    is a statement about one run's own trustworthiness, not about whether two
+    runs agree with each other -- a single dirty run should be flagged even
+    when nothing else is being pooled against it. Records with no ``git``
+    block are skipped, not flagged: that is :func:`assert_comparable`'s
+    ``"<missing>"`` case via :data:`CODE_KEYS`, not this function's job.
+    """
+    dirty = [label for label, rec in records.items()
+            if isinstance(rec.get("git"), dict) and rec["git"].get("dirty")]
+    if dirty:
+        raise IncomparableRuns(
+            "These runs had an uncommitted working tree at run time, so "
+            "their recorded git commit is only a lower bound on what code "
+            "executed: " + ", ".join(sorted(dirty)))

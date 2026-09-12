@@ -91,17 +91,34 @@ def arm_of(slug: str) -> str:
     return re.sub(r"_seed\d+$", "", str(slug))
 
 
-def prior_columns(grid_dir: Path) -> List[str]:
-    """The feature columns the model reads, from any run summary that has them.
+def prior_columns(grid_dir: Path, arm: str) -> List[str]:
+    """The feature columns *this arm's* model reads, from its own summaries.
 
-    Read rather than hardcoded: the grid varies the feature set by arm, and a
-    stale list here would mislabel a model input as an independent covariate --
-    the one error this whole distinction exists to prevent.
+    Read rather than hardcoded, and read per arm rather than from whichever
+    summary sorts first: the ablation cells exist precisely to drop feature
+    groups, so borrowing ``ablate_domains``'s list would report the domain
+    features as independent covariates for every arm. That is the exact
+    mislabelling this distinction exists to prevent, and it is silent -- the
+    output still looks like a finding.
+
+    Falls back to the union over every arm, which errs toward calling a
+    covariate an input. Overstating what the model reads costs a true finding;
+    understating it manufactures a false one.
     """
+    exact: List[str] = []
+    every: set = set()
     for path in sorted(grid_dir.glob("esm_finetune_summary_*.json")):
-        cols = json.loads(path.read_text()).get("prior_columns")
-        if cols:
-            return list(cols)
+        cols = json.loads(path.read_text()).get("prior_columns") or []
+        every.update(cols)
+        slug = path.name[len("esm_finetune_summary_siamese_lopo_"):-len(".json")]
+        if cols and arm_of(slug) == arm and not exact:
+            exact = list(cols)
+    if exact:
+        return exact
+    if every:
+        logger.warning("no summary matches arm %s; falling back to the union "
+                       "of every arm's features (%d columns)", arm, len(every))
+        return sorted(every)
     logger.warning("no run summary carries prior_columns; "
                    "every covariate will be reported as not-an-input")
     return []
@@ -300,7 +317,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         per_variant.loc[weak, "error_type"] = "correct"
 
     joined = attach_master(per_variant, args.master_csv)
-    inputs = prior_columns(args.grid_dir)
+    inputs = prior_columns(args.grid_dir, args.arm)
 
     n_err = int((joined.error_type != "correct").sum())
     logger.info("%d held-out variants, %d consensus errors (%.1f%%)",

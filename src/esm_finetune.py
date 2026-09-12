@@ -904,6 +904,21 @@ def _fit_precomputed(model, train_examples, val_examples, device, *, head_lr,
 FINETUNE_CHECKPOINT_FORMAT = "esm_finetune/v1"
 
 
+class FinetuneCheckpointFormatError(ValueError):
+    """Raised when a checkpoint's ``format`` tag names a different, incompatible layout.
+
+    ``FINETUNE_CHECKPOINT_FORMAT`` has been stamped by every checkpoint since
+    :func:`save_finetuned` was introduced, but nothing checked it back on
+    load -- the same defect class fixed for ``src.transfer.load_transfer_head``
+    (``TransferHeadFormatError``). Unlike that fix, a checkpoint with no
+    ``format`` key at all is accepted here, not rejected: real checkpoints
+    that predate this field already exist and must keep loading (the
+    ``use_pllr`` -> ``pllr_mode`` migration just below this function handles
+    the identical situation for a different legacy field). Only a *present*
+    tag naming a different format is refused.
+    """
+
+
 def save_finetuned(
     path, model: ESMFineTuneClassifier, *,
     threshold: Optional[float] = None,
@@ -953,6 +968,17 @@ def load_finetuned_model(path, device: Optional[torch.device] = None, *,
     from .transfer import load_checkpoint
 
     payload = load_checkpoint(Path(path))
+    fmt = payload.get("format")
+    if fmt is not None and fmt != FINETUNE_CHECKPOINT_FORMAT:
+        raise FinetuneCheckpointFormatError(
+            f"{path}: checkpoint format {fmt!r} != expected "
+            f"{FINETUNE_CHECKPOINT_FORMAT!r}. Refusing to load a fine-tuned "
+            "checkpoint written by an incompatible format rather than "
+            "guessing at its payload shape.")
+    if fmt is None:
+        logger.warning(
+            "%s: no format tag (checkpoint predates FINETUNE_CHECKPOINT_FORMAT); "
+            "loading as legacy %s.", path, FINETUNE_CHECKPOINT_FORMAT)
     cfg = payload["config"]
     # Checkpoints written before pllr_mode existed carry a use_pllr bool. The
     # behaviour it described is exactly "concat", never "residual".
@@ -977,6 +1003,7 @@ def load_finetuned_model(path, device: Optional[torch.device] = None, *,
 
 __all__ = [
     "FINETUNE_MODES", "PLLR_MODES", "PROPATH_DEFAULTS", "FINETUNE_CHECKPOINT_FORMAT",
+    "FinetuneCheckpointFormatError",
     "ESMFineTuneClassifier", "FineTuneExample", "FineTuneDataset",
     "build_examples", "make_collate_fn", "predict_proba", "fit_esm_finetune",
     "set_seed", "amp_dtype_for", "save_finetuned", "load_finetuned_model",
