@@ -892,6 +892,14 @@ def test_transfer_head_checkpoint_roundtrips_weights_scalers_and_threshold():
     assert payload["config"]["arch"] == "concat"
     assert payload["feature_columns"] == ["a", "b", "c", "d"]
 
+    # Wrong number of feature views is a loud error, not a silent misalign.
+    try:
+        scale_views(raws[:1])
+    except ValueError as exc:
+        assert "views" in str(exc)
+    else:
+        raise AssertionError("mismatched view count was accepted")
+
 
 def test_load_transfer_head_rejects_a_foreign_format_tag():
     """TRANSFER_HEAD_FORMAT is stamped by save_transfer_head but was never
@@ -925,14 +933,6 @@ def test_load_transfer_head_rejects_a_payload_with_no_format_tag():
             assert False, "expected TransferHeadFormatError"
         except TransferHeadFormatError as exc:
             assert "None" in str(exc)
-
-    # Wrong number of feature views is a loud error, not a silent misalign.
-    try:
-        scale_views(raws[:1])
-    except ValueError as exc:
-        assert "views" in str(exc)
-    else:
-        raise AssertionError("mismatched view count was accepted")
 
 
 # --------------------------------------------------------------------------- #

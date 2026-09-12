@@ -47,6 +47,7 @@ from src.esm_extractor import get_device  # noqa: E402
 from src.eval_utils import bootstrap_ci, optimal_threshold_by_mcc  # noqa: E402
 from src.train import set_global_seed  # noqa: E402
 from src.transfer import (  # noqa: E402
+    FeatureBundle,
     assemble_features,
     build_model,
     fit_head,

@@ -1007,11 +1007,13 @@ def refresh_manifest(ext_dir: Path, updates: Optional[Dict[str, Dict]] = None) -
     # ``{"nan"|"0"|"1": count}`` shape build_extended_dataset uses.
     dataset_csv = Path(ext_dir) / "extended_dataset.csv"
     if dataset_csv.exists():
-        vc = pd.read_csv(dataset_csv, usecols=["label"],
-                         low_memory=False)["label"].value_counts(dropna=False)
-        manifest.setdefault("stats", {})["master_label_counts"] = {
-            ("nan" if pd.isna(k) else str(int(k))): int(v) for k, v in vc.items()
-        }
+        header_cols = pd.read_csv(dataset_csv, nrows=0).columns
+        if "label" in header_cols:
+            vc = pd.read_csv(dataset_csv, usecols=["label"],
+                             low_memory=False)["label"].value_counts(dropna=False)
+            manifest.setdefault("stats", {})["master_label_counts"] = {
+                ("nan" if pd.isna(k) else str(int(k))): int(v) for k, v in vc.items()
+            }
     # Kept distinct from ``built_at_utc`` so the two-phase build stays visible
     # rather than looking like one atomic write.
     manifest["refreshed_at_utc"] = datetime.now(timezone.utc).isoformat()
