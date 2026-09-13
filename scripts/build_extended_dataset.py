@@ -29,6 +29,7 @@ from src.extended_builder import (  # noqa: E402
     build_extended_dataset,
 )
 from src.gnomad import DEFAULT_BA1_AF, DEFAULT_BS1_AF, DEFAULT_PM2_AF  # noqa: E402
+from src.paths import require_exists  # noqa: E402
 
 
 def parse_args(argv=None) -> argparse.Namespace:
@@ -96,7 +97,9 @@ def main() -> int:
     genes = [g.strip().upper() for g in args.genes.split(",") if g.strip()]
     panel_records = None
     if args.panel_file is not None:
-        panel_records = json.loads(args.panel_file.read_text())
+        panel_records = json.loads(
+            require_exists(args.panel_file, "python scripts/make_expanded_panel.py")
+            .read_text())
         genes = list(panel_records.keys())
         logging.info("Panel file %s: %d genes override --genes.",
                      args.panel_file, len(genes))

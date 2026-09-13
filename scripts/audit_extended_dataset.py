@@ -34,6 +34,10 @@ import numpy as np
 import pandas as pd
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.paths import require_exists  # noqa: E402
+
 EXT_DIR = PROJECT_ROOT / "data" / "processed" / "extended"
 PANEL_FILE = PROJECT_ROOT / "data" / "raw" / "uniprot" / "expanded_panel.json"
 
@@ -47,10 +51,16 @@ AM_CLASSES = {"benign", "likely benign", "ambiguous", "likely pathogenic",
 
 
 def main() -> int:
-    df = pd.read_csv(EXT_DIR / "extended_dataset.csv",
+    dataset_csv = require_exists(
+        EXT_DIR / "extended_dataset.csv",
+        "python scripts/build_extended_dataset.py --panel_file "
+        "data/raw/uniprot/expanded_panel.json --all_sources")
+    df = pd.read_csv(dataset_csv,
                      dtype={"wt_aa": str, "mut_aa": str, "gene": str,
                             "uniprot_id": str, "hgvs_p": str})
-    panel = json.loads(PANEL_FILE.read_text())
+    panel = json.loads(
+        require_exists(PANEL_FILE, "python scripts/make_expanded_panel.py")
+        .read_text())
     seq_of = {v["accession"]: v["sequence"] for v in panel.values()}
     acc_of = {g.upper(): v["accession"] for g, v in panel.items()}
     report: dict = {"rows": len(df), "cols": df.shape[1], "checks": {},

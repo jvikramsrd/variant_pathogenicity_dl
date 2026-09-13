@@ -49,6 +49,7 @@ from src.esm_finetune import (  # noqa: E402
 )
 from src.eval_utils import bootstrap_ci, optimal_threshold_by_mcc  # noqa: E402
 from src.mvmamba_features import extract_mvmamba_cached  # noqa: E402
+from src.paths import require_exists  # noqa: E402
 from src.train import set_global_seed  # noqa: E402
 from src.transfer import BranchHead, fit_head  # noqa: E402
 from scripts.finetune_esm_mmr import prepare_split, sample_weights_for  # noqa: E402
@@ -217,8 +218,12 @@ def main() -> int:
     if unknown:
         raise SystemExit(f"Unknown strategies {sorted(unknown)}; choose from {STRATEGIES}.")
 
-    master = pd.read_csv(args.mmr_csv, low_memory=False)
-    panel = json.loads(Path(args.panel_json).read_text())
+    master = pd.read_csv(
+        require_exists(args.mmr_csv, "python scripts/build_mmr_dataset.py"),
+        low_memory=False)
+    panel = json.loads(
+        require_exists(args.panel_json, "python scripts/build_mmr_dataset.py")
+        .read_text())
     sequence_by_gene = {g.upper(): d["sequence"] for g, d in panel.items()}
     ft_df, ho_df = prepare_split(master, args.holdout_gene)
     ft_df = ft_df.assign(label_weight=sample_weights_for(ft_df, args.clinical_weight))

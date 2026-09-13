@@ -24,6 +24,7 @@ from sklearn.metrics import roc_auc_score
 
 from src.calibration import expit, full_report
 from src.dataset import make_position_group_folds
+from src.paths import require_exists
 from src.train import TrainConfig, cross_validate, predict_logits, set_global_seed
 from src.esm_extractor import get_device
 
@@ -38,7 +39,10 @@ def feature_matrix(df: pd.DataFrame, cols: list[str]) -> np.ndarray:
 def main() -> int:
     set_global_seed(42)
     device = get_device()
-    df = pd.read_csv(TRAIN_CSV, low_memory=False)
+    df = pd.read_csv(
+        require_exists(TRAIN_CSV, "python scripts/audit_extended_dataset.py "
+                       "(after python scripts/build_extended_dataset.py)"),
+        low_memory=False)
     df["label"] = df["label"].astype(int)
     clinical_mask = (df["clinvar_label"].notna() | df["clinical_label"].notna()).to_numpy()
 

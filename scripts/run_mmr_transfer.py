@@ -46,6 +46,7 @@ sys.path.insert(0, str(ROOT))
 from src.dataset import make_position_group_folds  # noqa: E402
 from src.esm_extractor import get_device  # noqa: E402
 from src.eval_utils import bootstrap_ci, optimal_threshold_by_mcc  # noqa: E402
+from src.paths import require_exists  # noqa: E402
 from src.train import set_global_seed  # noqa: E402
 from src.transfer import (  # noqa: E402
     GENE_CONSTANT_PRIOR_COLS,
@@ -444,7 +445,9 @@ def main() -> int:
         ckpt = None
         logger.info("Scratch training requested; no checkpoint loaded.")
 
-    master = pd.read_csv(args.mmr_csv, low_memory=False)
+    master = pd.read_csv(
+        require_exists(args.mmr_csv, "python scripts/build_mmr_dataset.py"),
+        low_memory=False)
     # Feature-representation transforms run on the FULL table -- every variant
     # of every gene, VUS included -- before any split. That is what makes the
     # per-gene rank reference population identical at training and inference

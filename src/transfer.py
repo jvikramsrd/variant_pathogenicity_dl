@@ -34,6 +34,7 @@ import torch
 
 from .esm_extractor import extract_features_cached
 from .fusion import BranchHead, ConcatFusionHead, GateWaveFusionHead
+from .paths import require_exists
 from .train import set_global_seed
 
 logger = logging.getLogger(__name__)
@@ -603,6 +604,9 @@ def save_checkpoint(path: Path, model: torch.nn.Module, scaler_mean, scaler_scal
 
 
 def load_checkpoint(path: Path) -> Dict:
+    path = require_exists(
+        path, "scripts/pretrain_esm_80.py (stage-1 pretrain) or "
+              "scripts/run_mmr_transfer.py finetune (stage-2 warm-start head)")
     return torch.load(path, map_location="cpu", weights_only=False)
 
 

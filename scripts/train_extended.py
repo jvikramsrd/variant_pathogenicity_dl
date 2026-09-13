@@ -46,6 +46,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.esm_extractor import extract_features_cached, get_device  # noqa: E402
+from src.paths import require_exists  # noqa: E402
 from src.train import TrainConfig, cross_validate, evaluate_and_export  # noqa: E402
 from src.train import predict_vus, set_global_seed  # noqa: E402
 
@@ -213,7 +214,10 @@ def main() -> int:
     set_global_seed(args.seed)
     device = get_device()
 
-    train = pd.read_csv(args.train_csv, low_memory=False)
+    train = pd.read_csv(
+        require_exists(args.train_csv, "python scripts/audit_extended_dataset.py "
+                       "(after python scripts/build_extended_dataset.py)"),
+        low_memory=False)
     train["label"] = pd.to_numeric(train["label"], errors="coerce").astype("Int64")
     train = train[train["label"].notna()].reset_index(drop=True)
     if args.genes:
@@ -245,9 +249,10 @@ def main() -> int:
     vus_feats = vus_meta = None
     if args.features == "esm+priors":
         import json
+        panel_json = PROJECT_ROOT / "data" / "raw" / "uniprot" / "expanded_panel.json"
         panel = json.loads(
-            (PROJECT_ROOT / "data" / "raw" / "uniprot" /
-             "expanded_panel.json").read_text())
+            require_exists(panel_json, "python scripts/make_expanded_panel.py")
+            .read_text())
         # Keep raw priors in the extraction pool. Previously only metadata
         # columns were retained here, so ``esm+priors`` silently appended zero
         # prior features despite its name.
@@ -257,7 +262,9 @@ def main() -> int:
         pool_cols = META_COLS + ["label"] + quality_cols + prior_input_cols
         pool = train[pool_cols].copy()
         if not args.no_score_vus:
-            full = pd.read_csv(args.full_csv, low_memory=False)
+            full = pd.read_csv(
+                require_exists(args.full_csv, "python scripts/build_extended_dataset.py"),
+                low_memory=False)
             vus_rows = full[full["label"].isna()
                             & full["review_status"].notna()
                             & (full["gene"].isin(panel.keys()))]

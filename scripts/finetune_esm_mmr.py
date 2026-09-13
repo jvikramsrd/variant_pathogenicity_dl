@@ -56,6 +56,7 @@ from src.esm_finetune import (  # noqa: E402
 )
 from src.eval_utils import bootstrap_ci, optimal_threshold_by_mcc  # noqa: E402
 from src.finetune_grid import GridCell, output_tag
+from src.paths import require_exists  # noqa: E402
 from src.provenance import provenance_record  # noqa: E402
 from src.transfer import (  # noqa: E402
     ABLATABLE_PRIOR_GROUPS,
@@ -460,7 +461,9 @@ def main() -> int:
     if not args.mmr_csv.exists():
         raise SystemExit(f"{args.mmr_csv} not found -- run scripts/build_mmr_dataset.py first.")
     master = pd.read_csv(args.mmr_csv, low_memory=False)
-    panel = json.loads(Path(args.panel_json).read_text())
+    panel = json.loads(
+        require_exists(args.panel_json, "python scripts/build_mmr_dataset.py")
+        .read_text())
     sequence_by_gene = {g.upper(): d["sequence"] for g, d in panel.items()}
 
     splits = [args.holdout_gene] if args.eval == "holdout" else list(MMR_GENES)

@@ -45,6 +45,7 @@ sys.path.insert(0, str(ROOT))
 from src.dataset import make_position_group_folds  # noqa: E402
 from src.esm_extractor import get_device  # noqa: E402
 from src.eval_utils import bootstrap_ci, optimal_threshold_by_mcc  # noqa: E402
+from src.paths import require_exists  # noqa: E402
 from src.train import set_global_seed  # noqa: E402
 from src.transfer import (  # noqa: E402
     FeatureBundle,
@@ -103,7 +104,10 @@ def main() -> int:
     set_global_seed(args.seed)
     device = get_device()
 
-    df = pd.read_csv(args.train_csv, low_memory=False)
+    df = pd.read_csv(
+        require_exists(args.train_csv, "python scripts/audit_extended_dataset.py "
+                       "(after python scripts/build_extended_dataset.py)"),
+        low_memory=False)
     df["label"] = pd.to_numeric(df["label"], errors="coerce").astype("Int64")
     df = df[df["label"].notna()].reset_index(drop=True)
 
@@ -116,7 +120,9 @@ def main() -> int:
 
     sequence_by_gene = {}
     if args.features == "esm+priors":
-        panel = json.loads(Path(args.panel_json).read_text())
+        panel = json.loads(
+            require_exists(args.panel_json, "python scripts/make_expanded_panel.py")
+            .read_text())
         sequence_by_gene = {g: d["sequence"] for g, d in panel.items()}
 
     rows = []

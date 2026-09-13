@@ -33,6 +33,7 @@ sys.path.insert(0, str(ROOT))
 from src.esm_extractor import get_device  # noqa: E402
 from src.eval_utils import bootstrap_ci  # noqa: E402
 from src.mvmamba_features import MaskedMarginalScorer  # noqa: E402
+from src.paths import require_exists  # noqa: E402
 
 logger = logging.getLogger("compare_backbones")
 
@@ -69,7 +70,9 @@ def main() -> int:
                         datefmt="%H:%M:%S")
     device = get_device()
 
-    master = pd.read_csv(args.mmr_csv, low_memory=False)
+    master = pd.read_csv(
+        require_exists(args.mmr_csv, "python scripts/build_mmr_dataset.py"),
+        low_memory=False)
     master["label"] = pd.to_numeric(master["label"], errors="coerce")
     df = master[master["gene"].isin(MMR_GENES) & master["label"].notna()].copy()
     if args.clinical_only and "label_source" in df.columns:
@@ -77,7 +80,9 @@ def main() -> int:
     if "pms2_homology_excluded" in df.columns:
         df = df[pd.to_numeric(df["pms2_homology_excluded"], errors="coerce").fillna(0) != 1]
 
-    panel = json.loads(Path(args.panel_json).read_text())
+    panel = json.loads(
+        require_exists(args.panel_json, "python scripts/build_mmr_dataset.py")
+        .read_text())
     sequence_by_gene = {g.upper(): d["sequence"] for g, d in panel.items()}
 
     backbones = dict(pair.split("=", 1) for pair in args.backbones.split(","))

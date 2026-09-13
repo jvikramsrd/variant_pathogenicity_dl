@@ -41,6 +41,8 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from src.paths import require_exists  # noqa: E402
+
 logger = logging.getLogger("build_cluster_split")
 
 DEFAULT_MIN_SEQ_ID = 0.20
@@ -169,7 +171,10 @@ def main() -> int:
                         format="%(asctime)s | %(levelname)-7s | %(message)s",
                         datefmt="%H:%M:%S")
 
-    panel = json.loads(args.panel_json.read_text())
+    panel = json.loads(
+        require_exists(args.panel_json, "python scripts/make_expanded_panel.py "
+                       "(broad panel) or python scripts/build_mmr_dataset.py "
+                       "(MMR panel)").read_text())
     sequences = {gene.upper(): d["sequence"] for gene, d in panel.items()}
     logger.info("Clustering %d panel sequences at %.0f%% identity / %.0f%% coverage ...",
                 len(sequences), args.min_seq_id * 100, args.min_coverage * 100)
