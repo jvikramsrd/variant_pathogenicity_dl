@@ -1,5 +1,5 @@
 {
-  "built_at_utc": "2026-09-07T09:00:08.311553+00:00",
+  "built_at_utc": "2026-09-14T21:17:10.049745+00:00",
   "cell": "esmpri_concat_last2_pllr-residual_seed42",
   "branch": "esm+priors",
   "fusion": "concat",
@@ -39,20 +39,20 @@
     "acmg_pm2"
   ],
   "provenance": {
-    "dataset_path": "C:\\Users\\Dell\\variant_pathogenicity_dl\\data\\mmr\\processed\\extended\\extended_dataset.csv",
-    "dataset_sha256": "78eb5d60860cc08eadb6faa0c0d7fbd22adbe6f277bb95e97a3a680264b4430d",
+    "dataset_path": "/home/dell/variant_pathogenicity_dl/data/mmr/processed/extended/extended_dataset.csv",
+    "dataset_sha256": "79b683993967abd4ce758eead0ffd2652cdf6b1da5e90cbbdc392f5ca0e15010",
     "feature_schema": "50d2af3ded20b003",
     "n_features": 30,
-    "split_definition": "6f87ecd06877ff66",
+    "split_definition": "631b783b95176c1e",
     "git": {
-      "commit": "aec4333593acf71db0eb8974df941b01b548ddf4",
+      "commit": "b1b3b3595a37fb141246b48f95e5a8ef7bceb82b",
       "dirty": true
     },
     "libraries": {
       "torch": "2.14.0+cu126",
-      "transformers": "5.16.1",
-      "scikit-learn": "1.9.0",
-      "numpy": "2.5.2",
+      "transformers": "5.17.0",
+      "scikit-learn": "1.9.1",
+      "numpy": "2.5.3",
       "pandas": "3.0.5"
     }
   },
@@ -68,13 +68,14 @@
   "splits_evaluated": [
     "MLH1",
     "MSH2",
-    "MSH6",
+    "MSH6"
+  ],
+  "splits_skipped_no_rows": [
     "PMS2"
   ],
-  "splits_skipped_no_rows": [],
-  "results_csv": "data\\processed\\stage2b_grid\\esm_finetune_results_siamese_lopo_esmpri_concat_last2_pllr-residual_seed42.csv",
-  "predictions_csv": "data\\processed\\stage2b_grid\\esm_finetune_predictions_siamese_lopo_esmpri_concat_last2_pllr-residual_seed42.csv",
-  "val_predictions_csv": "data\\processed\\stage2b_grid\\esm_finetune_valpreds_siamese_lopo_esmpri_concat_last2_pllr-residual_seed42.csv",
+  "results_csv": "/home/dell/variant_pathogenicity_dl/data/processed/stage2b_grid/esm_finetune_results_siamese_lopo_esmpri_concat_last2_pllr-residual_seed42.csv",
+  "predictions_csv": "/home/dell/variant_pathogenicity_dl/data/processed/stage2b_grid/esm_finetune_predictions_siamese_lopo_esmpri_concat_last2_pllr-residual_seed42.csv",
+  "val_predictions_csv": "/home/dell/variant_pathogenicity_dl/data/processed/stage2b_grid/esm_finetune_valpreds_siamese_lopo_esmpri_concat_last2_pllr-residual_seed42.csv",
   "checkpoints": [],
-  "runtime_s": 7594.7
+  "runtime_s": 4192.6
 }
