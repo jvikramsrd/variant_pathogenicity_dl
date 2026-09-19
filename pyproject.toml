@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vpdl"
+version = "0.1.0.dev0"
+description = "Variant pathogenicity prediction with independently trainable data sources"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "scikit-learn>=1.4",
+    "scipy>=1.11",
+]
+
+[project.optional-dependencies]
+# Tabular models. The expected headline arm: v1's own results already showed a
+# curated-feature head beating every ESM cell in the grid.
+gbm = ["xgboost>=2.0", "lightgbm>=4.1"]
+
+# Protein language model branch. torch is NOT pinned here on purpose --
+# see the platform note below.
+plm = ["transformers>=4.40", "fair-esm>=2.0"]
+
+dev = ["pytest>=8.0", "pytest-cov>=4.1"]
+
+[project.scripts]
+vpdl = "vpdl.cli:main"
+
+# ---------------------------------------------------------------------------
+# PyTorch is installed separately, per platform, and deliberately not listed as
+# a dependency above.
+#
+#   x86-64 + discrete CUDA card:
+#       pip install torch --index-url https://download.pytorch.org/whl/cu124
+#
+#   aarch64 (DGX Spark / GB10 Grace-Blackwell, DGX OS):
+#       The default PyPI aarch64 wheel is CPU-ONLY. A CUDA-enabled ARM build
+#       must come from NVIDIA's own index or their container image. Install it,
+#       then confirm before trusting any timing:
+#
+#           python -c "import torch; print(torch.__version__, \
+#               torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+#           python -c "from vpdl.device import log_summary; \
+#               import logging; logging.basicConfig(level='INFO'); log_summary()"
+#
+#       Record what that second command actually prints in docs/v2/HARDWARE.md.
+#       vpdl.device detects rather than assumes precisely because the GB10's
+#       reported properties should be measured on the box, not guessed here.
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.setuptools.packages.find]
+include = ["vpdl*"]
