@@ -5,6 +5,60 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-09-15 (dev box + Linux CUDA box `DESKTOP-UJ3ATL6`) — dataset re-pinned, main grid re-run; ablations still owed
+
+**What ran.** `.venv/bin/python scripts/run_stage2b_grid.py --tiers 1 2 3 4 5
+--esm_model facebook/esm2_t33_650M_UR50D --mode siamese --eval lopo --batch_size 1
+--grad_accum 8 --gradient_checkpointing --n_bootstrap 10000 --force` on the Linux CUDA
+box, against a freshly rebuilt `data/mmr/processed/extended/extended_dataset.csv`
+(`build_mmr_dataset.py`, `built_at_utc` 2026-09-13T03:18:59Z). Pushed as `6f871b7`,
+pulled clean on the dev box (no dataset/manifest files outside `data/processed/stage2b_grid/`
+were part of that push).
+
+**Outcome — dataset identity moved, not just the model.** The rebuild picked up a
+fresher ClinVar snapshot (one label moved: 464→463 labelled, 9589→9590 VUS), corrected
+a stale `sources.gnomad.enabled` manifest flag (no new gnomAD data — same 6492 AF rows),
+and added MaveDB as a populated source (17014 scored rows, previously no source block at
+all). New dataset SHA-256 `79b68399…`, re-pinned as canonical over the previous
+`78eb5d60860c…`. Full writeup, the MaveDB training-vs-validation decision (kept
+validation-only, matching PROJECT_PLAN.md Phase 2 — `prepare_split()` already filters to
+`label_source in {clinvar, pg_clinical}`, no code change needed), and the reopened-item
+list are in `MISSING_EVIDENCE.md` item 14.
+
+**Caught before it reached the manuscript.** The metric deltas between this run and the
+previous one at identical (cell, seed) pairs were as large as 0.47 MCC — well outside the
+paper's own seed-spread noise floor (SD up to 0.056). Checked
+`provenance.dataset_sha256` before trusting any of it rather than after: that is what
+surfaced the dataset change. Caught before any table was touched.
+
+**Only the 16-cell main grid was retrained.** The 12 `ablate_*` feature-family ablation
+cells on the branch still carry `dataset_sha256` starting `78eb5d60860c…` — the
+superseded build. **Owed:** re-run all 12 ablation cells (`ablate_domains` /
+`ablate_structure` / `ablate_prior_scores` / `ablate_gnomad_and_scores`, seeds 42/43/44)
+against the now-current table, then error analysis and figures, in that order — but see
+the blocker below first.
+
+**Blocker found — PMS2 lost all clinical supervision in the rebuild.** Every one of the
+16 new cells' summaries records `splits_skipped_no_rows: ["PMS2"]`; MLH1/MSH2/MSH6
+holdout counts are unchanged (208/335/119) so this is not a proportional effect of the
+ClinVar refresh (which only moved 1 record overall). PMS2 went from 21 usable holdout
+variants to 0. Root cause not yet found — likely the homology gate or a coordinate
+mapping regressed for PMS2 specifically. **Do not re-run the ablations or trust
+`79b68399…` as a baseline until this is root-caused** (see `MISSING_EVIDENCE.md` item
+14) — re-running against a build that silently dropped a gene would just be more work to
+discard.
+
+**Manuscript changes made in this pass.** Table 1 (source counts) updated to the new
+manifest's numbers, MaveDB row corrected from "not enabled" to "17014 scored rows, held
+out by design," AlphaMissense license corrected from CC BY-NC-SA 4.0 to the actually-true
+CC BY 4.0 (verified against the source repository, not assumed) in two places, and the
+MaveDB/CIMRA Table 1 `\todo` confirmations resolved from the manifest directly. **Not
+touched:** Tables 3/4 and every headline AUROC/MCC number in the abstract and results —
+those still describe the superseded-dataset run and must not be cited until items 1 and 3
+are re-closed against `79b68399…`.
+
+---
+
 ## 2026-09-12 (read-only dev box, round 2) — fresh-context review; one checkpoint-loading gap closed, inference pipeline added
 
 No training, inference, dataset processing, or benchmark was run (same

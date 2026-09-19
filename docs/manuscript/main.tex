@@ -231,6 +231,7 @@ too small to score and a threshold protocol that transfers poorly across genes.
 
 % =====================================================================
 \section{Methods}
+\label{sec:methods}
 % =====================================================================
 
 \subsection{Data sources}
@@ -241,20 +242,24 @@ manifest (\path{data/mmr/processed/extended/manifest.json}). ClinVar~\cite{landr
 two review stars or more were eligible for supervision. ProteinGym v1.3~\cite{notin2023proteingym}
 supplies DMS fitness scores with an assay-binarised label, a secondary clinical
 benchmark, and precomputed zero-shot model scores. AlphaMissense v1.0~\cite{cheng2023alphamissense}
-(2023-09-18; CC BY-NC-SA 4.0) supplies a pathogenicity prior. gnomAD v4~\cite{chen2024gnomad,karczewski2020gnomad} supplies
+(2023-09-18; CC BY 4.0) supplies a pathogenicity prior. gnomAD v4~\cite{chen2024gnomad,karczewski2020gnomad} supplies
 allele frequencies and gene-level constraint. UniProt~\cite{uniprot} supplies the canonical
 sequence --- the coordinate authority for the entire table --- plus domain and
 functional-site annotation. AlphaFold DB~\cite{varadi2022afdb,jumper2021alphafold} (CC-BY-4.0) supplies per-residue
-pLDDT, and InterPro~\cite{interpro} (CC0) domain and family intervals. Adapters for MaveDB~\cite{esposito2019mavedb} and
-CIMRA/OddsPath exist and are exercised by the test suite, but the manifest for
-this build records no source block for either, indicating they were not
-enabled \todo{confirm and state explicitly in Table~1}. Per-source counts are
-given in Table~\ref{tab:sources}.
+pLDDT, and InterPro~\cite{interpro} (CC0) domain and family intervals. An adapter for
+MaveDB~\cite{esposito2019mavedb} is exercised by the test suite and, as of this build,
+joins \num{17014} scored rows into the panel; by design (see
+Section~\ref{sec:methods}) these are not admitted into any training or evaluation
+split --- the split logic filters to ClinVar and ProteinGym-clinical labels only,
+keeping the functional-assay data available for a future held-out validation use
+without it ever entering the model. CIMRA/OddsPath has an adapter exercised by the
+test suite but the manifest for this build records no source block for it, confirming
+it was not enabled: 0 rows. Per-source counts are given in Table~\ref{tab:sources}.
 
 \begin{table*}[t]
 \caption{Data sources for the MMR panel. Counts are read from
 \texttt{manifest.json} for the build identified by SHA-256
-\texttt{78eb5d60\ldots}; ``retained'' is the number of panel rows the source
+\texttt{79b68399\ldots}; ``retained'' is the number of panel rows the source
 contributed evidence to, not the size of the download. The final column
 distinguishes sources that supply supervision from those that supply features
 only --- a distinction that is usually left implicit and is the reason several
@@ -272,7 +277,7 @@ records only observed alleles.}
 \toprule
 Source & Role & Retained on panel & Mapping onto the key & Used for \\
 \midrule
-ClinVar ($\geq$2\,\textsc{star}) & Clinical assertion & 464 labelled; \num{9589} VUS kept unlabelled & HGVS p.\ $\rightarrow$ UniProt, wt validated & Label (precedence 1) \\
+ClinVar ($\geq$2\,\textsc{star}) & Clinical assertion & 463 labelled; \num{9590} VUS kept unlabelled & HGVS p.\ $\rightarrow$ UniProt, wt validated & Label (precedence 1) \\
 ProteinGym DMS v1.3 & Functional assay & \num{16749} rows, 1 assay (\gene{MSH2}) & UniProt coordinates & Label (precedence 3); not used here \\
 ProteinGym clinical v1.3 & Clinical benchmark & 564 joined & RefSeq NP $\rightarrow$ exact sequence match & Label (precedence 2) \\
 Zero-shot scores v1.3 & Prior score & 564 joined & UniProt coordinates & Feature \\
@@ -281,8 +286,8 @@ gnomAD v4 & Population frequency & \num{6492} with joint AF; constraint on \num{
 UniProt & Coordinate authority & 4 accessions; 20 domain intervals; 61 sites & --- (defines the key) & Feature and key \\
 AlphaFold DB & Structure confidence & \num{3912} residues, 4 accessions & Accession $+$ position & Feature \\
 InterPro & Domain/family & 123 intervals; \num{72599} rows in a domain & Accession $+$ position & Feature \\
-MaveDB & Functional assay & \todo{0 --- confirm} & --- & Not enabled in this build \\
-CIMRA / OddsPath & Calibrated evidence & \todo{0 --- confirm} & --- & Not enabled in this build \\
+MaveDB & Functional assay & \num{17014} scored & UniProt coordinates & Held out; excluded from every split by design \\
+CIMRA / OddsPath & Calibrated evidence & 0 & --- & Not enabled in this build \\
 \bottomrule
 \end{tabularx}
 \end{table*}
@@ -929,8 +934,11 @@ identified by SHA-256
 \texttt{78eb5d60860cc08e\allowbreak adb6faa0c0d7fbd2\allowbreak
 2adbe6f277bb95e9\allowbreak 7a3a680264b4430d}. Grid
 cells were run without checkpoint saving, so backbone weights are not
-distributable. AlphaMissense is CC BY-NC-SA 4.0; \todo{confirm redistribution
-terms for any derived table embedding AlphaMissense values}.
+distributable. AlphaMissense predictions are licensed CC BY 4.0 (attribution
+only, no non-commercial or share-alike restriction, per the source repository
+at \url{https://github.com/google-deepmind/alphamissense}), so embedding its
+scores as a feature column in the redistributed table requires attribution
+and nothing further.
 
 \bibliographystyle{unsrt}
 \bibliography{references}

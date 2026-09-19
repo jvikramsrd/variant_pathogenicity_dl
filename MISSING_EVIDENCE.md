@@ -4,14 +4,101 @@ Every placeholder in the manuscript, what it needs, and the exact command or art
 that would replace it. Ordered by how much each blocks a claim the paper wants to make.
 
 Dataset identity for all current model results: `extended_dataset.csv` SHA-256
-`78EB5D60860CC08EADB6FAA0C0D7FBD22ADBE6F277BB95E97A3A680264B4430D`, code `c84aa26`.
-Anything re-run for comparison must read that table, or the comparison is invalid.
+`79B683993967ABD4CE758EEAD0FFD2652CDF6B1DA5E90CBBDC392F5CA0E15010` (re-pinned
+2026-09-15, superseding `78EB5D60860C…`; see item 14). Anything re-run for
+comparison must read that table, or the comparison is invalid.
 
 ---
 
-## 1. Priors-only baseline on the current dataset build — RESOLVED
+## 14. Dataset re-pinned 2026-09-15 — MaveDB added as a source, evidence chain reopened
 
-**Resolved 2026-09-05.** Re-run on the build machine against the pinned table
+**What changed.** The GPU box rebuilt `data/mmr/processed/extended/extended_dataset.csv`
+on 2026-09-13 (`built_at_utc` in the manifest), producing a new dataset SHA-256
+(`79b68399…`, was `78eb5d60860c…`) via `build_mmr_dataset.py`. Three things moved at
+once, confirmed from the manifest diff:
+
+1. **ClinVar re-downloaded** — a fresher upstream snapshot (`0946d166…`, was
+   `186ad283…`), moving one label: `clinvar_labelled` 464→463, `clinvar_vus` 9589→9590.
+2. **`sources.gnomad.enabled` corrected `false`→`true`**, with `genes_fetched` now
+   populated. `gnomad_rows_panel` is unchanged at 6492, so this looks like the same
+   long-standing manifest-flag bug item 2 fixed for the broad panel, now also fixed here
+   — not new gnomAD data.
+3. **MaveDB is now a populated source**: `"mavedb": {"enabled": true, "rows_with_score":
+   17014}`, where before there was no MaveDB block at all. `extended_dataset.csv` shrank
+   ~21% (48.5 MB → 38.4 MB) — a materially different table, not a metadata-only rewrite.
+
+**Decision: MaveDB stays validation-only.** [PROJECT_PLAN.md](PROJECT_PLAN.md) Phase 2
+designed MaveDB as held-out-from-training specifically *"to make later performance
+claims non-circular."* Wiring it into training would reverse a deliberate, reasoned
+design call for a large methodological change (label binarisation, loss weighting) with
+no worked design behind it yet. Practically, it is also what the code already does:
+`prepare_split()` in `scripts/finetune_esm_mmr.py` and `run_mmr_transfer.py` filters
+`label_source` to `{clinvar, pg_clinical}`, so MaveDB rows are present in the rebuilt
+table but excluded from every LOPO training/eval split unchanged. **No code change was
+needed or made.** If MaveDB-in-training is wanted later, treat it as its own ablation
+(comparable in spirit to item 8's label-source axis) with an explicit design, not a side
+effect of a dataset rebuild.
+
+**The 28 cells on the branch are NOT one comparable set.** Checked
+`provenance.dataset_sha256` in every `esm_finetune_summary_siamese_lopo_*.json` under
+`data/processed/stage2b_grid/`:
+
+| dataset_sha256 | cells | which |
+|---|---|---|
+| `79b68399…` (new) | 16 | the main branch×freeze×PLLR grid |
+| `78eb5d60860c…` (old) | 12 | all four `ablate_*` feature-family ablations, all 3 seeds |
+
+The 16-cell grid was retrained against the new table; **the 12 ablation cells were not**
+— they are exactly what was on the branch before. Pooling all 28 (Table 4, Figure 5)
+would fail `assert_comparable()`'s dataset check, correctly, if run.
+
+**What this reopens.** Every item below resolved against `78eb5d60860c…` needs
+re-verification or a re-run against `79b68399…` before its numbers can be cited again:
+
+| Item | Status now |
+|---|---|
+| 1 — priors-only baseline | **Stale.** Re-run needed on `79b68399…`. |
+| 3 — feature-family ablations 4-7 | **Stale artifacts, and the ones on the branch are on the OLD dataset anyway** — re-run all 12 ablation cells against `79b68399…` first. |
+| 9 — error analysis | **Stale** — reads the grid+ablation predictions, which are now a mixed-dataset set; re-run after item 3. |
+| 10 — figures | **Stale** — same mixed-dataset problem; `make_figures.py --strict_provenance` should currently refuse to pool 3 and 5/6 across the 16 vs 12 split if pointed at both. |
+| 5 — calibration | Was already open; `recalibrate_grid.py` exists but has not been run against either dataset. |
+
+**PMS2 has zero eligible clinical variants in the rebuilt table.** All 16 new-dataset
+cells' summaries record `splits_skipped_no_rows: ["PMS2"]` — confirmed across every one
+of them, not an isolated cell. MLH1/MSH2/MSH6 holdout counts are unchanged at their old
+values (208/335/119), so this is not a proportional ClinVar-snapshot effect; PMS2 went
+from 21 usable holdout variants to exactly 0. The raw ClinVar count only moved by 1
+record overall, which cannot explain losing all 21 PMS2 labels — the far more likely
+cause is a regression in the PMS2 homology-gate or coordinate mapping introduced by
+whatever else changed in `build_mmr_dataset.py` for this build (possibly interacting
+with the MaveDB integration or the gnomAD flag fix touching shared code paths). **This
+needs to be root-caused before `79b68399…` is trusted as a baseline for anything** — if
+it re-runs the 12 ablations against a build that has silently lost an entire gene's
+supervision, that work has to be thrown away a second time. Check on the GPU box: does
+`prepare_split(df, holdout="PMS2")` on the new `extended_dataset.csv` return zero rows
+even before the LOPO wrapper touches it, and does `pms2_homology_excluded` cover 100% of
+PMS2 rows now versus a partial exon 11-15 gate before.
+
+**Next concrete action on the GPU box, in order:** (1) root-cause the PMS2 zero-rows
+regression above — do not proceed past this step until it is understood and either fixed
+or confirmed to be a real, explainable data change; (2) re-run the 12 ablation cells
+(`ablate_domains`/`structure`/`prior_scores`/`gnomad_and_scores`, seeds 42/43/44) with
+the same command as before against the now-current `extended_dataset.csv`, confirm their
+summaries record `dataset_sha256` starting `79b68399`, then re-run error analysis and
+figures. Manuscript Table 1 counts were updated to the new manifest's numbers in the
+same pass as this entry; Tables 3/4 and the abstract's headline numbers were **not**
+touched and still describe the old-dataset run — do not cite them until item 1 and item 3
+are re-closed.
+
+---
+
+## 1. Priors-only baseline on the current dataset build — STALE, see item 14
+
+**Reopened 2026-09-15.** The dataset was re-pinned to `79b68399…` (item 14); this
+resolution below was computed against the superseded `78eb5d60860c…` build. Re-run
+before citing.
+
+**Resolved 2026-09-05 (against the superseded dataset).** Re-run on the build machine against the pinned table
 (`78EB5D60…4B4430D`); the summary is now dated `2026-09-05T10:29:27Z` with
 `gene_constant_priors_dropped: true` and `n_bootstrap: 10000`. Mean AUROC 0.9507 over the
 three scoreable genes (MLH1 0.9651, MSH2 0.9078, MSH6 0.9791, PMS2 1.000), above every cell
@@ -98,9 +185,13 @@ manuscript's §2.1 discrepancy note must stay.
 
 ---
 
-## 3. Feature-group ablations 4–7 — RESOLVED
+## 3. Feature-group ablations 4–7 — STALE, see item 14
 
-**Resolved 2026-09-05.** All four ran on the build machine against the pinned table, at the
+**Reopened 2026-09-15.** These 12 cells' summaries still record `dataset_sha256`
+starting `78eb5d60860c…` — the superseded build. They were not part of the 2026-09-13
+retrain (only the 16-cell main grid was). Re-run against `79b68399…` before citing.
+
+**Resolved 2026-09-05 (against the superseded dataset).** All four ran on the build machine against the pinned table, at the
 grid cell `esmpri_concat_frozen_pllr-residual_seed42` with only the feature set moving. Each
 summary records the resolved `prior_columns`, the groups dropped, and `allow_proxy_leak:
 false`. Results are in Table 4 rows 4–7 and discussed in §3.6 and §4.
@@ -267,11 +358,14 @@ genes, or run it here and report it explicitly as a single-gene result. `prepare
 
 ---
 
-## 9. No error analysis — RESOLVED
+## 9. No error analysis — STALE, see item 14
+
+**Reopened 2026-09-15.** Reads the grid+ablation predictions, which are now a
+mixed-dataset set (16 cells on `79b68399…`, 12 on `78eb5d60860c…`). Re-run after item 3.
 
 **Manuscript location.** §3.7 (was a placeholder).
 
-**Done 2026-09-07.** `scripts/error_analysis.py` intersects the errors across the seeds of one
+**Done 2026-09-07 (against the superseded dataset).** `scripts/error_analysis.py` intersects the errors across the seeds of one
 arm, scores each seed at the threshold its own fold selected, joins the master table back on,
 and tests every covariate — reporting model inputs and independent covariates **apart**, since
 an association with a feature the model reads restates the model's own weighting rather than
@@ -308,9 +402,12 @@ ClinVar submissions themselves. Artifacts:
 
 ---
 
-## 10. Figures — 3 of 6 GENERATED
+## 10. Figures — 3 of 6 GENERATED, now STALE, see item 14
 
-**Done 2026-09-05.** `scripts/make_figures.py` generates Figures 3, 5 and 6 into
+**Reopened 2026-09-15.** Same mixed-dataset problem as items 3 and 9 — regenerate after
+the ablations are re-run against `79b68399…`.
+
+**Done 2026-09-05 (against the superseded dataset).** `scripts/make_figures.py` generates Figures 3, 5 and 6 into
 `docs/figures/` as 300-dpi PNG and vector PDF, reading the committed results CSVs directly —
 no intermediate spreadsheet, so a figure cannot drift from the table it illustrates. It globs
 the cell artifacts, so re-running it after further seeds land refreshes all three unedited.
