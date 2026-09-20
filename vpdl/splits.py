@@ -9,10 +9,13 @@ Satisfies regression landmine L3 (leakage groups are protein-qualified).
 
 from __future__ import annotations
 
+import logging
 from typing import Iterator, Sequence
 
 import numpy as np
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["group_keys", "lopo_splits", "assert_no_group_straddle", "variant_keys"]
 
@@ -64,7 +67,21 @@ def lopo_splits(
     if "gene" not in df.columns:
         raise ValueError("Leave-one-gene-out requires a 'gene' column.")
 
-    order = list(genes) if genes is not None else sorted(df["gene"].unique())
+    if genes is not None:
+        order = list(genes)
+    else:
+        # Blank/NaN gene names are dropped rather than becoming a fold. Feature-
+        # only sources (AlphaMissense, gnomAD) can emit rows whose gene did not
+        # resolve, and a "" fold would silently appear in the results table.
+        present = df["gene"].dropna().unique()
+        order = sorted(str(g) for g in present if str(g).strip())
+        blank = len(present) - len(order)
+        if blank:
+            logger.warning(
+                "%d row group(s) have a blank gene name and are excluded from "
+                "leave-one-gene-out. Check the source's gene resolution.", blank,
+            )
+
     positions = np.arange(len(df))
     gene_column = df["gene"].to_numpy()
 

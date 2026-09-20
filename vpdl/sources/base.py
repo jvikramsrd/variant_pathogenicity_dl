@@ -10,11 +10,14 @@ the coordinate-safety half of L9.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, Sequence, runtime_checkable
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "VALID_AA",
@@ -134,23 +137,39 @@ def validate_frame(
     ok = _valid_residues(df["wt_aa"]) & _valid_residues(df["mut_aa"])
     dropped["invalid_residue"] = int((~ok).sum())
 
+    before = int(ok.sum())
     positions = pd.to_numeric(df["position"], errors="coerce")
     ok &= positions.notna() & (positions >= 1)
-    dropped["invalid_position"] = int((~ok).sum()) - dropped["invalid_residue"]
+    dropped["invalid_position"] = before - int(ok.sum())
 
+    before = int(ok.sum())
     ok &= df["wt_aa"] != df["mut_aa"]
+    dropped["synonymous"] = before - int(ok.sum())
 
     if sequences:
         def _matches(row: pd.Series) -> bool:
             sequence = sequences.get(row["uniprot_id"])
             if sequence is None:
                 return False
-            return validate_against_sequence(
-                sequence, int(row["position"]), row["wt_aa"]
-            )
+            position = pd.to_numeric(row["position"], errors="coerce")
+            # Guarded because apply() visits rows that already failed the
+            # position check above; int(nan) would take the whole build down.
+            if pd.isna(position):
+                return False
+            return validate_against_sequence(sequence, int(position), row["wt_aa"])
 
         before = int(ok.sum())
         ok &= df.apply(_matches, axis=1)
         dropped["sequence_mismatch"] = before - int(ok.sum())
+    else:
+        # The coordinate-authority check is what stops isoform drift from
+        # silently repositioning variants. Skipping it quietly is not an option.
+        logger.warning(
+            "No canonical sequences supplied — wild-type residue validation is "
+            "SKIPPED for %d rows. Positions are being trusted as given, which "
+            "is how ~50,000 isoform-mismatched rows entered the v1 table.",
+            len(df),
+        )
+        dropped["sequence_mismatch"] = 0
 
     return df.loc[ok].reset_index(drop=True), dropped

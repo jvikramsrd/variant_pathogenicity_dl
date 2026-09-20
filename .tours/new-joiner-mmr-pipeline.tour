@@ -1,0 +1,94 @@
+{
+  "$schema": "https://aka.ms/codetour-schema",
+  "title": "Lynch-Syndrome MMR Pipeline: What It Builds and Why",
+  "description": "End-to-end walkthrough of run_mmr_pipeline.py -- from raw ClinVar/ProteinGym/gnomAD ingestion through the PMS2 pseudogene gate to real ESM-2 backbone fine-tuning -- anchored to PROJECT_PLAN.md's literature-driven rationale at each stage.",
+  "steps": [
+    {
+      "directory": ".",
+      "title": "Orientation",
+      "description": "**Situation:** a missense-variant pathogenicity project for the four Lynch-syndrome mismatch-repair (MMR) genes -- MLH1, MSH2, MSH6, PMS2.\n\n**Mechanism:** two parallel entrypoints exist side by side -- `run_pipeline.py` (the original single-/multi-gene workflow) and `run_mmr_pipeline.py` (the Lynch-specific one this tour follows). `src/` holds the reusable logic (dataset building, ESM-2 feature extraction, fine-tuning); `scripts/` holds the CLI stages that call into `src/`; `PROJECT_PLAN.md` + `docs/` carry the reasoning.\n\n**Implication:** you should never read a script in isolation -- almost every non-obvious choice downstream traces back to a specific line in `PROJECT_PLAN.md`, which itself cites a literature-notes section.\n\n**Gotcha:** `data/raw/` and `data/*/processed/**` are gitignored -- this checkout has no data on disk. Everything you'll see is the *code that builds and shapes* the data, not the data itself."
+    },
+    {
+      "file": "README.md",
+      "line": 13,
+      "title": "The two pipelines",
+      "description": "**Situation:** the Quickstart opens by telling you which of the two entrypoints to run.\n\n**Mechanism:** `run_mmr_pipeline.py` is the \"recommended entrypoint\" -- one command chains download -> clean/process -> train for the 4 MMR genes, by default including real ESM-2 backbone gradient fine-tuning as the final stage.\n\n**Implication:** this is deliberately *not* a linear-probe-only project -- the default run does actual deep-learning training, not just feature extraction over a frozen encoder.\n\n**Gotcha:** the README explicitly warns it stops before calibration/LLM/fusion \"by design\" -- those are separate, later phases you will not find wired into this command."
+    },
+    {
+      "file": "PROJECT_PLAN.md",
+      "line": 1,
+      "title": "The \"why\" document",
+      "description": "**Situation:** `PROJECT_PLAN.md` is the companion to `LITERATURE_NOTES.md` -- explicitly \"read that first for the why, this is the what to do, in order.\"\n\n**Mechanism:** three base papers anchor every architectural choice: MVmamba (primary -- ESM2 + fusion branch architecture), Tejura et al. 2024 (the calibration pillar), and ClinVar-BERT (the LLM pillar). The chosen LLM approach is a fine-tuned local encoder specifically to avoid an API dependency in the deployed critical path.\n\n**Implication:** when a script's docstring says \"per ProPath's recipe\" or \"per MVmamba's ablation,\" that's not decoration -- it's a traceable citation back to this file's phase list.\n\n**Gotcha:** this plan only covers Phases 0-3 in the pipeline you're about to run; Phases 4-7 (LLM branch, fusion, calibration, write-up) exist here as *design*, not as code `run_mmr_pipeline.py` executes."
+    },
+    {
+      "file": "PROJECT_PLAN.md",
+      "line": 19,
+      "title": "Why PMS2 gets special treatment",
+      "description": "**Situation:** Phase 1's dataset-construction checklist, item 5.\n\n**Mechanism:** PMS2 exons 11-15 sit in a region homologous to the PMS2CL pseudogene -- standard short-read NGS calls there are unreliable unless orthogonally confirmed (long-range PCR/cDNA). The plan calls this out as \"a hard filter, not a soft feature.\"\n\n**Implication:** this single bullet point is the reason a dedicated gate function exists later in `src/mmr_dataset.py`, and why the pipeline's default behavior is to drop PMS2 rather than silently trust it.\n\n**Gotcha:** the same section also flags an *unresolved* open decision (whether functional-assay data is held fully out of training) -- not every design choice in this codebase is settled; some are explicitly flagged as still open in the plan itself."
+    },
+    {
+      "file": "docs/PIPELINE_MAP.md",
+      "line": 10,
+      "title": "Static map of what produces what",
+      "description": "**Situation:** a read-only, code-derived (not executed) trace of every entrypoint and what it writes to disk.\n\n**Mechanism:** the table lines up each script with its output artifact -- `make_expanded_panel.py` -> the gene panel JSON, `build_extended_dataset.py` -> the broad master table, `build_mmr_dataset.py` -> the MMR-specific table, and the two orchestrators (`run_pipeline.py`, `run_mmr_pipeline.py`) that chain them.\n\n**Implication:** use this table as the index whenever you lose track of which script owns which file -- it's kept honest by citing `file:line` for every claim.\n\n**Gotcha:** the doc is explicit that it wasn't executed to produce these claims -- treat it as a structural map, not a report of an actual run's output."
+    },
+    {
+      "file": "run_mmr_pipeline.py",
+      "line": 1,
+      "title": "The orchestrator's seven stages",
+      "description": "**Situation:** the module docstring lays out the full sequence this one script drives.\n\n**Mechanism:** env setup -> unit tests -> broad-panel download/clean -> MMR-specific download/clean -> stage 1 pretrain (frozen embeddings, broad panel) -> stage 2 warm-start fine-tune (frozen embeddings, MMR genes) -> stage 2b real backbone fine-tuning.\n\n**Implication:** stages 5-6 are described as \"feature-extraction + linear-probe warm-up, not the main DL training\" -- stage 2b, run by default, is where gradients actually flow into the ESM-2 transformer.\n\n**Gotcha:** the stage *numbers* printed at runtime aren't fixed -- `StageCounter` (further down this file) recomputes the total from which flags you passed, so `--skip_tests` or `--no-full_finetune` changes what \"Stage 3/5\" means without changing the underlying order."
+    },
+    {
+      "file": "run_mmr_pipeline.py",
+      "line": 617,
+      "title": "Stage 3: the broad pretraining panel",
+      "description": "**Situation:** the first real download/build stage -- not MMR-specific yet.\n\n**Mechanism:** resolves the gene panel (every human protein with a ProteinGym DMS assay, by default), then calls `scripts/build_extended_dataset.py` to pull and merge ClinVar, ProteinGym, AlphaMissense, and UniProt data, followed immediately by `audit_extended_dataset.py`.\n\n**Implication:** this broad panel exists so the model can pretrain a representation on far more genes than the 4 MMR ones, before ever touching Lynch-syndrome-specific data -- the point is to avoid a representation that has only ever seen 4 proteins.\n\n**Gotcha:** `--all_sources` is opt-in here because it adds one extra REST/GraphQL call per gene per source across 80+ genes -- the default run skips gnomAD/AlphaFold/InterPro for the broad panel to keep this stage fast."
+    },
+    {
+      "file": "src/extended_builder.py",
+      "line": 574,
+      "title": "assemble_master: the merge engine",
+      "description": "**Situation:** the function stage 3 actually calls to build the unified table.\n\n**Mechanism:** 11 separate `.merge()` calls stitch ClinVar, ProteinGym clinical/DMS/zero-shot scores, AlphaMissense, and UniProt domain annotations together, all keyed on `MASTER_KEY = [\"uniprot_id\", \"position\", \"wt_aa\", \"mut_aa\"]` (line 141). Contradictory same-key binary labels are excluded from supervision entirely (`_resolve_binary_evidence`), not resolved by row order.\n\n**Implication:** this is the single place where \"is this variant this label\" gets decided across five+ independent data sources -- understanding this function is understanding the dataset's ground truth.\n\n**Gotcha:** per `docs/PIPELINE_MAP.md` section 3, none of these 11 merges declares `validate=`, unlike two joins elsewhere in the codebase that do -- a known, documented asymmetry, not an oversight that's been silently fixed."
+    },
+    {
+      "file": "run_mmr_pipeline.py",
+      "line": 631,
+      "title": "Stage 4: the MMR-specific build",
+      "description": "**Situation:** immediately after the broad panel, a second, narrower build restricted to the 4 Lynch genes.\n\n**Mechanism:** `scripts/build_mmr_dataset.py` reuses the same `build_extended_dataset` machinery, then joins gnomAD allele frequency + gene constraint, applies the PMS2 homology gate, optionally joins CIMRA OddsPath and MaveDB DMS scores, and re-stamps the manifest.\n\n**Implication:** by default (no PMS2 flag given) `--exclude_pms2` is passed here -- the pipeline's *default* behavior is to drop the fourth Lynch gene entirely rather than risk pseudogene-contaminated labels, exactly per the Phase 1 data-quality gate you saw earlier.\n\n**Gotcha:** this build step doesn't just add columns -- it's the point where a variant's label can be *removed* (nulled) by the PMS2 gate, which you'll see implemented next."
+    },
+    {
+      "file": "src/mmr_dataset.py",
+      "line": 178,
+      "title": "The PMS2 pseudogene gate, implemented",
+      "description": "**Situation:** `apply_pms2_homology_gate` -- the code answer to Phase 1's \"hard filter, not a soft feature\" instruction.\n\n**Mechanism:** every PMS2 variant inside the pseudogene-homology codon range gets flagged unsafe unless a homology CSV explicitly confirms it via orthogonal sequencing; unsafe rows have their `label` set to `pd.NA` -- not dropped from the table, just stripped of supervision (`out.loc[unsafe, \"label\"] = pd.NA`).\n\n**Implication:** this is why `--pms2_codon_range` and `--pms2_homology_csv` exist as pipeline flags (seen in `run_mmr_pipeline.py`'s mutually-exclusive PMS2 argument group) -- they're three different ways to resolve the same literature-driven safety concern, not three unrelated options.\n\n**Gotcha:** rows stay in the dataframe for provenance/inference even after their label is nulled -- a naive `df.dropna()` downstream would silently remove them from *everything*, not just from training supervision."
+    },
+    {
+      "file": "run_mmr_pipeline.py",
+      "line": 653,
+      "title": "Stage 5: pretrain the head (frozen embeddings)",
+      "description": "**Situation:** the first training stage, run against the broad panel built in stage 3.\n\n**Mechanism:** `scripts/pretrain_esm_80.py` fits a classification head on frozen ESM-2 embeddings stacked with published-predictor prior scores. `--pretrain_mode leave_gene_out` (the default) excludes every MMR gene from this pretraining -- the \"honest transfer estimate\" -- versus `practical`, which allows them.\n\n**Implication:** this checkpoint is deliberately *not* the final model -- it's a warm-start that stage 6 will fine-tune further, and its whole purpose is to establish a general representation that hasn't already memorized the 4 genes you'll evaluate on.\n\n**Gotcha:** `--features priors` runs anywhere with no GPU; `esm+priors` needs a real ESM-2 forward pass per variant -- this is the first point in the pipeline where hardware matters."
+    },
+    {
+      "file": "scripts/run_mmr_transfer.py",
+      "line": 238,
+      "title": "Stage 6: warm-start fine-tune, leakage guarded",
+      "description": "**Situation:** inside `run_mmr_transfer.py`, the comment explaining why prior-feature imputation constants are derived only from the fine-tune partition.\n\n**Mechanism:** `pool` deliberately contains the holdout gene (so its features can be built in the same call), but the fill values used to impute missing prior scores are computed from `ft_df` (fine-tune partition) alone -- letting the holdout influence those constants would leak it into training, especially since most `zs_*` columns are ~99% missing and the imputed constant effectively *becomes* the feature for almost every row.\n\n**Implication:** this is a preprocessing-fit-before-split leakage bug that was designed against deliberately, not discovered later -- a good example of the kind of thing this codebase is careful about at every merge/split boundary.\n\n**Gotcha:** if you ever add a new prior-score column, its imputation must follow this same pattern (fit on `ft_df` only) or you silently reopen this leakage path."
+    },
+    {
+      "file": "run_mmr_pipeline.py",
+      "line": 684,
+      "title": "Stage 2b: the actual deep-learning stage",
+      "description": "**Situation:** the final, most expensive stage -- and the one that runs by default.\n\n**Mechanism:** unlike stages 5-6, this backpropagates real gradients into the ESM-2 backbone via `src/esm_finetune.py`. Before it starts, `detect_accelerator()` and `estimate_finetune_vram_gib()` run a closed-form VRAM preflight check so an impossible configuration is rejected *before* an hour of downloads and two earlier training stages, rather than OOMing deep in the backward pass at the very end.\n\n**Implication:** this is why the pipeline refuses to start stage 2b on a CPU-only box without `--allow_cpu_finetune` -- a full backbone fine-tune there is a multi-day job, not a slow afternoon, and the pipeline would rather stop loudly up front.\n\n**Gotcha:** the VRAM estimate is described as accurate to roughly +/-25% -- good enough to separate \"fits\" from \"needs 3x the card,\" not a guarantee; `--skip_vram_preflight` exists for when you believe the estimate is wrong for your setup."
+    },
+    {
+      "file": "src/esm_finetune.py",
+      "line": 1,
+      "title": "Why two fine-tuning recipes, not one",
+      "description": "**Situation:** the module docstring for the code stage 2b actually runs.\n\n**Mechanism:** every other model in this codebase (`esm_extractor`, `mvmamba_features`, `transfer`) uses **frozen** embeddings into a shallow MLP -- one of four fine-tuning strategies the plan asks to benchmark, not automatically the best one. This module implements the other two that need real gradient flow: `siamese` (ProPath -- separate WT/VT forward passes, pooled at the mutated residue) and `wt_site` (CSBJ -- single WT forward pass, token-classifier style).\n\n**Implication:** `scripts/compare_finetune_strategies.py` exists specifically to run all four strategies head-to-head on this project's own data -- the plan's instruction was \"don't commit without comparing,\" and that comparison is a real, runnable script, not a TODO.\n\n**Gotcha:** `siamese` costs two forward passes per example versus `wt_site`'s one -- that's the direct reason `run_mmr_pipeline.py`'s VRAM estimator (previous step) multiplies its activation term by 2 when `mode == \"siamese\"`."
+    },
+    {
+      "title": "Where this pipeline stops, and why",
+      "description": "**Situation:** you've followed one `run_mmr_pipeline.py` invocation from raw source ingestion through real backbone fine-tuning.\n\n**Mechanism:** the pipeline deliberately stops here -- no calibration (Phase 6), no LLM clinical-reasoning branch (Phase 4), no fusion (Phase 5). Those remain standalone tools you run manually (`scripts/compare_*.py`, `scripts/eval_leave_one_protein_out.py`, `scripts/build_cluster_split.py`), not steps wired into this command.\n\n**Implication:** every one of those later phases has its own detailed rationale already written in `PROJECT_PLAN.md` (Phases 4-7) -- that's the next thing to read if you're extending this project rather than just running it.\n\n**Gotcha:** `PROJECT_PLAN.md`'s Phase 6 has already been revised once in response to a 2026 external publication (gene-domain-aware calibration) that solved a problem the plan originally scoped as novel work -- a reminder that this plan is a living document, not a frozen spec."
+    }
+  ]
+}

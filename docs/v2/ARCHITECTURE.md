@@ -146,19 +146,50 @@ These are written against the v2 API *before it exists*. They are red until
 implemented, and they are the definition of done for each layer. Nothing else
 from v1 is carried over as code.
 
-## Build order
+## Build order and status
 
-Each step ends green on its slice of the regression suite before the next
-starts.
+Each step must end green on its slice of the regression suite. "Verified" below
+means *executed*, not merely written — this dev box has no numpy/pandas, so only
+the stdlib-only paths could be run here; the rest needs the Ubuntu box.
 
-1. `provenance.py`, `device.py`, `splits.py` — L3, L10, L13
-2. `sources/base.py` + `sources/clinvar.py` — L4, L9
-3. Remaining sources, one per commit — L1
-4. `assemble.py` — L1, L9
-5. `features.py` — L2, L5, L6, L11, L12
-6. `models/` + `evaluate.py` — L6, L7, L8, L14
-7. `cli.py`
-8. First experiment: single-source vs combined, `gbm`, three seeds
+| # | Layer | Landmines | Status |
+|---|---|---|---|
+| 1 | `provenance.py`, `device.py`, `splits.py` | L3, L10, L13 | written; **L10, L13 verified**, L3 needs pandas |
+| 2 | `sources/base.py`, `sources/clinvar.py` | L4, L9 | written; needs pandas |
+| 3 | `sources/` — proteingym_dms, alphamissense, gnomad, uniprot | L1, L15 | written; **gnomAD group-matching verified**, rest needs pandas |
+| 4 | `assemble.py` | L1, L9 | written; needs pandas |
+| 5 | `features.py` | L2, L5, L6, L11, L12, L15 | written; needs pandas |
+| 6 | `models/`, `evaluate.py` | L6, L7, L8, L14 | written; **L7 (seed derivation), L8, L14 verified** |
+| 7 | `experiment.py`, `cli.py` | — | written; needs pandas |
+| 8 | First experiment: single-source vs pooled, `gbm`, three seeds | — | **not started** |
+
+### A note on gnomAD
+
+It was nearly deferred alongside the other feature sources. That was wrong, on
+this project's own evidence: un-dropping these columns produced v1's largest
+single result improvement (mean ROC-AUC 0.9229 -> 0.9445, MCC 0.4626 -> 0.6894),
+`ablate_gnomad_and_scores` was the largest ablation effect measured at -0.0526
+AUROC, and allele frequency's increment over the external prior scores was
+0.0211 against a standard error of 0.0052 — so it is not redundant with
+AlphaMissense. Deferring it would also have left `PRIOR_GROUPS["gnomad"]` and
+`PROXY_FOR` referring to a family no source produced, making
+`resolve_ablation(drop_groups=["gnomad"])` a silent no-op that reported success.
+
+It brings landmine **L15** with it: gene-level constraint (pLI, o/e missense,
+missense Z) is constant within a gene, so under leave-one-gene-out it is a
+gene-identity label and nothing else. `features.drop_gene_constant()` removes
+it, and `experiment.run_cell` calls that on every cell.
+
+Still absent by design: MaveDB, AlphaFold and InterPro sources; the ESM-2
+embedding path; calibration. None blocks the headline experiment.
+
+## Companion documents
+
+- [LITERATURE.md](LITERATURE.md) — how these datasets have been used, the
+  closest prior work, and what remains unasked. Read before claiming novelty:
+  feature-category ablation is already published.
+- [PAPER_PLAN.md](PAPER_PLAN.md) — the experimental design, the tables to fill,
+  and the threats to validity stated up front.
 
 ## Decisions on the record
 

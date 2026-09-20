@@ -247,6 +247,51 @@ def test_every_split_is_seeded_including_the_first():
     )
 
 
+def test_split_seed_is_keyed_on_gene_not_loop_position():
+    """A gene dropping out must not re-seed every other gene's split.
+
+    Found 2026-09-20 by review, not by the test above — which passes happily
+    while the caller feeds it a positional index. `lopo_splits` skips genes with
+    no rows without incrementing, so losing PMS2 (which this project did, to a
+    build flag) shifts MSH6 from index 3 to index 2 and silently changes its
+    initialisation. Same cell, same seed, different numbers.
+    """
+    from vpdl.models.base import derive_seed
+
+    four_genes = {g: derive_seed(42, g) for g in ("MLH1", "MSH2", "MSH6", "PMS2")}
+    three_genes = {g: derive_seed(42, g) for g in ("MLH1", "MSH2", "MSH6")}
+
+    for gene, seed in three_genes.items():
+        assert seed == four_genes[gene], (
+            f"{gene}'s seed changed when PMS2 left the panel — the split key is "
+            "positional, not stable."
+        )
+
+    assert len(set(four_genes.values())) == 4, "gene keys must not collide"
+
+
+def test_string_split_keys_are_stable_across_processes():
+    """Must not use builtin hash(): its salt changes between interpreters.
+
+    A per-process salt would make every run irreproducible across invocations,
+    which is the exact failure derive_seed exists to prevent.
+    """
+    import subprocess
+    import sys
+
+    code = (
+        "import sys; sys.path.insert(0, '.');"
+        "from vpdl.models.base import derive_seed;"
+        "print(derive_seed(42, 'MLH1'))"
+    )
+    runs = {
+        subprocess.run([sys.executable, "-c", code], capture_output=True,
+                       text=True, check=True).stdout.strip()
+        for _ in range(3)
+    }
+    assert len(runs) == 1, f"derive_seed is not stable across processes: {runs}"
+
+
 # ---------------------------------------------------------------------------
 # L8. Feature schema must never silently truncate
 # ---------------------------------------------------------------------------
@@ -399,6 +444,77 @@ def test_variant_window_differs_from_wildtype_window(seq_len):
         "wild-type window -- the WT/VT contrast is dead (RUNLOG 2026-08-30)."
     )
     assert vt_window[len(vt_window) // 2] == "V"
+
+
+# ---------------------------------------------------------------------------
+# L15. Gene-constant features must not survive a leave-one-gene-out split
+# ---------------------------------------------------------------------------
+# gnomAD's gene-level constraint columns (pLI, o/e missense, missense Z) take a
+# single value across every variant in a gene. Under leave-one-gene-out that is
+# gene identity and nothing else: constant across the training genes, one unseen
+# value on the holdout. v1 guarded this with
+# `prior_columns_of(df, drop_gene_constant=(eval == "lopo"))`. The trap is
+# invisible in any within-gene split, where such a column looks perfectly
+# well-behaved.
+
+def test_gene_constant_features_are_dropped_for_lopo():
+    from vpdl.features import drop_gene_constant
+
+    df = pd.DataFrame({
+        "gene": ["MLH1", "MLH1", "MSH2", "MSH2"],
+        "feature_gnomad_log10_af": [-3.0, -5.0, -2.0, -4.0],   # varies within gene
+        "feature_gnomad_pli": [0.99, 0.99, 0.71, 0.71],        # gene-constant
+        "feature_gnomad_mis_z": [3.1, 3.1, 2.4, 2.4],          # gene-constant
+    })
+    columns = ["feature_gnomad_log10_af", "feature_gnomad_pli", "feature_gnomad_mis_z"]
+
+    kept = drop_gene_constant(df, columns)
+
+    assert kept == ["feature_gnomad_log10_af"], (
+        "Gene-level constraint is constant within a gene and encodes gene "
+        "identity under LOPO — it must not reach the model."
+    )
+
+
+def test_globally_constant_feature_is_also_dropped():
+    from vpdl.features import drop_gene_constant
+
+    df = pd.DataFrame({
+        "gene": ["MLH1", "MLH1", "MSH2", "MSH2"],
+        "feature_useless": [1.0, 1.0, 1.0, 1.0],
+        "feature_real": [0.1, 0.9, 0.2, 0.8],
+    })
+    assert drop_gene_constant(df, ["feature_useless", "feature_real"]) == ["feature_real"]
+
+
+def test_gnomad_ablation_group_actually_matches_gnomad_columns():
+    """The ablation machinery must not silently no-op on a real feature family.
+
+    `PRIOR_GROUPS` declared a 'gnomad' group and `PROXY_FOR` refused ablations
+    leaving AlphaMissense behind, while no source emitted a gnomAD column at
+    all — so the ablation would have removed nothing and reported success.
+    """
+    from vpdl.features import group_of
+    from vpdl.sources.gnomad import provides
+
+    for column in provides().feature_columns:
+        assert group_of(column) == "gnomad", (
+            f"{column} is produced by the gnomAD source but does not resolve to "
+            "the 'gnomad' ablation group, so dropping that group would leave it in."
+        )
+
+
+def test_acmg_pm2_fires_when_allele_frequency_is_absent():
+    """Unobserved in gnomAD IS the PM2 case, not a missing value to impute."""
+    from vpdl.sources.gnomad import acmg_frequency_flags
+
+    flags = acmg_frequency_flags(np.array([np.nan, 1e-6, 0.02, 0.10]))
+
+    assert flags["feature_acmg_pm2"][0] == 1.0, "absent from gnomAD => PM2"
+    assert flags["feature_acmg_pm2"][1] == 1.0, "vanishingly rare => PM2"
+    assert flags["feature_acmg_bs1"][2] == 1.0, "above 1% => BS1"
+    assert flags["feature_acmg_ba1"][3] == 1.0, "above 5% => BA1"
+    assert flags["feature_acmg_ba1"][2] == 0.0, "2% is BS1 but not BA1"
 
 
 # ---------------------------------------------------------------------------

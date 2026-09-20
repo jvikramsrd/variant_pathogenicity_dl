@@ -1,0 +1,103 @@
+"""AlphaMissense pathogenicity priors — feature source and orientation anchor.
+
+Licence note, verified against the source repository rather than assumed:
+AlphaMissense **predictions** are CC BY 4.0 (attribution only). The v1
+manuscript carried CC BY-NC-SA 4.0 in two places, which is wrong and would have
+imposed non-commercial and share-alike terms on a redistributed table that does
+not actually carry them. See https://github.com/google-deepmind/alphamissense.
+
+This source does double duty: besides supplying a feature, it is the
+independent anchor :func:`vpdl.assemble.assert_label_orientation` uses to catch
+an inverted label mapping in some *other* source. That is why it is worth
+including even in runs where its feature is ablated away.
+"""
+
+from __future__ import annotations
+
+import gzip
+import logging
+from pathlib import Path
+from typing import Mapping, Sequence
+
+import pandas as pd
+
+from vpdl.sources.base import SourceCapabilities
+
+logger = logging.getLogger(__name__)
+
+__all__ = ["ALPHAMISSENSE_URL", "provides", "load"]
+
+ALPHAMISSENSE_URL = (
+    "https://storage.googleapis.com/dm_alphamissense/"
+    "AlphaMissense_aa_substitutions.tsv.gz"
+)
+
+
+def provides() -> SourceCapabilities:
+    return SourceCapabilities(
+        name="alphamissense",
+        supplies_labels=False,
+        feature_columns=("feature_alphamissense_score",),
+        licence="CC BY 4.0",
+        notes=(
+            "Trained on population and clinical data, so it carries allele-"
+            "frequency signal: an ablation dropping gnomAD while this remains "
+            "is uninterpretable (see vpdl.features.PROXY_FOR)."
+        ),
+    )
+
+
+def load(
+    path: Path | str,
+    accessions: Sequence[str],
+    gene_by_accession: Mapping[str, str] | None = None,
+) -> pd.DataFrame:
+    """Stream the substitutions file, keeping only the panel's accessions.
+
+    The full file is ~1.2 GB compressed and covers every human missense
+    substitution, so it is filtered during the read rather than loaded and
+    subset afterwards.
+    """
+    wanted = set(accessions)
+    gene_by_accession = dict(gene_by_accession or {})
+    rows: list[dict] = []
+
+    opener = gzip.open if str(path).endswith(".gz") else open
+    with opener(path, "rt", encoding="utf-8", errors="replace") as handle:
+        header: list[str] | None = None
+        for line in handle:
+            if line.startswith("#"):
+                continue
+            fields = line.rstrip("\n").split("\t")
+            if header is None:
+                header = fields
+                continue
+            record = dict(zip(header, fields))
+            accession = record.get("uniprot_id")
+            if accession not in wanted:
+                continue
+            variant = record.get("protein_variant", "")
+            if len(variant) < 3:
+                continue
+            wt_aa, mut_aa = variant[0], variant[-1]
+            try:
+                position = int(variant[1:-1])
+            except ValueError:
+                continue
+            rows.append({
+                "uniprot_id": accession,
+                "position": position,
+                "wt_aa": wt_aa,
+                "mut_aa": mut_aa,
+                "gene": gene_by_accession.get(accession, ""),
+                "label": float("nan"),
+                "label_source": "alphamissense",
+                "evidence_tier": "prior",
+                "feature_alphamissense_score": float(
+                    record.get("am_pathogenicity", "nan")
+                ),
+            })
+
+    frame = pd.DataFrame(rows)
+    logger.info("AlphaMissense: %d rows over %d accessions", len(frame), len(wanted))
+    return frame
