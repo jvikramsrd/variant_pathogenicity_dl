@@ -202,6 +202,27 @@ def cmd_paired(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pg_reproduce(args: argparse.Namespace) -> int:
+    from vpdl.proteingym.bench import reproduce
+
+    for path in (args.folds, args.published):
+        if not Path(path).exists():
+            print(f"ERROR: {path} not found — see docs/v2/DGX_RUNBOOK.md, "
+                  "ProteinGym section, for the download commands.", file=sys.stderr)
+            return 2
+
+    table, summary = reproduce(args.folds, args.published, scheme=args.scheme,
+                               model=args.model, alpha=args.alpha,
+                               out_dir=args.out, only=args.only or None)
+
+    compared = table.dropna(subset=["diff"])
+    worst = compared.loc[compared["diff"].abs().sort_values(ascending=False).index].head(5)
+    print(json.dumps(summary, indent=2))
+    print("\nlargest disagreements with the published number:")
+    print(worst[["DMS_id", "n", "ours", "published", "diff"]].to_string(index=False))
+    return 0
+
+
 def cmd_train(args: argparse.Namespace) -> int:
     import pandas as pd
     from vpdl.device import log_summary
@@ -352,6 +373,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                         help="also compare arms of OTHER models against the "
                              "reference (default: one model per table)")
     paired.set_defaults(func=cmd_paired)
+
+    pg = sub.add_parser(
+        "pg-reproduce",
+        help="reproduce ProteinGym's published per-assay supervised results")
+    pg.add_argument("--folds", default="data/raw/cv_folds_singles_substitutions.zip")
+    pg.add_argument("--published",
+                    default="data/raw/pg_supervised_spearman_fold_random_5.csv",
+                    help="ProteinGym's per-assay Spearman table for the same scheme")
+    pg.add_argument("--scheme", default="fold_random_5",
+                    choices=["fold_random_5", "fold_modulo_5", "fold_contiguous_5"])
+    pg.add_argument("--model", default="ohe", choices=["ohe"])
+    pg.add_argument("--alpha", type=float, default=1.0)
+    pg.add_argument("--only", nargs="*", default=[], metavar="DMS_ID",
+                    help="restrict to these assays, e.g. MSH2_HUMAN_Jia_2020")
+    pg.add_argument("--out", default="runs/pg")
+    pg.set_defaults(func=cmd_pg_reproduce)
 
     compare = sub.add_parser("compare", help="pool cells, provenance-gated")
     compare.add_argument("--runs", default="runs")

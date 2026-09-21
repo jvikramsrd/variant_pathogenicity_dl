@@ -5,6 +5,11 @@ aesthetic: v1's own grid showed a curated-feature head with no protein-language
 input beating every ESM cell it was compared against. Small-n heterogeneous
 tabular data with informative missingness is what boosted trees are for.
 
+**Measured 2026-09-21: it was the weakest of the three** on ClinVar-only
+(mean ROC-AUC 0.947 vs MLP 0.963, BiLSTM 0.962). Likely cause: `fit` ignores
+the inner-validation set and grows all `n_estimators` trees on ~270 rows, while
+the neural arms early-stop. Fix before comparing it with them.
+
 Backends are tried in order (xgboost, lightgbm, sklearn) so the arm still runs
 on a machine where the ARM wheels for the first two are awkward — which the DGX
 Spark may well be.

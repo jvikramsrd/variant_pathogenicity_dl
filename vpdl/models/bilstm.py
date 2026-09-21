@@ -20,6 +20,13 @@ So it is wired to the one place recurrence is even meaningful — the windowed
 residue neighbourhood around the mutation — and reported honestly. A surprising
 win here would be interesting and would need checking for leakage before it was
 believed.
+
+**Measured 2026-09-21: it tied the MLP** (ClinVar-only mean ROC-AUC 0.962 vs
+0.963) and beat an untuned GBM. It sees the same six tabular features as the
+MLP plus the residue windows, so the tie means the windows added nothing
+measurable. No leakage path exists here: under leave-one-gene-out the held-out
+gene's windows come from a protein the model never saw, and windows carry no
+label information.
 """
 
 from __future__ import annotations

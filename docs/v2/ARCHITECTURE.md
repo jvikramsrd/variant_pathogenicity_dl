@@ -105,6 +105,14 @@ shape dictates the shortlist.
   with evidence instead of an assertion, which is worth the small cost of
   running it.
 
+**Measured 2026-09-21 — both predictions above were wrong.** ClinVar-only mean
+ROC-AUC over the three scoreable genes: MLP 0.963, BiLSTM 0.962, GBM 0.947. The
+BiLSTM tied the MLP rather than losing, and since it sees the same six tabular
+features plus residue windows, the tie says the windows add nothing measurable —
+the features carry the signal. GBM's deficit is likely configuration (no early
+stopping, unlike the other two) and must be fixed before any cross-model claim.
+See `docs/RUNLOG.md`.
+
 Adding a model means implementing `models/base.py::Model` and registering it.
 No other layer changes.
 

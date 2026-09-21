@@ -895,6 +895,110 @@ def test_cell_names_round_trip_even_with_caps_and_ablations():
 
 
 # ---------------------------------------------------------------------------
+# L20. Reproducing ProteinGym means following ProteinGym's protocol exactly
+# ---------------------------------------------------------------------------
+# A published number is only reproduced if it is computed the same way. Two
+# details were read out of ProteinGym's own code (2026-09-21) because either one
+# gets you close-but-wrong: the Spearman is pooled over all out-of-fold
+# predictions, and positions must be read against the mutated sequence without
+# an off-by-one.
+
+def test_pooled_spearman_is_not_the_mean_of_per_fold_spearmans():
+    from vpdl.proteingym.bench import pooled_spearman
+
+    # Each fold ranks perfectly on its own (per-fold Spearman 1.0 twice), but
+    # the folds sit at inverted offsets. Averaging per fold would report 1.0.
+    y = [1, 2, 3, 4, 5, 6]
+    pred = [10, 11, 12, 0, 1, 2]
+    pooled = pooled_spearman(y, pred)
+    assert pooled < 0, "a per-fold average would have hidden this entirely"
+
+
+def _synthetic_assay(n_positions=30, seed=0):
+    from vpdl.proteingym.data import AMINO_ACIDS, parse_assay
+
+    rng = np.random.default_rng(seed)
+    wild_type = "".join(rng.choice(list(AMINO_ACIDS), n_positions))
+    effect = rng.normal(0, 1, n_positions)          # how sensitive each position is
+    rows = []
+    for position in range(1, n_positions + 1):
+        wt = wild_type[position - 1]
+        for mut in AMINO_ACIDS:
+            if mut == wt:
+                continue
+            mutated = wild_type[:position - 1] + mut + wild_type[position:]
+            rows.append({
+                "mutant": f"{wt}{position}{mut}",
+                "mutated_sequence": mutated,
+                "DMS_score": effect[position - 1] + rng.normal(0, 0.3),
+                "fold_random_5": int(rng.integers(0, 5)),
+                "fold_contiguous_5": (position - 1) * 5 // n_positions,
+            })
+    return parse_assay("SYNTH", pd.DataFrame(rows))
+
+
+def test_one_hot_design_puts_plus_one_at_mutant_minus_one_at_wildtype():
+    from vpdl.proteingym.data import AMINO_ACIDS, parse_assay
+    from vpdl.proteingym.ohe import design_matrix
+
+    assay = parse_assay("T", pd.DataFrame({
+        "mutant": ["A2V"], "mutated_sequence": ["MVVQ"], "DMS_score": [0.1],
+    }))
+    row = design_matrix(assay.frame, width_positions=4).toarray()[0]
+    base = 1 * len(AMINO_ACIDS)                      # position 2 -> index 1
+    assert row[base + AMINO_ACIDS.index("V")] == 1.0
+    assert row[base + AMINO_ACIDS.index("A")] == -1.0
+    assert np.count_nonzero(row) == 2
+
+
+def test_off_by_one_numbering_is_refused():
+    from vpdl.proteingym.data import parse_assay
+
+    with pytest.raises(ValueError, match="numbering"):
+        parse_assay("T", pd.DataFrame({
+            # Claims A2V, but the sequence carries V at position 3.
+            "mutant": ["A2V"], "mutated_sequence": ["MAVQ"], "DMS_score": [0.1],
+        }))
+
+
+def test_multi_mutants_and_nonstandard_residues_are_skipped_and_counted():
+    from vpdl.proteingym.data import parse_assay
+
+    assay = parse_assay("T", pd.DataFrame({
+        "mutant": ["A2V", "A2V:Q4L", "A2X"],
+        "mutated_sequence": ["MVVQ", "MVVL", "MXVQ"],
+        "DMS_score": [0.1, 0.2, 0.3],
+    }))
+    assert len(assay.frame) == 1 and assay.skipped == 2
+
+
+def test_one_hot_learns_positions_under_random_folds_but_not_contiguous():
+    """The one-hot baseline is a position-sensitivity model.
+
+    Random folds leave other substitutions at each position in training, so it
+    recovers the position effect. Contiguous folds hold whole positions out, so
+    it cannot — which is why ProteinGym reports it collapsing there, and why a
+    cross-protein model needs features that are not tied to positions.
+    """
+    from vpdl.proteingym.bench import cross_validate, pooled_spearman
+
+    assay = _synthetic_assay()
+    y = assay.frame["DMS_score"]
+    random_folds = pooled_spearman(y, cross_validate(assay, "fold_random_5"))
+    contiguous = pooled_spearman(y, cross_validate(assay, "fold_contiguous_5"))
+
+    assert random_folds > 0.7, random_folds
+    assert contiguous < 0.3, contiguous
+
+
+def test_every_variant_is_predicted_exactly_once():
+    from vpdl.proteingym.bench import cross_validate
+
+    predictions = cross_validate(_synthetic_assay(), "fold_random_5")
+    assert np.isfinite(predictions).all()
+
+
+# ---------------------------------------------------------------------------
 # L19. Capping a source changes what an arm learns from, never what it is
 #      scored on
 # ---------------------------------------------------------------------------

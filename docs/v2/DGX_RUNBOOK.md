@@ -332,6 +332,42 @@ results came from.
 
 ---
 
+## ProteinGym benchmark — each dataset reproduced against its published result
+
+The study: train a model on each of ProteinGym's 217 substitution assays on its
+own, check its score against the number ProteinGym publishes for that assay,
+then train one model on all of them combined and compare, assay by assay.
+
+Step 1 is reproduction, with ProteinGym's simplest published baseline
+("One-Hot Encodings"). It runs on CPU in minutes. Until our numbers match
+theirs, nothing we report about combining datasets should be trusted.
+
+**Download** (13 MB of data plus the published results table):
+```bash
+cd data/raw
+wget -c https://marks.hms.harvard.edu/proteingym/ProteinGym_v1.3/cv_folds_singles_substitutions.zip
+wget -O pg_supervised_spearman_fold_random_5.csv https://raw.githubusercontent.com/OATML-Markslab/ProteinGym/main/benchmarks/DMS_supervised/substitutions/Spearman/DMS_substitutions_Spearman_DMS_level_fold_random_5.csv
+cd ../..
+```
+
+**One assay first** — the MSH2 assay, published One-Hot score 0.513:
+```bash
+vpdl pg-reproduce --only MSH2_HUMAN_Jia_2020
+```
+
+**Then all 217:**
+```bash
+vpdl pg-reproduce
+```
+
+**What "reproduced" means here.** Same model class, same folds, same metric;
+the optimiser differs (closed-form ridge here, AdamW for 10,000 steps in
+ProteinGym), so exact equality is not expected. Most assays within ~0.05 and a
+correlation across assays above ~0.9 means the pipeline reproduces ProteinGym.
+A systematic gap means a protocol difference to find before going further.
+
+---
+
 ## What not to do
 
 - **Don't build separate tables per arm.** Separate tables mean separate test

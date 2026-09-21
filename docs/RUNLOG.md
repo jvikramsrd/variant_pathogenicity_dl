@@ -5,6 +5,57 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-09-21 (DGX Spark, GB10 + PyTorch) — the effect replicates across GBM, MLP, BiLSTM
+
+Same table, same held-out ClinVar variants, seeds 42/43/44. `vpdl paired`,
+10,000 paired resamples. Stratified mean ΔAUC against each model's own
+ClinVar-only arm, over informative scoreable genes (MLH1 + MSH6 for DMS arms —
+MSH2 is structurally identical and excluded; MLH1 + MSH2 + MSH6 for AlphaMissense):
+
+| arm vs ClinVar-only | GBM | MLP | BiLSTM |
+|---|---|---|---|
+| + all DMS (pooled) | **−0.071 [−0.116, −0.025]** | −0.035 [−0.074, +0.001] | −0.036 [−0.074, +0.003] |
+| DMS only | **−0.048 [−0.088, −0.007]** | **−0.038 [−0.079, −0.001]** | **−0.051 [−0.099, −0.006]** |
+| AlphaMissense alone | −0.029 [−0.062, +0.002] | **−0.045 [−0.077, −0.016]** | **−0.045 [−0.079, −0.013]** |
+
+Bold = CI excludes zero. MLH1 on its own: pooling degrades it significantly in
+all three models (−0.092 / −0.051 / −0.054).
+
+ClinVar-only ROC-AUC by model:
+
+| | GBM | MLP | BiLSTM |
+|---|---|---|---|
+| MLH1 | 0.951 | 0.970 | 0.975 |
+| MSH2 | 0.914 | 0.951 | 0.959 |
+| MSH6 | 0.977 | 0.967 | 0.953 |
+| mean, 3 scoreable | 0.947 | 0.963 | 0.962 |
+
+**Reading.**
+
+1. **Pooling hurts in every model family.** Same direction everywhere, largest
+   for GBM. Significant for GBM; for MLP and BiLSTM the upper CI bound sits at
+   +0.001 / +0.003, so borderline — but MLH1 alone is significant in all three.
+2. **Training only on the MSH2 assay is significantly worse on clinical labels
+   than training on ClinVar, in all three models.** The most robust result here.
+3. **Trained models now beat AlphaMissense significantly** — for MLP and
+   BiLSTM, not GBM. This answers the power concern in the dose-response entry:
+   the stratified mean has enough power where single genes did not.
+4. **Two predictions in `docs/v2/ARCHITECTURE.md` were wrong.** GBM was expected
+   to be the strong arm and the BiLSTM a baseline to beat. Measured: MLP ≈ BiLSTM
+   > GBM. BiLSTM ≈ MLP means the residue windows add nothing measurable over the
+   six tabular features — the recurrence is not doing the work, the features are.
+5. **GPU determinism holds.** MSH2 pooled-vs-ClinVar is exactly 0.000 [0, 0] for
+   MLP and BiLSTM as well, trained with torch on the GB10.
+
+**The model comparison is not yet fair — do not claim neural > GBM.** MLP and
+BiLSTM early-stop on inner validation; GBM fits all 600 trees with no early
+stopping on ~270 rows, which plausibly explains its deficit. Within-model
+comparisons (the paper's actual question) are unaffected, since every arm of a
+model uses the same configuration. Before any cross-model claim: give GBM early
+stopping, re-run its arms, then `vpdl paired --reference-model gbm --cross-model`.
+
+---
+
 ## 2026-09-21 (DGX Spark) — dose-response: the harm scales with volume
 
 `--train-cap pg_dms=N`, N = 100 / 300 / 1000 / 3000, GBM, seeds 42/43/44, same
