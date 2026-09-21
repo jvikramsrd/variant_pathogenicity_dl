@@ -74,29 +74,54 @@ def split_hash(held_out_keys: Iterable[str]) -> str:
 
 
 def _git_state(repo: Path | None = None) -> dict[str, Any]:
+    """Commit, and whether the CODE that ran differs from it — and where.
+
+    "Dirty" means the code that ran is not the committed code: a modified
+    tracked file anywhere, or an untracked file under ``vpdl/``. Untracked
+    outputs (``runs/``, ``docs/v2/HARDWARE.md``) do not count — v1 counted
+    them, so every one of its 28 summaries said ``dirty: true`` and the field
+    carried no information. The paths are recorded too, because v1's other
+    gap was that *what* was uncommitted at run time was never on the record.
+    """
     root = str(repo) if repo else None
+
+    def git(*args: str) -> str:
+        # NOT stripped: porcelain lines start with a meaningful space (" M path"),
+        # and stripping the whole output ate it on the first line only, so the
+        # first recorded path lost its first character.
+        return subprocess.check_output(
+            ["git", *args], cwd=root, text=True, stderr=subprocess.DEVNULL,
+        )
+
     try:
-        commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=root, text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip()
-        dirty = bool(subprocess.check_output(
-            ["git", "status", "--porcelain"], cwd=root, text=True,
-            stderr=subprocess.DEVNULL,
-        ).strip())
-        return {"commit": commit, "dirty": dirty}
+        commit = git("rev-parse", "HEAD").strip()
+        changed = git("status", "--porcelain", "--untracked-files=no")
+        untracked_code = git("status", "--porcelain", "--untracked-files=all",
+                             "--", "vpdl")
+        paths = sorted({line[3:] for line in (changed + "\n" + untracked_code)
+                        .splitlines() if line.strip()})
+        return {"commit": commit, "dirty": bool(paths), "dirty_paths": paths[:25]}
     except (subprocess.CalledProcessError, FileNotFoundError, OSError):
         # Absent git is recorded as absent, never silently filled in.
-        return {"commit": None, "dirty": None}
+        return {"commit": None, "dirty": None, "dirty_paths": None}
+
+
+# Distribution names, read from installed metadata rather than by importing:
+# the import name differs from the distribution name (scikit-learn is
+# `sklearn`, which an earlier version got wrong, recording null for a package
+# that was installed), and importing torch just to read a version costs seconds.
+_TRACKED_DISTRIBUTIONS = ("numpy", "pandas", "scikit-learn", "torch",
+                          "xgboost", "lightgbm")
 
 
 def _library_versions() -> dict[str, str | None]:
+    from importlib.metadata import PackageNotFoundError, version
+
     versions: dict[str, str | None] = {}
-    for name in ("numpy", "pandas", "scikit-learn", "torch", "xgboost", "lightgbm"):
-        module = name.replace("-", "_")
+    for name in _TRACKED_DISTRIBUTIONS:
         try:
-            versions[name] = __import__(module).__version__
-        except Exception:
+            versions[name] = version(name)
+        except PackageNotFoundError:
             versions[name] = None
     return versions
 

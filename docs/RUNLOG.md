@@ -5,6 +5,57 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-09-21 (DGX Spark `spark-5472`, GB10, aarch64) — first v2 build and first v2 result
+
+**Regression suite:** 41 passed, 1 failed (the torch-dependent MLP seeding
+test; torch deliberately not yet installed). First time the suite ever
+executed. No test failed on its own account.
+
+**Build** — `vpdl build --sources clinvar pg_dms alphamissense gnomad --out data/built/mmr.csv`,
+dataset sha256 `0884e5dfcf63…`. Every oracle check against v1's manifests passed:
+
+| | v1 | v2 |
+|---|---|---|
+| rows | 74,328 | **74,328** (exact) |
+| ClinVar labelled | 464 | 450 (MLH1 174 / MSH2 177 / MSH6 78 / PMS2 21) |
+| DMS labels | 16,420, MSH2 | 16,749, MSH2 only |
+| gnomAD observed | 6,492 | 6,795 of 74,328; the rest filled as PM2 |
+
+Orientation checks ran and passed: ClinVar **0.927**, DMS **0.871** against
+AlphaMissense. Before the 2026-09-21 assembly fix this check could never
+execute. 20 MSH2 variants where ClinVar and the DMS assay disagree were
+quarantined. PMS2 homology gate withheld 641 of 1,312 PMS2 rows; gene retained.
+
+**First result** — `vpdl train ... --train-sources clinvar --model gbm --seeds 42 --n-bootstrap 1000`:
+
+| gene | v2 ROC-AUC | v1 curated-features head | Δ |
+|---|---|---|---|
+| MLH1 (n=174) | 0.957 | 0.965 | −0.008 |
+| MSH2 (n=177) | 0.896 | 0.908 | −0.012 |
+| MSH6 (n=78) | 0.980 | 0.979 | +0.001 |
+| **mean, scoreable** | **0.944** | **0.951** | −0.007 |
+
+PMS2 1.000 on 17 pathogenic / 4 benign — uninformative, excluded from the mean.
+
+Within 0.012 of v1 on every gene despite 6 features against 27 and 450 labels
+against 683. That is the differential check the 2026-09-20 council asked for,
+and it passes: the rebuild reproduces the old pipeline's magnitude. **Not a
+scientific comparison** — the label sets differ — but strong evidence nothing
+is broken.
+
+Per-gene seeds were identical to those computed on the Windows dev box
+(`798404085` for MLH1), confirming derive_seed is stable across x86 and ARM.
+
+**Provenance bugs found in this run's own summary, fixed before the grid:**
+`scikit-learn` recorded as null (looked up by import name, not distribution
+name); `dirty: true` caused by untracked outputs rather than code (v1's
+failure mode — every v1 summary said dirty). Dirty now means modified tracked
+files or untracked files under `vpdl/`, and the paths are recorded. A
+porcelain-parsing bug that ate the first character of the first path was
+caught in testing before it shipped.
+
+---
+
 ## 2026-09-15 (dev box + Linux CUDA box `DESKTOP-UJ3ATL6`) — dataset re-pinned, main grid re-run; ablations still owed
 
 **What ran.** `.venv/bin/python scripts/run_stage2b_grid.py --tiers 1 2 3 4 5
