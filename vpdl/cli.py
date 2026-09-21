@@ -6,6 +6,7 @@
     vpdl build --sources all             assemble the pooled table
     vpdl train --data T --model gbm      leave-one-gene-out over a built table
     vpdl compare --runs runs/            pool cells, provenance-gated
+    vpdl kb-build / kb-ask / kb-eval     local knowledge base (docs/kb/)
 """
 
 from __future__ import annotations
@@ -359,6 +360,101 @@ def cmd_compare(args: argparse.Namespace) -> int:
     return 0
 
 
+# -- knowledge base (docs/kb/) --------------------------------------------------
+
+def _utf8_stdout() -> None:
+    # Attributions carry the (c) and (R) signs GeneReviews' terms ask for.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
+def cmd_kb_build(args: argparse.Namespace) -> int:
+    from vpdl.kb.genereviews import load_genereviews
+    from vpdl.kb.ollama import LocalOllama
+    from vpdl.kb.search import KnowledgeIndex
+    from vpdl.kb.variants import build_variant_db
+
+    kb = Path(args.kb)
+    did_something = False
+    if args.genereviews:
+        for path in (args.genereviews, args.chapter_ids):
+            if not Path(path).exists():
+                print(f"ERROR: {path} not found - see docs/kb/RUNBOOK.md.", file=sys.stderr)
+                return 2
+        chunks = load_genereviews(args.genereviews, args.chapter_ids)
+        embeddings = None
+        if not args.no_embed:
+            client = LocalOllama()
+            embeddings = KnowledgeIndex.embed_chunks(
+                chunks, lambda texts: client.embed(texts, args.embed_model))
+        KnowledgeIndex(chunks, embeddings, None if args.no_embed else args.embed_model).save(kb)
+        print(f"passages: {len(chunks)} -> {kb / 'chunks.jsonl'}"
+              + ("" if args.no_embed else f"; embeddings: {args.embed_model}"))
+        did_something = True
+    if args.clinvar:
+        if not Path(args.clinvar).exists():
+            print(f"ERROR: {args.clinvar} not found.", file=sys.stderr)
+            return 2
+        genes = None if args.genes == ["all"] else args.genes
+        rows = build_variant_db(args.clinvar, kb / "clinvar.sqlite", genes)
+        print(f"ClinVar lookup: {rows} records -> {kb / 'clinvar.sqlite'}")
+        did_something = True
+    if not did_something:
+        print("Nothing to build: pass --genereviews and/or --clinvar.", file=sys.stderr)
+        return 2
+    return 0
+
+
+def _open_kb(args: argparse.Namespace):
+    from vpdl.kb.search import KnowledgeIndex
+    from vpdl.kb.variants import EvidenceTable, VariantDB
+
+    index = KnowledgeIndex.load(args.kb)
+    variant_path = Path(args.kb) / "clinvar.sqlite"
+    variant_db = VariantDB(variant_path) if variant_path.exists() else None
+    evidence = None
+    if getattr(args, "evidence", None) and Path(args.evidence).exists():
+        evidence = EvidenceTable(args.evidence)
+    return index, variant_db, evidence
+
+
+def cmd_kb_ask(args: argparse.Namespace) -> int:
+    from vpdl.kb.answer import ask, render
+    from vpdl.kb.ollama import LocalOllama
+
+    _utf8_stdout()
+    try:
+        index, variant_db, evidence = _open_kb(args)
+        answer = ask(" ".join(args.question), index, LocalOllama(), args.model,
+                     k=args.k, variant_db=variant_db, evidence=evidence)
+    except (FileNotFoundError, RuntimeError, ValueError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+    print(render(answer, show_retrieved=args.show_retrieved))
+    return 0
+
+
+def cmd_kb_eval(args: argparse.Namespace) -> int:
+    from vpdl.kb.evaluate import evaluate, load_questions
+    from vpdl.kb.ollama import LocalOllama
+
+    _utf8_stdout()
+    try:
+        index, variant_db, _ = _open_kb(args)
+        summaries = evaluate(load_questions(args.questions), index, LocalOllama(),
+                             args.models, args.out, k=args.k, variant_db=variant_db)
+    except (FileNotFoundError, RuntimeError, ValueError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+    print(json.dumps(summaries, indent=2))
+    print(f"\nPer-question answers for review: {args.out}/answers_<model>.jsonl",
+          file=sys.stderr)
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="vpdl", description=__doc__)
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -465,6 +561,39 @@ def main(argv: Sequence[str] | None = None) -> int:
     compare.add_argument("--force", action="store_true",
                          help="pool despite a provenance mismatch (records it)")
     compare.set_defaults(func=cmd_compare)
+
+    kb_build = sub.add_parser("kb-build", help="knowledge base: passages, embeddings, "
+                                               "ClinVar lookup table")
+    kb_build.add_argument("--kb", default="data/kb")
+    kb_build.add_argument("--genereviews", default=None,
+                          help="gene_NBK1116.tar.gz (or an unpacked folder)")
+    kb_build.add_argument("--chapter-ids", default="data/raw/GRtitle_shortname_NBKid.txt",
+                          dest="chapter_ids")
+    kb_build.add_argument("--embed-model", default="bge-m3", dest="embed_model")
+    kb_build.add_argument("--no-embed", action="store_true", dest="no_embed",
+                          help="exact-word search only (no Ollama needed)")
+    kb_build.add_argument("--clinvar", default=None, help="variant_summary.txt.gz")
+    kb_build.add_argument("--genes", nargs="+", default=["MLH1", "MSH2", "MSH6", "PMS2", "EPCAM"],
+                          help="genes for the ClinVar lookup; 'all' for every gene")
+    kb_build.set_defaults(func=cmd_kb_build)
+
+    kb_ask = sub.add_parser("kb-ask", help="ask the knowledge base a question")
+    kb_ask.add_argument("question", nargs="+")
+    kb_ask.add_argument("--kb", default="data/kb")
+    kb_ask.add_argument("--model", default="llama3.1:8b")
+    kb_ask.add_argument("--k", type=int, default=6, help="passages given to the model")
+    kb_ask.add_argument("--evidence", default="data/built/mmr.csv",
+                        help="vpdl table with AlphaMissense/gnomAD values (optional)")
+    kb_ask.add_argument("--show-retrieved", action="store_true", dest="show_retrieved")
+    kb_ask.set_defaults(func=cmd_kb_ask)
+
+    kb_eval = sub.add_parser("kb-eval", help="score models on the evaluation questions")
+    kb_eval.add_argument("--kb", default="data/kb")
+    kb_eval.add_argument("--questions", default="docs/kb/eval_questions.jsonl")
+    kb_eval.add_argument("--models", nargs="+", default=["llama3.1:8b"])
+    kb_eval.add_argument("--k", type=int, default=6)
+    kb_eval.add_argument("--out", default="runs/kb")
+    kb_eval.set_defaults(func=cmd_kb_eval)
 
     args = parser.parse_args(argv)
     _configure_logging(args.verbose)

@@ -1,6 +1,6 @@
 # Clinical genetics knowledge base — design
 
-Status: **design agreed, nothing built.** Written 2026-09-21.
+Status: **Phase 1 built, not yet run on the DGX** (2026-09-21). Code: `vpdl/kb/`; tests: `tests/kb/`; how to run: [RUNBOOK.md](RUNBOOK.md).
 
 A local question-answering system over clinical genetics sources, for three uses:
 learning and research questions, variant lookups, and supporting (never making)

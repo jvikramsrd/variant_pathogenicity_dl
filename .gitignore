@@ -65,3 +65,7 @@ Thumbs.db
 !data/.gitkeep
 !data/raw/.gitkeep
 !data/processed/.gitkeep
+
+# Knowledge base: GeneReviews passages, embeddings, ClinVar lookup table.
+# Regenerable with `vpdl kb-build`; GeneReviews text is not ours to republish.
+data/kb/
