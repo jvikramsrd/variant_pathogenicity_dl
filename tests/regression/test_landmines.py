@@ -86,6 +86,36 @@ def test_feature_matrix_rejects_label_proxy_columns():
     assert_no_label_proxy(df[["honest_feature"]], label, max_agreement=0.95)
 
 
+def test_strong_predictor_is_not_mistaken_for_a_leak():
+    """A good feature is not a leak just because it is good.
+
+    AlphaMissense agreed with ClinVar at 0.927 on the first real build
+    (2026-09-21). The guard's original 0.95 abort threshold sat close enough
+    that a favourable training fold could have rejected it as a label proxy.
+    A derived column agrees near-deterministically; a strong predictor does
+    not, so the defaults must let ~0.96 through and still stop ~1.0.
+    """
+    from vpdl.features import build_feature_matrix
+
+    rng = np.random.default_rng(7)
+    n = 600
+    label = rng.integers(0, 2, n)
+    # Means 0.32 apart at sd 0.12: AUC = Phi(0.32 / (0.12 * sqrt 2)) ~ 0.970,
+    # about 2 standard errors clear of both 0.95 and 0.99 at n = 600.
+    strong = np.where(label == 1, rng.normal(0.72, 0.12, n), rng.normal(0.40, 0.12, n))
+    frame = pd.DataFrame({"feature_strong": strong,
+                          "feature_leak": 1 - label})
+
+    from vpdl.evaluate import symmetric_agreement
+    assert 0.95 <= symmetric_agreement(label, strong) < 0.99, \
+        "fixture must sit in the strong-but-legitimate band"
+
+    build_feature_matrix(frame, ["feature_strong"], labels=label)   # allowed
+
+    with pytest.raises(ValueError, match="leak"):
+        build_feature_matrix(frame, ["feature_strong", "feature_leak"], labels=label)
+
+
 # ---------------------------------------------------------------------------
 # L3. Leakage groups must be protein-qualified
 # ---------------------------------------------------------------------------

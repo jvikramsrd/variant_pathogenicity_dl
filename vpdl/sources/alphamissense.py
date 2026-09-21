@@ -1,10 +1,19 @@
 """AlphaMissense pathogenicity priors — feature source and orientation anchor.
 
-Licence note, verified against the source repository rather than assumed:
-AlphaMissense **predictions** are CC BY 4.0 (attribution only). The v1
-manuscript carried CC BY-NC-SA 4.0 in two places, which is wrong and would have
-imposed non-commercial and share-alike terms on a redistributed table that does
-not actually carry them. See https://github.com/google-deepmind/alphamissense.
+Licence — the downloaded file and the upstream repository DISAGREE, and a
+reviewer who opens the file will see the older one:
+
+* The predictions were released in 2023 under **CC BY-NC-SA 4.0**. The header
+  of ``AlphaMissense_aa_substitutions.tsv.gz`` still says so ("Copyright 2023").
+* On **2024-03-13** DeepMind relicensed them to **CC BY 4.0**
+  (google-deepmind/alphamissense commit fe2dc845, "Update AlphaMissense
+  predictions database license"). The data file was not regenerated, so its
+  header is stale.
+
+Cite as CC BY 4.0 and state the relicensing with the commit, so the
+contradiction a reader will find in the file is explained rather than looking
+like an error. v1's manuscript said CC BY-NC-SA 4.0, which was accurate for the
+file it downloaded; it was superseded, not wrong.
 
 This source does double duty: besides supplying a feature, it is the
 independent anchor :func:`vpdl.assemble.assert_label_orientation` uses to catch
@@ -38,7 +47,7 @@ def provides() -> SourceCapabilities:
         name="alphamissense",
         supplies_labels=False,
         feature_columns=("feature_alphamissense_score",),
-        licence="CC BY 4.0",
+        licence="CC BY 4.0 (relicensed 2024-03-13; file header still says CC BY-NC-SA 4.0)",
         notes=(
             "Trained on population and clinical data, so it carries allele-"
             "frequency signal: an ablation dropping gnomAD while this remains "

@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import logging
 import platform
+import shutil
+import subprocess
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -26,7 +28,7 @@ _GIB = 1 << 30
 
 @dataclass(frozen=True)
 class DeviceInfo:
-    kind: str                      # "cuda" | "mps" | "cpu"
+    kind: str                      # what torch can USE: "cuda" | "mps" | "cpu"
     name: str
     machine: str                   # platform.machine(), e.g. aarch64 / x86_64
     total_memory_gib: float | None
@@ -34,22 +36,55 @@ class DeviceInfo:
     supports_bf16: bool
     unified_memory: bool
     torch_version: str | None
+    # What the driver can SEE, independent of torch. On a machine without
+    # torch these two answers differ, and reporting only the first told a DGX
+    # Spark owner "no accelerator detected" while its GB10 sat idle.
+    gpu_name: str | None = None
 
     @property
-    def recommends_micro_batching(self) -> bool:
-        """True only when memory is genuinely tight.
+    def gpu_present(self) -> bool:
+        return self.gpu_name is not None
+
+    @property
+    def recommends_micro_batching(self) -> bool | None:
+        """True only when memory is genuinely tight; None when it is unknown.
 
         Unified-memory parts get the large pool, so the checkpointing and
-        accumulation contortions are unnecessary there.
+        accumulation contortions are unnecessary there. Without a memory figure
+        there is nothing to recommend from, and saying so beats a guess.
         """
         if self.total_memory_gib is None:
-            return self.kind != "cuda"
+            return None
         return self.total_memory_gib < 24.0
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self) | {
-            "recommends_micro_batching": self.recommends_micro_batching
+            "gpu_present": self.gpu_present,
+            "recommends_micro_batching": self.recommends_micro_batching,
         }
+
+
+def _probe_nvidia_smi() -> tuple[str, float | None] | None:
+    """Ask the driver directly, for machines where torch cannot answer yet."""
+    executable = shutil.which("nvidia-smi")
+    if executable is None:
+        return None
+    try:
+        lines = subprocess.run(
+            [executable, "--query-gpu=name,memory.total",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=15, check=True,
+        ).stdout.strip().splitlines()
+    except (subprocess.SubprocessError, OSError):
+        return None
+    if not lines:
+        return None
+    name, _, memory = lines[0].partition(",")
+    try:
+        memory_gib = round(float(memory.strip()) / 1024, 1)
+    except ValueError:
+        memory_gib = None          # unified-memory parts may report [N/A]
+    return name.strip(), memory_gib
 
 
 def detect() -> DeviceInfo:
@@ -59,10 +94,14 @@ def detect() -> DeviceInfo:
     try:
         import torch
     except ImportError:
+        # Memory is deliberately NOT taken from the probe: this record's `kind`
+        # is cpu, and a GPU memory figure beside it reads as the CPU's.
+        probe = _probe_nvidia_smi()
         return DeviceInfo(
             kind="cpu", name="cpu (torch not installed)", machine=machine,
             total_memory_gib=None, compute_capability=None,
             supports_bf16=False, unified_memory=False, torch_version=None,
+            gpu_name=probe[0] if probe else None,
         )
 
     if torch.cuda.is_available():
@@ -85,6 +124,7 @@ def detect() -> DeviceInfo:
             supports_bf16=bool(torch.cuda.is_bf16_supported()),
             unified_memory=unified,
             torch_version=torch.__version__,
+            gpu_name=props.name,
         )
 
     if getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
@@ -95,10 +135,16 @@ def detect() -> DeviceInfo:
             torch_version=torch.__version__,
         )
 
+    # torch is installed but cannot reach a GPU the driver can see. On aarch64
+    # the default PyPI torch wheel is CPU-only, so this is the expected failure
+    # after a plain `pip install torch` on a DGX Spark — worth naming, not
+    # reporting as "no accelerator".
+    probe = _probe_nvidia_smi()
     return DeviceInfo(
         kind="cpu", name=platform.processor() or "cpu", machine=machine,
         total_memory_gib=None, compute_capability=None, supports_bf16=False,
         unified_memory=False, torch_version=torch.__version__,
+        gpu_name=probe[0] if probe else None,
     )
 
 
@@ -124,9 +170,11 @@ def log_summary(info: DeviceInfo | None = None) -> DeviceInfo:
     info = info or detect()
     memory = f"{info.total_memory_gib} GiB" if info.total_memory_gib else "unknown"
     logger.info(
-        "device=%s (%s) arch=%s memory=%s bf16=%s unified=%s torch=%s "
-        "micro_batching_recommended=%s",
-        info.kind, info.name, info.machine, memory, info.supports_bf16,
-        info.unified_memory, info.torch_version, info.recommends_micro_batching,
+        "device=%s (%s) gpu_seen_by_driver=%s arch=%s memory=%s bf16=%s "
+        "unified=%s torch=%s micro_batching_recommended=%s",
+        info.kind, info.name, info.gpu_name or "none", info.machine, memory,
+        info.supports_bf16, info.unified_memory, info.torch_version,
+        "unknown" if info.recommends_micro_batching is None
+        else info.recommends_micro_batching,
     )
     return info

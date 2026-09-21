@@ -56,10 +56,16 @@ cross-protein generalisation from few proteins is achievable, which our
 four-gene panel needs to be true.
 
 ### AlphaMissense
-Supplies a pathogenicity prior. **Licence: CC BY 4.0 — attribution only**,
-verified at [google-deepmind/alphamissense](https://github.com/google-deepmind/alphamissense).
-The v1 manuscript stated CC BY-NC-SA 4.0 in two places; that was wrong and has
-been corrected. Because it was trained on population and clinical data it
+Supplies a pathogenicity prior. **Licence: CC BY 4.0 since 2024-03-13.** It was
+released in 2023 under CC BY-NC-SA 4.0 and relicensed in
+[google-deepmind/alphamissense commit fe2dc845](https://github.com/google-deepmind/alphamissense/commit/fe2dc845f9)
+("Update AlphaMissense predictions database license"). **The downloaded data
+file was never regenerated, and its header still reads CC BY-NC-SA 4.0** — so
+the paper must cite the relicensing commit, or a reviewer opening the file will
+find an apparent contradiction. The v1 manuscript's CC BY-NC-SA 4.0 was accurate
+for the file it used; it was superseded, not wrong. (An earlier revision of this
+document called it wrong on the strength of the README alone, before the file
+itself had been checked.) Because it was trained on population and clinical data it
 carries allele-frequency signal, which is why `vpdl.features.PROXY_FOR` refuses
 a gnomAD ablation that leaves it in place.
 

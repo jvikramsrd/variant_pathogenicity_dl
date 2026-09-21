@@ -111,7 +111,8 @@ def drop_gene_constant(
 def assert_no_label_proxy(
     df: pd.DataFrame,
     labels: Sequence[int],
-    max_agreement: float = 0.95,
+    max_agreement: float = 0.99,
+    warn_agreement: float = 0.95,
 ) -> None:
     """Raise if any feature column reproduces the label, in either orientation.
 
@@ -120,6 +121,14 @@ def assert_no_label_proxy(
     it was nearly written up before anyone asked why. Orientation-symmetric on
     purpose: a perfectly *inverted* column is just as much a leak, and a
     one-sided check reads it as uninformative.
+
+    Two thresholds, because a leak and a strong predictor look different. A
+    column derived from the label agrees with it near-deterministically (~1.0).
+    A good predictor does not: AlphaMissense agreed with ClinVar at 0.927 on
+    the 2026-09-21 build, and on a favourable training subset can clear 0.95.
+    The first version of this guard aborted at 0.95 and would have rejected it.
+    Between `warn_agreement` and `max_agreement` the column is reported but
+    allowed; at `max_agreement` it is refused.
     """
     offenders: list[tuple[str, float]] = []
     for column in df.columns:
@@ -127,8 +136,16 @@ def assert_no_label_proxy(
         if not np.isfinite(values).any():
             continue
         agreement = symmetric_agreement(labels, values)
-        if np.isfinite(agreement) and agreement >= max_agreement:
+        if not np.isfinite(agreement):
+            continue
+        if agreement >= max_agreement:
             offenders.append((column, agreement))
+        elif agreement >= warn_agreement:
+            logger.warning(
+                "%s agrees with the label at %.4f — strong, but short of the "
+                "%.2f leak threshold. Allowed; confirm it is not derived from "
+                "the labels before reporting.", column, agreement, max_agreement,
+            )
 
     if offenders:
         detail = ", ".join(f"{name} ({value:.4f})" for name, value in offenders)
@@ -264,7 +281,7 @@ def build_feature_matrix(
     columns: Sequence[str],
     labels: Sequence[int] | None = None,
     check_leaks: bool = True,
-    max_agreement: float = 0.95,
+    max_agreement: float = 0.99,
 ) -> FeatureMatrix:
     """Standardise selected columns, imputing with the training median.
 

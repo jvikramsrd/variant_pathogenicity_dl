@@ -51,10 +51,23 @@ def cmd_device(_: argparse.Namespace) -> int:
     from vpdl.device import log_summary
     info = log_summary()
     print(json.dumps(info.as_dict(), indent=2))
-    if info.kind == "cpu":
+    if info.kind == "cpu" and info.gpu_present and info.torch_version is None:
         print(
-            "\nNo accelerator detected. Tabular arms (gbm) run fine here; "
-            "the PLM and bilstm arms will be slow.", file=sys.stderr,
+            f"\nGPU present ({info.gpu_name}), but PyTorch is not installed, so "
+            "no model can use it yet. That is expected before runbook Phase 10; "
+            "the gbm arm does not need it.", file=sys.stderr,
+        )
+    elif info.kind == "cpu" and info.gpu_present:
+        print(
+            f"\nGPU present ({info.gpu_name}), but PyTorch {info.torch_version} "
+            "cannot reach it. On aarch64 the default PyPI wheel is CPU-only — "
+            "install a CUDA build or use NVIDIA's container (runbook Phase 10).",
+            file=sys.stderr,
+        )
+    elif info.kind == "cpu":
+        print(
+            "\nNo GPU visible to the driver. Tabular arms (gbm) run fine here; "
+            "the mlp and bilstm arms will be slow.", file=sys.stderr,
         )
     return 0
 
