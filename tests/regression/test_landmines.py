@@ -802,3 +802,103 @@ def test_checkpoint_without_format_tag_still_loads(tmp_path):
     path = tmp_path / "legacy.pt"
     save_checkpoint(path, state={"w": [1.0]}, fmt=None)
     load_checkpoint(path)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# L18. A paired comparison must be paired
+# ---------------------------------------------------------------------------
+# The headline number is AUC(pooled) - AUC(ClinVar-only) on the SAME held-out
+# variants. It is only meaningful if both arms really scored the same variants
+# against the same labels — otherwise it compares two test sets, the exact
+# error L17 removed from the training side.
+
+def test_paired_delta_of_identical_arms_is_exactly_zero():
+    from vpdl.analysis import paired_delta
+
+    rng = np.random.default_rng(11)
+    y = rng.integers(0, 2, 80)
+    scores = rng.random((80, 3))
+    delta, low, high = paired_delta(y, scores, scores.copy(), n_bootstrap=200)
+    assert delta == 0.0 and low == 0.0 and high == 0.0
+
+
+def test_paired_comparison_refuses_different_test_sets():
+    from vpdl.analysis import paired_table
+
+    shared = dict(gene="MLH1", label=[0, 1, 0, 1], score=[0.1, 0.9, 0.2, 0.8],
+                  seed=42, model="gbm")
+    reference = pd.DataFrame({**shared, "variant_key": list("abcd"),
+                              "arm": "train-clinvar"})
+    other = pd.DataFrame({**shared, "variant_key": list("abce"),
+                          "arm": "train-clinvar+pg_dms"})
+
+    with pytest.raises(ValueError, match="different"):
+        paired_table(pd.concat([reference, other]),
+                     reference=("train-clinvar", "gbm"), n_bootstrap=20)
+
+
+def test_cell_names_round_trip_even_with_caps_and_ablations():
+    from vpdl.analysis import parse_cell
+    from vpdl.experiment import CellConfig
+
+    config = CellConfig(sources=("clinvar", "pg_dms"),
+                        train_sources=("clinvar", "pg_dms"),
+                        train_caps=(("pg_dms", 300),),
+                        drop_groups=("gnomad", "prior_scores"),
+                        model="gbm", seed=43)
+    assert parse_cell(config.slug) == (config.arm, "gbm", 43)
+
+
+# ---------------------------------------------------------------------------
+# L19. Capping a source changes what an arm learns from, never what it is
+#      scored on
+# ---------------------------------------------------------------------------
+# Added with the dose-response control (2026-09-21): pooled ClinVar + the full
+# MSH2 DMS assay lost 0.09 AUROC on MLH1, and capping the assay separates "its
+# labels are different" from "its volume swamps everything". The cap is only a
+# valid control if the capped and uncapped arms still share one test set.
+
+def _capped_fixture():
+    n = 50
+    return pd.DataFrame({
+        # Rows 0-4: ClinVar and DMS agree. Rows 5-49: DMS only.
+        "label__clinvar": [1.0] * 5 + [np.nan] * (n - 5),
+        "label__pg_dms": [1.0] * 5 + [float(i % 2) for i in range(n - 5)],
+    })
+
+
+def test_train_cap_subsamples_only_rows_labelled_solely_by_that_source():
+    from vpdl.assemble import resolve_labels
+    from vpdl.experiment import apply_train_caps
+
+    table = _capped_fixture()
+    train = resolve_labels(table, ["clinvar", "pg_dms"])
+    capped = apply_train_caps(table, train, ["clinvar", "pg_dms"],
+                              [("pg_dms", 10)], seed=42)
+
+    assert capped.notna().sum() == 5 + 10
+    assert (capped.iloc[:5] == 1.0).all(), "a ClinVar-labelled row was capped away"
+    assert table["label__clinvar"].notna().sum() == 5, "evaluation labels were touched"
+
+
+def test_train_cap_is_deterministic_per_seed_and_varies_across_seeds():
+    from vpdl.assemble import resolve_labels
+    from vpdl.experiment import apply_train_caps
+
+    table = _capped_fixture()
+    train = resolve_labels(table, ["clinvar", "pg_dms"])
+    kept = lambda seed: tuple(np.flatnonzero(apply_train_caps(
+        table, train, ["clinvar", "pg_dms"], [("pg_dms", 10)], seed).notna()))
+
+    assert kept(42) == kept(42)
+    assert kept(42) != kept(43), "every seed would draw the same subsample"
+
+
+def test_capping_a_source_the_arm_does_not_train_on_is_an_error():
+    from vpdl.assemble import resolve_labels
+    from vpdl.experiment import apply_train_caps
+
+    table = _capped_fixture()
+    train = resolve_labels(table, ["clinvar"])
+    with pytest.raises(ValueError, match="does not train"):
+        apply_train_caps(table, train, ["clinvar"], [("pg_dms", 10)], seed=42)

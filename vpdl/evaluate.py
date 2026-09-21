@@ -42,18 +42,11 @@ def roc_auc(y_true: Sequence[int], scores: Sequence[float]) -> float:
     if n_pos == 0 or n_neg == 0:
         return float("nan")
 
-    order = np.argsort(s, kind="mergesort")
-    ranks = np.empty(len(s), dtype=float)
-    ranks[order] = np.arange(1, len(s) + 1, dtype=float)
-
-    # Average ranks within ties, or tied scores bias the statistic.
-    sorted_scores = s[order]
-    start = 0
-    for index in range(1, len(sorted_scores) + 1):
-        if index == len(sorted_scores) or sorted_scores[index] != sorted_scores[start]:
-            if index - start > 1:
-                ranks[order[start:index]] = ranks[order[start:index]].mean()
-            start = index
+    # Average ranks within ties, or tied scores bias the statistic. Vectorised:
+    # the paired bootstrap calls this ~10^6 times, and a Python tie loop made
+    # that minutes instead of seconds.
+    from scipy.stats import rankdata
+    ranks = rankdata(s, method="average")
 
     return float((ranks[y == 1].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
 

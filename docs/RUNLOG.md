@@ -5,6 +5,48 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-09-21 (DGX Spark) — first grid: pooling ClinVar with DMS HURTS
+
+Three arms on one table (`0884e5dfcf63…`), GBM, seeds 42/43/44, all scored on
+the same 450 held-out ClinVar variants. Mean ROC-AUC ± SD over seeds:
+
+| gene | ClinVar only | ClinVar + DMS | DMS only |
+|---|---|---|---|
+| MLH1 (174) | **0.951** ± 0.006 | 0.859 ± 0.026 | 0.907 ± 0.023 |
+| MSH2 (177) | 0.914 ± 0.031 | 0.914 ± 0.031 | skipped (all DMS is MSH2) |
+| MSH6 (78) | **0.977** ± 0.003 | 0.927 ± 0.016 | 0.925 ± 0.010 |
+| PMS2 (21, 4 benign) | 1.000 | 0.858 ± 0.052 | 0.672 ± 0.098 |
+
+**Design check passed:** MSH2 is identical in the first two arms. Holding MSH2
+out removes every DMS label, so they train on the same data — and they came out
+the same to three decimals. The arm mechanics are sound; every other difference
+is caused by the training data.
+
+**Finding, preliminary:** adding the MSH2 DMS assay to ClinVar training cost
+0.092 on MLH1 and 0.050 on MSH6, roughly 5-6 seed-SDs each. DMS alone beat the
+pooled arm on MLH1.
+
+**Not yet publishable — one confound is unresolved.** The pooled arm trains on
+16,749 MSH2 assay rows against ~276 clinical rows (60:1). Two explanations fit:
+
+1. *Label semantics* — "damaging in a cell assay" is not "pathogenic in a
+   clinic", and mixing them corrupts the clinical signal.
+2. *Volume* — 60:1 MSH2 rows turn a clinical model into an MSH2-assay model.
+
+Only (1) is a scientific finding. Next: dose-response with `--train-cap
+pg_dms=N` at N = 100/300/1000/3000. If small N already hurts, it is (1).
+
+**Caveat on `vpdl compare`:** its DMS-only mean (0.916) averages MLH1 and MSH6
+only, since MSH2 was skipped. Not comparable with the other arms' means;
+compare per gene, or use `vpdl paired`.
+
+Added for the follow-up: `vpdl paired` (paired bootstrap ΔAUC on identical
+variants, plus a zero-training AlphaMissense baseline) and `--train-cap`.
+`roc_auc` tie-ranking vectorised via scipy for the ~10^6 calls the paired
+bootstrap makes. Regression suite: 44 tests / 19 categories.
+
+---
+
 ## 2026-09-21 (DGX Spark `spark-5472`, GB10, aarch64) — first v2 build and first v2 result
 
 **Regression suite:** 41 passed, 1 failed (the torch-dependent MLP seeding

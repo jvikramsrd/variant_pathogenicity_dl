@@ -158,6 +158,46 @@ def cmd_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_caps(items: Sequence[str] | None) -> tuple[tuple[str, int], ...]:
+    """``["pg_dms=300"]`` -> ``(("pg_dms", 300),)``."""
+    caps = []
+    for item in items or ():
+        source, sep, value = item.partition("=")
+        if not sep or not source or not value.isdigit():
+            raise ValueError(f"--train-cap expects SOURCE=N, got {item!r}")
+        caps.append((source, int(value)))
+    return tuple(caps)
+
+
+def cmd_paired(args: argparse.Namespace) -> int:
+    import pandas as pd
+    from vpdl.analysis import feature_predictions, load_predictions, paired_table
+
+    predictions = load_predictions(args.runs)
+
+    extra = []
+    if args.feature_baseline:
+        if not args.data:
+            print("ERROR: --feature-baseline needs --data (the assembled table).",
+                  file=sys.stderr)
+            return 2
+        table = pd.read_csv(args.data, low_memory=False)
+        extra = [feature_predictions(table, feature) for feature in args.feature_baseline]
+
+    result = paired_table(predictions, (args.reference, args.reference_model),
+                          n_bootstrap=args.n_bootstrap, extra_arms=extra)
+
+    with pd.option_context("display.width", 200, "display.max_columns", 20):
+        print(f"Paired delta-AUC against {args.reference}:{args.reference_model} "
+              f"({args.n_bootstrap} paired resamples; negative = worse than reference)\n")
+        print(result.to_string(index=False))
+
+    out = Path(args.runs) / f"paired_vs_{args.reference}_{args.reference_model}.csv"
+    result.to_csv(out, index=False)
+    print(f"\nwritten: {out}", file=sys.stderr)
+    return 0
+
+
 def cmd_train(args: argparse.Namespace) -> int:
     import pandas as pd
     from vpdl.device import log_summary
@@ -175,10 +215,17 @@ def cmd_train(args: argparse.Namespace) -> int:
         from vpdl.sources.uniprot import load_sequences
         sequences = load_sequences(Path(args.cache_dir) / "uniprot")
 
+    try:
+        caps = _parse_caps(args.train_caps)
+    except ValueError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+
     for seed in args.seeds:
         config = CellConfig(
             sources=tuple(args.sources),
             train_sources=tuple(args.train_sources),
+            train_caps=caps,
             eval_source=args.eval_source,
             model=args.model, seed=seed,
             drop_groups=tuple(args.drop_groups or ()),
@@ -273,6 +320,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                             "independent variable (e.g. clinvar | clinvar pg_dms | pg_dms)")
     train.add_argument("--eval-source", default="clinvar", dest="eval_source",
                        help="labels every arm is SCORED against; hold this fixed")
+    train.add_argument("--train-cap", nargs="*", dest="train_caps", default=[],
+                       metavar="SOURCE=N",
+                       help="subsample rows labelled only by SOURCE to N, e.g. "
+                            "pg_dms=300 — separates a source's labels from its volume")
     train.add_argument("--model", default="gbm", choices=["gbm", "mlp", "bilstm"])
     train.add_argument("--seeds", nargs="+", type=int, default=[42, 43, 44])
     train.add_argument("--drop-groups", nargs="*", dest="drop_groups")
@@ -281,6 +332,19 @@ def main(argv: Sequence[str] | None = None) -> int:
                        help="where UniProt sequences are cached (bilstm needs them)")
     train.add_argument("--out", default="runs")
     train.set_defaults(func=cmd_train)
+
+    paired = sub.add_parser(
+        "paired", help="delta-AUC vs a reference arm, paired on identical variants")
+    paired.add_argument("--runs", default="runs")
+    paired.add_argument("--reference", default="train-clinvar")
+    paired.add_argument("--reference-model", default="gbm", dest="reference_model")
+    paired.add_argument("--data", help="assembled table; needed for --feature-baseline")
+    paired.add_argument("--feature-baseline", nargs="*", default=[],
+                        dest="feature_baseline",
+                        help="zero-training arms ranked by one raw feature, "
+                             "e.g. feature_alphamissense_score")
+    paired.add_argument("--n-bootstrap", type=int, default=10_000, dest="n_bootstrap")
+    paired.set_defaults(func=cmd_paired)
 
     compare = sub.add_parser("compare", help="pool cells, provenance-gated")
     compare.add_argument("--runs", default="runs")

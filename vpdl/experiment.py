@@ -38,7 +38,7 @@ from vpdl.splits import assert_no_group_straddle, group_keys, variant_keys
 logger = logging.getLogger(__name__)
 
 __all__ = ["CellConfig", "CellResult", "run_cell", "run_sweep",
-           "SEQUENCE_WINDOW_MODELS"]
+           "apply_train_caps", "SEQUENCE_WINDOW_MODELS"]
 
 # Models consuming residue windows rather than a feature matrix. They take a
 # different fit signature, so run_cell branches rather than pretending the
@@ -80,6 +80,9 @@ class CellConfig:
     sources: tuple[str, ...]
     train_sources: tuple[str, ...] = ("clinvar",)
     eval_source: str = "clinvar"
+    # ((source, max_labels), ...): subsample the rows labelled ONLY by that
+    # source. The dose-response control for pooling — see apply_train_caps.
+    train_caps: tuple[tuple[str, int], ...] = ()
     model: str = "gbm"
     seed: int = 42
     drop_groups: tuple[str, ...] = ()
@@ -97,7 +100,10 @@ class CellConfig:
         """
         ablation = ("__drop-" + "-".join(sorted(self.drop_groups))
                     if self.drop_groups else "")
-        return "train-" + ("+".join(sorted(self.train_sources)) or "none") + ablation
+        caps = "".join(f"__cap-{source}{limit}"
+                       for source, limit in sorted(self.train_caps))
+        return ("train-" + ("+".join(sorted(self.train_sources)) or "none")
+                + caps + ablation)
 
     @property
     def slug(self) -> str:
@@ -123,6 +129,7 @@ class CellResult:
             "arm": self.config.arm,
             "sources": list(self.config.sources),
             "train_sources": list(self.config.train_sources),
+            "train_caps": dict(self.config.train_caps),
             "eval_source": self.config.eval_source,
             "model": self.config.model,
             "seed": self.config.seed,
@@ -138,6 +145,51 @@ class CellResult:
             "runtime_s": round(self.runtime_s, 1),
             "provenance": self.provenance,
         }
+
+
+def apply_train_caps(
+    table: pd.DataFrame,
+    train_label: pd.Series,
+    train_sources: Sequence[str],
+    caps: Sequence[tuple[str, int]],
+    seed: int,
+) -> pd.Series:
+    """Subsample the rows whose training label comes ONLY from a capped source.
+
+    Pooling ClinVar with the full MSH2 DMS assay cost 0.09 AUROC on MLH1 in the
+    first v2 grid (2026-09-21). Two explanations predict that: the assay's
+    labels mean something different from clinical ones, or 16,749 MSH2 rows
+    simply swamp 276 clinical ones. Capping the assay at several sizes
+    separates them — if even a few hundred DMS labels hurt, it is the labels.
+
+    Rows another training source also labels keep their label, and evaluation
+    labels are never touched, so capped and uncapped arms still share one test
+    set and remain directly comparable.
+    """
+    capped = train_label.copy()
+    for source, limit in caps:
+        if source not in train_sources:
+            raise ValueError(
+                f"Cannot cap '{source}': this arm does not train on it "
+                f"({list(train_sources)})."
+            )
+        others = [f"label__{name}" for name in train_sources
+                  if name != source and f"label__{name}" in table.columns]
+        sole = table[f"label__{source}"].notna() & capped.notna()
+        if others:
+            sole &= table[others].isna().all(axis=1)
+
+        positions = np.flatnonzero(sole.to_numpy())
+        if len(positions) <= limit:
+            logger.info("Cap %s=%d: only %d sole-source labels, nothing removed.",
+                        source, limit, len(positions))
+            continue
+        rng = np.random.default_rng(derive_seed(seed, f"cap:{source}"))
+        drop = rng.choice(positions, size=len(positions) - limit, replace=False)
+        capped.iloc[drop] = np.nan
+        logger.info("Cap %s=%d: %d sole-source training labels -> %d.",
+                    source, limit, len(positions), limit)
+    return capped
 
 
 def _inner_split(
@@ -186,10 +238,11 @@ def run_cell(
             "even for arms that do not train on it — it defines the test set."
         )
 
-    work = table.assign(
-        _train=resolve_labels(table, config.train_sources),
-        _eval=table[eval_column],
-    )
+    train_label = resolve_labels(table, config.train_sources)
+    if config.train_caps:
+        train_label = apply_train_caps(table, train_label, config.train_sources,
+                                       config.train_caps, config.seed)
+    work = table.assign(_train=train_label, _eval=table[eval_column])
     work = work[work["_train"].notna() | work["_eval"].notna()].reset_index(drop=True)
 
     columns = resolve_ablation(
