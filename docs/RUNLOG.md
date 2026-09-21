@@ -5,6 +5,48 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-09-21 (DGX Spark) — ProteinGym: published per-assay results REPRODUCED
+
+`vpdl pg-reproduce` — One-Hot baseline on all 217 substitution assays, ProteinGym's
+own `fold_random_5` folds, one Spearman per assay over pooled out-of-fold
+predictions, compared with ProteinGym's published "One-Hot Encodings" column.
+5.4 s on CPU. Regression suite: 57 passed.
+
+| | |
+|---|---|
+| correlation with published, across 217 assays | **Pearson 0.970, Spearman 0.959** |
+| within 0.02 / within 0.05 of published | 71% / **86%** |
+| mean ours / mean published | 0.619 / 0.598 |
+| median difference | +0.009 |
+
+**Where we differ, we are higher** — largest gaps: ZIKV polyprotein +0.309, POLG_CXB3N
++0.278, HMDH +0.180, POLG_DEN26 +0.180, HIV env +0.172, MSH2 +0.099.
+
+Checked before believing it:
+- **Not leakage.** None of the six largest-gap assays contains a duplicated
+  mutant, so no variant can sit in both train and test.
+- **The pattern is protein length.** All six are 852–3,423 residues against a
+  median of 245 across the 217.
+- **Consistent with an optimisation budget, not a protocol mismatch.** Both are
+  the same linear model on the same features. ProteinGym's is trained by AdamW for
+  a fixed 10,000 steps, batch 64, learning rate peaking at 3e-4 and decaying to
+  1e-5 (ProteinNPT `scripts/train.py`); on a 3,423-residue protein a given position
+  appears in ~2% of batches, so its weight sees ~200 small updates. This solves
+  the ridge problem exactly. `pg-reproduce` now reports
+  `spearman_gap_vs_length`; a clearly positive value confirms it.
+
+**Verdict:** reproduction passes. The pipeline computes what ProteinGym computes,
+and its individual-assay baseline is at least as strong as the published one.
+
+**Next — the combined model.** One-hot features are protein-specific (they encode
+positions), so they cannot be pooled across proteins. The combined arm needs
+features that mean the same thing for every protein: ProteinGym's precomputed
+zero-shot scores (1.9 GB, no GPU) or ESM-1v embeddings computed on the DGX
+(696,311 variants, 51,854 of them on proteins longer than ESM's 1,022-residue
+window). Individual and combined arms must use the same features.
+
+---
+
 ## 2026-09-21 (DGX Spark, GB10 + PyTorch) — the effect replicates across GBM, MLP, BiLSTM
 
 Same table, same held-out ClinVar variants, seeds 42/43/44. `vpdl paired`,

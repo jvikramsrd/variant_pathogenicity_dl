@@ -91,6 +91,9 @@ def reproduce(
         reference = published.get(assay.dms_id, np.nan)
         rows.append({
             "DMS_id": assay.dms_id,
+            "length": (len(assay.frame["mutated_sequence"].iloc[0])
+                       if "mutated_sequence" in assay.frame and len(assay.frame)
+                       else np.nan),
             "n": len(assay.frame),
             "skipped": assay.skipped,
             "ours": round(ours, 4) if np.isfinite(ours) else np.nan,
@@ -104,6 +107,14 @@ def reproduce(
     table = pd.DataFrame(rows)
     both = table.dropna(subset=["ours", "published"])
     diff = both["diff"].abs()
+
+    def across_assays(a: pd.Series, b: pd.Series, method: str = "pearson"):
+        # A correlation across one or two assays is not a measurement; say so
+        # rather than printing numpy's divide-by-zero warnings.
+        if len(both) < 3:
+            return None
+        return round(float(a.corr(b, method=method)), 4)
+
     summary = {
         "model": model,
         "published_column": column,
@@ -113,9 +124,14 @@ def reproduce(
         "assays_compared": int(len(both)),
         "mean_ours": round(float(both["ours"].mean()), 4),
         "mean_published": round(float(both["published"].mean()), 4),
-        "pearson_ours_vs_published": round(float(both["ours"].corr(both["published"])), 4),
-        "spearman_ours_vs_published": round(
-            float(both["ours"].corr(both["published"], method="spearman")), 4),
+        "pearson_ours_vs_published": across_assays(both["ours"], both["published"]),
+        "spearman_ours_vs_published": across_assays(both["ours"], both["published"],
+                                                    "spearman"),
+        # Positive means our lead over the published number grows with protein
+        # length — the signature of ProteinGym's fixed SGD budget (10k steps,
+        # lr <= 3e-4) under-training long proteins, where this solves exactly.
+        "spearman_gap_vs_length": across_assays(both["diff"], both["length"],
+                                                "spearman"),
         "mean_abs_diff": round(float(diff.mean()), 4),
         "median_diff": round(float(both["diff"].median()), 4),
         "within_0.02": round(float((diff <= 0.02).mean()), 3),
