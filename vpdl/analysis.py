@@ -128,6 +128,38 @@ def paired_delta(
             float(np.percentile(deltas, 97.5)))
 
 
+def paired_mean_delta(
+    folds: Sequence[tuple[np.ndarray, np.ndarray, np.ndarray]],
+    n_bootstrap: int = 10_000,
+    seed: int = 0,
+) -> tuple[float, float, float]:
+    """Mean over genes of the per-gene paired ΔAUC, with a stratified CI.
+
+    Each resample draws variants WITHIN each gene, so every gene keeps its own
+    size and class balance, and the statistic stays "the average per-gene
+    effect" rather than letting the largest gene dominate. `folds` holds one
+    ``(y, a, b)`` per gene, in the shapes :func:`paired_delta` takes.
+    """
+    def one(y, a, b, pick):
+        return _mean_auc(y[pick], a[pick]) - _mean_auc(y[pick], b[pick])
+
+    folds = [(np.asarray(y), np.asarray(a, float).reshape(len(y), -1),
+              np.asarray(b, float).reshape(len(y), -1)) for y, a, b in folds]
+    point = float(np.mean([one(y, a, b, slice(None)) for y, a, b in folds]))
+
+    rng = np.random.default_rng(seed)
+    means = np.empty(n_bootstrap)
+    for index in range(n_bootstrap):
+        with np.errstate(all="ignore"):
+            means[index] = np.nanmean([
+                one(y, a, b, rng.integers(0, len(y), len(y))) for y, a, b in folds
+            ])
+    means = means[np.isfinite(means)]
+    if len(means) == 0:
+        return point, float("nan"), float("nan")
+    return point, float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5))
+
+
 def _score_matrix(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.pivot_table(index="variant_key", columns="seed",
                              values="score", aggfunc="first")
@@ -159,6 +191,7 @@ def paired_table(
     for (arm, model), group in predictions.groupby(["arm", "model"]):
         if (arm, model) == (ref_arm, ref_model):
             continue
+        informative: list[tuple[str, np.ndarray, np.ndarray, np.ndarray]] = []
         for gene, arm_rows in group.groupby("gene"):
             ref_rows = ref[ref["gene"] == gene]
             if ref_rows.empty:
@@ -185,13 +218,14 @@ def paired_table(
             y = labels.to_numpy(dtype=int)
             delta, low, high = paired_delta(y, a.to_numpy(), b.to_numpy(),
                                             n_bootstrap=n_bootstrap)
+            scoreable = len(y) >= SCOREABLE_MIN_N
             rows.append({
                 "gene": gene,
                 "arm": arm,
                 "model": model,
                 "n": len(y),
                 "n_benign": int((y == 0).sum()),
-                "scoreable": len(y) >= SCOREABLE_MIN_N,
+                "scoreable": scoreable,
                 "seeds": a.shape[1],
                 "auc": round(_mean_auc(y, a.to_numpy()), 4),
                 "auc_reference": round(_mean_auc(y, b.to_numpy()), 4),
@@ -200,7 +234,39 @@ def paired_table(
                 "ci_high": round(high, 4),
                 "ci_excludes_zero": bool(np.isfinite(low) and (low > 0 or high < 0)),
             })
+            # A gene where the arm and the reference agree on EVERY resample is
+            # a design constant, not a measurement — e.g. MSH2 for any DMS arm,
+            # since holding MSH2 out removes every DMS label. Averaging it in
+            # would pull the headline toward zero by construction.
+            structurally_identical = delta == 0 and low == 0 and high == 0
+            if scoreable and not structurally_identical:
+                informative.append((gene, y, a.to_numpy(), b.to_numpy()))
 
-    return (pd.DataFrame(rows)
-            .sort_values(["scoreable", "gene", "arm"], ascending=[False, True, True])
+        if len(informative) >= 2:
+            delta, low, high = paired_mean_delta(
+                [(y, a, b) for _, y, a, b in informative], n_bootstrap=n_bootstrap)
+            rows.append({
+                "gene": "mean:" + "+".join(g for g, *_ in informative),
+                "arm": arm,
+                "model": model,
+                "n": sum(len(y) for _, y, *_ in informative),
+                "n_benign": sum(int((y == 0).sum()) for _, y, *_ in informative),
+                "scoreable": True,
+                "seeds": max(a.shape[1] for *_, a, _ in informative),
+                "auc": round(float(np.mean([_mean_auc(y, a) for _, y, a, _ in informative])), 4),
+                "auc_reference": round(float(np.mean([_mean_auc(y, b) for _, y, _, b in informative])), 4),
+                "delta": round(delta, 4),
+                "ci_low": round(low, 4),
+                "ci_high": round(high, 4),
+                "ci_excludes_zero": bool(np.isfinite(low) and (low > 0 or high < 0)),
+            })
+
+    frame = pd.DataFrame(rows)
+    if frame.empty:
+        return frame
+    frame["_summary"] = frame["gene"].str.startswith("mean:")
+    return (frame
+            .sort_values(["_summary", "scoreable", "gene", "arm"],
+                         ascending=[False, False, True, True])
+            .drop(columns="_summary")
             .reset_index(drop=True))

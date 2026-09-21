@@ -174,6 +174,10 @@ def cmd_paired(args: argparse.Namespace) -> int:
     from vpdl.analysis import feature_predictions, load_predictions, paired_table
 
     predictions = load_predictions(args.runs)
+    if not args.cross_model:
+        # One model per table by default. Comparing an MLP arm against the GBM
+        # reference would mix a model effect into what should be a data effect.
+        predictions = predictions[predictions["model"] == args.reference_model]
 
     extra = []
     if args.feature_baseline:
@@ -344,6 +348,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                         help="zero-training arms ranked by one raw feature, "
                              "e.g. feature_alphamissense_score")
     paired.add_argument("--n-bootstrap", type=int, default=10_000, dest="n_bootstrap")
+    paired.add_argument("--cross-model", action="store_true", dest="cross_model",
+                        help="also compare arms of OTHER models against the "
+                             "reference (default: one model per table)")
     paired.set_defaults(func=cmd_paired)
 
     compare = sub.add_parser("compare", help="pool cells, provenance-gated")

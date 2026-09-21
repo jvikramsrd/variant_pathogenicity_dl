@@ -837,6 +837,51 @@ def test_paired_comparison_refuses_different_test_sets():
                      reference=("train-clinvar", "gbm"), n_bootstrap=20)
 
 
+def test_paired_mean_delta_of_identical_arms_is_zero():
+    from vpdl.analysis import paired_mean_delta
+
+    rng = np.random.default_rng(3)
+    folds = []
+    for _ in range(3):
+        y = rng.integers(0, 2, 60)
+        scores = rng.random((60, 2))
+        folds.append((y, scores, scores.copy()))
+    assert paired_mean_delta(folds, n_bootstrap=100) == (0.0, 0.0, 0.0)
+
+
+def test_headline_mean_excludes_structurally_identical_genes():
+    """MSH2 is identical for every DMS arm by design — not a measured zero.
+
+    Holding MSH2 out removes every DMS label, so any ClinVar+DMS arm trains on
+    exactly the ClinVar-only data for that fold. Averaging its exact 0.000 into
+    the headline would pull the effect toward zero by construction.
+    """
+    from vpdl.analysis import paired_table
+
+    rng = np.random.default_rng(5)
+    frames = []
+    for gene in ("MLH1", "MSH2", "MSH6"):
+        y = np.r_[np.zeros(20, int), np.ones(40, int)]
+        keys = [f"{gene}:{i}" for i in range(len(y))]
+        reference_scores = y + rng.normal(0, 0.5, len(y))
+        arm_scores = (reference_scores if gene == "MSH2"
+                      else y + rng.normal(0, 0.9, len(y)))
+        for seed in (42, 43):
+            frames.append(pd.DataFrame({"gene": gene, "variant_key": keys,
+                                        "label": y, "score": reference_scores,
+                                        "seed": seed, "model": "gbm",
+                                        "arm": "ref"}))
+            frames.append(pd.DataFrame({"gene": gene, "variant_key": keys,
+                                        "label": y, "score": arm_scores,
+                                        "seed": seed, "model": "gbm",
+                                        "arm": "pooled"}))
+
+    table = paired_table(pd.concat(frames), reference=("ref", "gbm"),
+                         n_bootstrap=100)
+    summary = table[table["gene"].str.startswith("mean:")]
+    assert list(summary["gene"]) == ["mean:MLH1+MSH6"]
+
+
 def test_cell_names_round_trip_even_with_caps_and_ablations():
     from vpdl.analysis import parse_cell
     from vpdl.experiment import CellConfig

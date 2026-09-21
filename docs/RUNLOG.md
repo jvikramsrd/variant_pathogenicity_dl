@@ -5,6 +5,46 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-09-21 (DGX Spark) — dose-response: the harm scales with volume
+
+`--train-cap pg_dms=N`, N = 100 / 300 / 1000 / 3000, GBM, seeds 42/43/44, same
+table. `vpdl paired` against ClinVar-only, 10,000 paired resamples:
+
+| DMS labels added | MLH1 ΔAUC [95% CI] | MSH6 ΔAUC [95% CI] |
+|---|---|---|
+| 100 | +0.001 [−0.041, +0.055] | −0.001 [−0.012, +0.014] |
+| 300 | −0.017 [−0.074, +0.049] | +0.002 [−0.017, +0.025] |
+| 1,000 | −0.041 [−0.104, +0.029] | −0.006 [−0.028, +0.019] |
+| 3,000 | −0.041 [−0.103, +0.031] | −0.007 [−0.029, +0.016] |
+| **16,749 (all)** | **−0.092 [−0.163, −0.015]** | −0.049 [−0.107, +0.000] |
+| DMS only | −0.044 [−0.106, +0.023] | **−0.051 [−0.108, −0.002]** |
+| *AlphaMissense alone* | *−0.044 [−0.121, +0.032]* | *−0.008 [−0.043, +0.024]* |
+
+MSH2: exactly 0.000 [0, 0] for every DMS arm — the design constant, again.
+
+**Reading.** Small additions are harmless; harm grows with the DMS:clinical
+ratio and is significant at full volume on MLH1. At full volume the pooled
+model scores **below AlphaMissense with no training at all** (0.859 vs 0.907).
+
+**Correction to the entry below.** It said the dose-response would decide
+between label semantics and volume. It cannot: both predict harm that grows
+with volume, and "no harm at N = 100" does not rule out a per-label effect too
+small to see at that size. The experiment settles the *practical* question —
+naive pooling at natural volumes hurts, balanced pooling does not — and leaves
+the mechanism open. Leading candidate: DMS covers every possible substitution,
+almost none observed in gnomAD, so gnomAD features carry no signal there; in
+ClinVar they are what separates benign from pathogenic. Swamping training with
+DMS may teach the model to ignore them. Testable via feature importance.
+
+**Power, stated plainly.** ClinVar-only beats AlphaMissense alone by +0.044 /
++0.036 / +0.008 (MLH1/MSH2/MSH6) and no CI excludes zero. With 31-57 benign
+variants per gene, this panel cannot show a trained model beats AlphaMissense
+gene by gene. `vpdl paired` now adds a stratified mean ΔAUC across informative
+scoreable genes (structurally identical folds excluded) for a headline number
+with a tighter interval.
+
+---
+
 ## 2026-09-21 (DGX Spark) — first grid: pooling ClinVar with DMS HURTS
 
 Three arms on one table (`0884e5dfcf63…`), GBM, seeds 42/43/44, all scored on
