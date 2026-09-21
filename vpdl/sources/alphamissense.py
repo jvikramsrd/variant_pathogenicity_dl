@@ -62,16 +62,22 @@ def load(
     gene_by_accession = dict(gene_by_accession or {})
     rows: list[dict] = []
 
+    # Every data line begins with its UniProt accession, so a prefix test rejects
+    # the ~200M off-panel lines before any splitting or dict construction.
+    prefixes = tuple(f"{accession}\t" for accession in wanted)
+
     opener = gzip.open if str(path).endswith(".gz") else open
     with opener(path, "rt", encoding="utf-8", errors="replace") as handle:
         header: list[str] | None = None
         for line in handle:
             if line.startswith("#"):
                 continue
-            fields = line.rstrip("\n").split("\t")
             if header is None:
-                header = fields
+                header = line.rstrip("\n").split("\t")
                 continue
+            if not line.startswith(prefixes):
+                continue
+            fields = line.rstrip("\n").split("\t")
             record = dict(zip(header, fields))
             accession = record.get("uniprot_id")
             if accession not in wanted:

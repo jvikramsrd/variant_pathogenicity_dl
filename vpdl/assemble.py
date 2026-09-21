@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "LABEL_PRECEDENCE",
     "VARIANT_KEY",
+    "label_sources_in",
+    "resolve_labels",
     "label_anchor_agreement",
     "assert_genes_present",
     "assert_label_orientation",
@@ -125,32 +127,104 @@ class AssemblyReport:
         }
 
 
-def _resolve_labels(frame: pd.DataFrame) -> tuple[pd.DataFrame, int]:
-    """Collapse duplicate variant rows by label precedence, quarantining conflicts."""
+_LABEL_FIELDS = ("label", "label_source", "evidence_tier")
+
+
+def _merge_sources(frame: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """One row per variant: labels by precedence, every other column coalesced.
+
+    The two halves are resolved differently on purpose.
+
+    * **Labels** come from exactly one source — the highest-precedence one that
+      labels the variant — and variants whose sources contradict each other are
+      quarantined (label withheld, row kept).
+    * **Everything else** is coalesced: each column takes its first non-null
+      value across ALL sources for that variant.
+
+    The first version of this function applied precedence to whole rows with
+    ``drop_duplicates(keep="first")``. For every variant ClinVar labelled, the
+    ClinVar row won and the AlphaMissense and gnomAD rows — which carry the
+    features — were discarded, so every labelled variant reached training with
+    all-NaN features. Found by review on 2026-09-21 before any run; regression
+    landmine L16.
+    """
+    key = list(VARIANT_KEY)
     frame = frame.copy()
     frame["_precedence"] = (
         frame["label_source"].map(LABEL_PRECEDENCE).fillna(99).astype(int)
     )
-    frame = frame.sort_values(["_precedence"], kind="mergesort")
+    frame = frame.sort_values("_precedence", kind="mergesort")
 
     labelled = frame[frame["label"].notna()]
-    conflicts = (
-        labelled.groupby(list(VARIANT_KEY))["label"].nunique(dropna=True) > 1
-    )
-    conflicted_keys = set(conflicts[conflicts].index)
+    distinct = labelled.groupby(key)["label"].nunique()
+    conflicted = distinct[distinct > 1].index
 
-    if conflicted_keys:
+    winners = (
+        labelled.drop_duplicates(subset=key, keep="first")
+        .set_index(key)[list(_LABEL_FIELDS)]
+    )
+    if len(conflicted):
         logger.warning(
             "%d variants carry contradictory labels across sources; their labels "
-            "are withheld and the rows kept unlabelled.", len(conflicted_keys)
+            "are withheld and the rows kept unlabelled.", len(conflicted)
         )
-        key_tuples = list(zip(*[frame[column] for column in VARIANT_KEY]))
-        is_conflicted = np.array([key in conflicted_keys for key in key_tuples])
-        frame.loc[is_conflicted, "label"] = np.nan
-        frame.loc[is_conflicted, "label_source"] = "conflict_quarantined"
+        # Index-aligned rather than matching tuples by value, which was
+        # dtype-fragile across a groupby MultiIndex (np.int64 vs int).
+        winners.loc[conflicted, "label"] = np.nan
+        winners.loc[conflicted, "label_source"] = "conflict_quarantined"
 
-    resolved = frame.drop_duplicates(subset=list(VARIANT_KEY), keep="first")
-    return resolved.drop(columns="_precedence"), len(conflicted_keys)
+    other = [c for c in frame.columns
+             if c not in key and c not in _LABEL_FIELDS and c != "_precedence"]
+    coalesced = frame.groupby(key, sort=False)[other].first()
+
+    table = coalesced.join(winners, how="left")
+    table["label_source"] = table["label_source"].fillna("unlabelled")
+
+    # Each labelling source's own label, kept alongside the resolved one. This is
+    # what lets one pooled table serve every arm of the experiment: an arm picks
+    # which sources it TRAINS on (resolve_labels), and every arm is scored on the
+    # same held-out clinical labels (label__clinvar). Without these columns the
+    # arms would need separate tables, and separate tables mean separate test sets.
+    for name in labelled["label_source"].dropna().unique():
+        own = (
+            labelled[labelled["label_source"] == name]
+            .drop_duplicates(subset=key, keep="first")
+            .set_index(key)["label"]
+            .rename(f"label__{name}")
+        )
+        table = table.join(own, how="left")
+
+    return table.reset_index(), int(len(conflicted))
+
+
+def label_sources_in(table: pd.DataFrame) -> list[str]:
+    """Labelling sources present in an assembled table, in precedence order."""
+    found = [c[len("label__"):] for c in table.columns if c.startswith("label__")]
+    return sorted(found, key=lambda name: LABEL_PRECEDENCE.get(name, 99))
+
+
+def resolve_labels(table: pd.DataFrame, sources: Sequence[str]) -> pd.Series:
+    """Training labels from a chosen subset of label sources.
+
+    Same rules as assembly — precedence decides, contradictions are withheld —
+    but applied only across `sources`. A variant ClinVar calls pathogenic and a
+    DMS assay calls benign is a conflict when training on both, and simply a
+    ClinVar label when training on ClinVar alone.
+    """
+    missing = [s for s in sources if f"label__{s}" not in table.columns]
+    if missing:
+        raise ValueError(
+            f"No labels from {missing} in this table; it carries labels from "
+            f"{label_sources_in(table)}. Rebuild with those sources included."
+        )
+    ordered = sorted(sources, key=lambda name: LABEL_PRECEDENCE.get(name, 99))
+    stacked = table[[f"label__{name}" for name in ordered]]
+    resolved = stacked.bfill(axis=1).iloc[:, 0]
+    conflicted = stacked.nunique(axis=1) > 1
+    if conflicted.any():
+        logger.info("Training on %s: %d contradictory variants withheld.",
+                    "+".join(ordered), int(conflicted.sum()))
+    return resolved.mask(conflicted)
 
 
 def assemble(
@@ -183,28 +257,42 @@ def assemble(
         report.dropped_per_source[name] = dropped
 
     combined = pd.concat(validated.values(), ignore_index=True, sort=False)
+    table, conflicts = _merge_sources(combined)
+    report.conflicts_quarantined = conflicts
 
-    # Orientation check before precedence collapses anything: each labelling
-    # source is tested against an independent prior on its own rows.
-    if anchor_column and anchor_column in combined.columns:
-        anchor = pd.to_numeric(combined[anchor_column], errors="coerce")
+    # Absence from gnomAD is evidence (PM2), not missingness. Applied here, not
+    # left to the caller, because forgetting it is silent: median imputation
+    # would quietly turn every unobserved variant into a typical observed one.
+    if "gnomad" in frames:
+        from vpdl.sources.gnomad import fill_unobserved
+        table = fill_unobserved(table)
+
+    # Orientation is checked AFTER the merge, deliberately. Before it, a
+    # ClinVar label and the AlphaMissense anchor for the same variant sit on
+    # different rows, so the check found zero overlapping rows and silently
+    # never ran — the one guard that caught v1's 185,000-label inversion.
+    if anchor_column and anchor_column in table.columns:
+        anchor = pd.to_numeric(table[anchor_column], errors="coerce")
         for name in validated:
-            rows = combined["label_source"].eq(name) & combined["label"].notna()
-            if rows.sum() >= 30 and anchor[rows].notna().sum() >= 30:
+            rows = table["label_source"].eq(name) & table["label"].notna()
+            overlap = int((rows & anchor.notna()).sum())
+            if overlap >= 30:
                 report.orientation_checks[name] = assert_label_orientation(
-                    combined.loc[rows, "label"].to_numpy(),
-                    anchor[rows].to_numpy(),
+                    table.loc[rows & anchor.notna(), "label"].to_numpy(),
+                    anchor[rows & anchor.notna()].to_numpy(),
                     source=name,
+                )
+            elif rows.any():
+                logger.warning(
+                    "Source '%s': only %d labelled rows overlap the anchor; "
+                    "orientation UNVERIFIED (needs >= 30).", name, overlap,
                 )
     else:
         logger.warning(
             "No anchor column (%s) available — label orientation is UNVERIFIED "
             "for this assembly. This is the check that caught the ProteinGym "
-            "inversion; prefer including a prior source.", anchor_column
+            "inversion; include alphamissense in every build.", anchor_column
         )
-
-    table, conflicts = _resolve_labels(combined)
-    report.conflicts_quarantined = conflicts
 
     if expected_genes:
         assert_genes_present(table, expected_genes)

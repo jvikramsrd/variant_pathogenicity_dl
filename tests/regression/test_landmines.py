@@ -512,9 +512,202 @@ def test_acmg_pm2_fires_when_allele_frequency_is_absent():
 
     assert flags["feature_acmg_pm2"][0] == 1.0, "absent from gnomAD => PM2"
     assert flags["feature_acmg_pm2"][1] == 1.0, "vanishingly rare => PM2"
-    assert flags["feature_acmg_bs1"][2] == 1.0, "above 1% => BS1"
+    assert flags["feature_acmg_bs1"][2] == 1.0, "above 0.1% => BS1"
     assert flags["feature_acmg_ba1"][3] == 1.0, "above 5% => BA1"
     assert flags["feature_acmg_ba1"][2] == 0.0, "2% is BS1 but not BA1"
+
+
+def test_variants_absent_from_gnomad_are_pm2_after_assembly():
+    """The flag function handled absence; the ASSEMBLED table did not.
+
+    gnomAD returns only observed variants, so after the merge ~90% of
+    substitutions had NaN in every gnomAD column and median imputation made them
+    look like typical observed variants. The previous test covered
+    acmg_frequency_flags in isolation and passed while this was broken — the
+    same shape of gap as L7's seed test.
+    """
+    from vpdl.assemble import assemble
+    from vpdl.sources.gnomad import UNOBSERVED_LOG10_AF, acmg_frequency_flags
+
+    common = {"uniprot_id": "P40692", "gene": "MLH1"}
+    observed = {**common, "position": 2, "wt_aa": "A", "mut_aa": "V"}
+    absent = {**common, "position": 3, "wt_aa": "V", "mut_aa": "A"}
+
+    clinvar = pd.DataFrame([
+        {**observed, "label": 1.0, "label_source": "clinvar", "evidence_tier": "2"},
+        {**absent, "label": 0.0, "label_source": "clinvar", "evidence_tier": "2"},
+    ])
+    flags = {k: float(v) for k, v in acmg_frequency_flags(0.02).items()}
+    gnomad = pd.DataFrame([{**observed, "label": np.nan, "label_source": "gnomad",
+                            "evidence_tier": "population",
+                            "feature_gnomad_log10_af": np.log10(0.02), **flags}])
+
+    table, _ = assemble({"clinvar": clinvar, "gnomad": gnomad},
+                        sequences={"P40692": "MAVQ"}, anchor_column=None)
+    by_position = table.set_index("position")
+
+    assert by_position.loc[3, "feature_acmg_pm2"] == 1.0, "absent => PM2"
+    assert by_position.loc[3, "feature_acmg_bs1"] == 0.0
+    assert by_position.loc[3, "feature_gnomad_observed"] == 0.0
+    assert by_position.loc[3, "feature_gnomad_log10_af"] == UNOBSERVED_LOG10_AF
+    assert by_position.loc[2, "feature_acmg_pm2"] == 0.0, "2% is observed, not PM2"
+    assert by_position.loc[2, "feature_gnomad_observed"] == 1.0
+
+
+def test_acmg_thresholds_are_the_lynch_appropriate_ones():
+    """BS1 at 1% and PM2 at 1e-4 are generic, and 10x too permissive here.
+
+    v1 chose BS1 = 1e-3 and PM2 = 1e-5 for an autosomal-dominant early-onset
+    cancer syndrome. A draft of the v2 gnomAD source silently shipped the
+    generic values instead; a variant at AF 5e-3 would then fail to earn BS1.
+    """
+    from vpdl.sources.gnomad import ACMG_THRESHOLDS, acmg_frequency_flags
+
+    assert ACMG_THRESHOLDS["bs1"] <= 1e-3
+    assert ACMG_THRESHOLDS["pm2"] <= 1e-5
+    flags = acmg_frequency_flags(np.array([5e-3, 5e-5]))
+    assert flags["feature_acmg_bs1"][0] == 1.0, "0.5% must earn BS1 for Lynch"
+    assert flags["feature_acmg_pm2"][1] == 0.0, "5e-5 is not rare enough for PM2"
+
+
+# ---------------------------------------------------------------------------
+# L16. Assembly must keep features from feature-only sources
+# ---------------------------------------------------------------------------
+# Found by review 2026-09-21, before any real run. assemble() stacked each
+# source's rows and then applied label precedence to WHOLE rows with
+# drop_duplicates(keep="first"). For every variant ClinVar labelled, the ClinVar
+# row won and the AlphaMissense and gnomAD rows — the ones carrying features —
+# were discarded. Every labelled variant reached training with all-NaN
+# features, and the orientation check silently never ran because the label and
+# the anchor were never on the same row.
+
+def test_assembly_keeps_features_from_feature_only_sources():
+    from vpdl.assemble import assemble
+
+    variant = {"uniprot_id": "P40692", "position": 2, "wt_aa": "A",
+               "mut_aa": "V", "gene": "MLH1"}
+    clinvar = pd.DataFrame([{**variant, "label": 1.0, "label_source": "clinvar",
+                             "evidence_tier": "2 star"}])
+    alphamissense = pd.DataFrame([{**variant, "label": np.nan,
+                                   "label_source": "alphamissense",
+                                   "evidence_tier": "prior",
+                                   "feature_alphamissense_score": 0.97}])
+    gnomad = pd.DataFrame([{**variant, "label": np.nan, "label_source": "gnomad",
+                            "evidence_tier": "population",
+                            "feature_gnomad_log10_af": -5.2}])
+
+    table, _ = assemble(
+        {"clinvar": clinvar, "alphamissense": alphamissense, "gnomad": gnomad},
+        sequences={"P40692": "MAVQ"}, anchor_column=None,
+    )
+
+    assert len(table) == 1, "one variant in, one row out"
+    row = table.iloc[0]
+    assert row["label"] == 1.0 and row["label_source"] == "clinvar"
+    assert row["feature_alphamissense_score"] == 0.97, (
+        "AlphaMissense feature lost — precedence was applied to the whole row."
+    )
+    assert row["feature_gnomad_log10_af"] == -5.2, "gnomAD feature lost"
+
+
+def test_contradictory_labels_are_quarantined_not_resolved():
+    """Two sources disagreeing is evidence of a problem, not a tie to break."""
+    from vpdl.assemble import assemble
+
+    variant = {"uniprot_id": "P40692", "position": 2, "wt_aa": "A",
+               "mut_aa": "V", "gene": "MLH1"}
+    clinvar = pd.DataFrame([{**variant, "label": 1.0, "label_source": "clinvar",
+                             "evidence_tier": "2 star"}])
+    dms = pd.DataFrame([{**variant, "label": 0.0, "label_source": "pg_dms",
+                         "evidence_tier": "assay"}])
+
+    table, report = assemble({"clinvar": clinvar, "pg_dms": dms},
+                             sequences={"P40692": "MAVQ"}, anchor_column=None)
+
+    assert np.isnan(table.iloc[0]["label"])
+    assert table.iloc[0]["label_source"] == "conflict_quarantined"
+    assert report.conflicts_quarantined == 1
+
+
+def test_orientation_check_runs_once_sources_are_merged():
+    """The anchor must reach the labelled rows, or the check is decorative."""
+    from vpdl.assemble import assemble
+
+    rng = np.random.default_rng(3)
+    n = 60
+    labels = rng.integers(0, 2, n).astype(float)
+    base = pd.DataFrame({
+        "uniprot_id": "P40692",
+        "position": np.arange(1, n + 1),
+        "wt_aa": "A", "mut_aa": "V", "gene": "MLH1",
+    })
+    clinvar = base.assign(label=1.0 - labels, label_source="clinvar",
+                          evidence_tier="2 star")                 # INVERTED
+    anchor = base.assign(label=np.nan, label_source="alphamissense",
+                         evidence_tier="prior",
+                         feature_alphamissense_score=np.where(labels == 1, 0.9, 0.1))
+
+    with pytest.raises(ValueError, match="INVERTED|inverted|below chance"):
+        assemble({"clinvar": clinvar, "alphamissense": anchor},
+                 sequences={"P40692": "A" * n})
+
+
+# ---------------------------------------------------------------------------
+# L17. Arms differ in what they train on, never in what they are scored on
+# ---------------------------------------------------------------------------
+# Found by review 2026-09-21. The first design built one table per arm and
+# scored each on its own labels, so the pooled arm's MSH2 fold was judged
+# against thousands of DMS labels while the ClinVar arm's was judged against
+# ~335 clinical ones. That compares two test sets, not two training regimes.
+# The fix: one table, per-source labels kept (label__<source>), each arm picks
+# its TRAINING sources, and every arm is scored on the same ClinVar variants.
+
+def test_training_labels_depend_only_on_the_chosen_sources():
+    from vpdl.assemble import resolve_labels
+
+    table = pd.DataFrame({
+        "label__clinvar": [1.0, np.nan, 1.0],
+        "label__pg_dms": [0.0, 0.0, 1.0],
+    })
+
+    clinvar_only = resolve_labels(table, ["clinvar"])
+    assert clinvar_only[0] == 1.0
+    assert np.isnan(clinvar_only[1]), "a DMS-only variant is unlabelled for this arm"
+
+    pooled = resolve_labels(table, ["clinvar", "pg_dms"])
+    assert np.isnan(pooled[0]), "contradiction within the chosen sources is withheld"
+    assert pooled[1] == 0.0
+    assert pooled[2] == 1.0
+
+    dms_only = resolve_labels(table, ["pg_dms"])
+    assert dms_only[0] == 0.0, "no conflict when ClinVar is not being trained on"
+
+
+def test_training_on_an_absent_source_is_an_error_not_an_empty_arm():
+    from vpdl.assemble import resolve_labels
+
+    table = pd.DataFrame({"label__clinvar": [1.0, 0.0]})
+    with pytest.raises(ValueError, match="mavedb"):
+        resolve_labels(table, ["mavedb"])
+
+
+def test_assembly_keeps_each_sources_own_label():
+    from vpdl.assemble import assemble
+
+    variant = {"uniprot_id": "P40692", "position": 2, "wt_aa": "A",
+               "mut_aa": "V", "gene": "MLH1"}
+    clinvar = pd.DataFrame([{**variant, "label": 1.0, "label_source": "clinvar",
+                             "evidence_tier": "2 star"}])
+    dms = pd.DataFrame([{**variant, "label": 0.0, "label_source": "pg_dms",
+                         "evidence_tier": "assay"}])
+
+    table, _ = assemble({"clinvar": clinvar, "pg_dms": dms},
+                        sequences={"P40692": "MAVQ"}, anchor_column=None)
+
+    # The resolved label is quarantined, but the per-source labels survive —
+    # so an arm training on ClinVar alone still sees this variant as pathogenic.
+    assert table.iloc[0]["label__clinvar"] == 1.0
+    assert table.iloc[0]["label__pg_dms"] == 0.0
 
 
 # ---------------------------------------------------------------------------

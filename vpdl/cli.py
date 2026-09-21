@@ -30,6 +30,14 @@ SOURCE_MODULES = {
 # Sources fetched from an API rather than read from a local file.
 API_SOURCES = {"gnomad"}
 
+# The filenames each release is published under, so `--input-dir data/raw` is
+# enough on its own. Override per source with --files '{"clinvar": "..."}'.
+DEFAULT_FILES = {
+    "clinvar": "variant_summary.txt.gz",
+    "alphamissense": "AlphaMissense_aa_substitutions.tsv.gz",
+    "pg_dms": "DMS_ProteinGym_substitutions.zip",
+}
+
 
 def _configure_logging(verbose: bool) -> None:
     logging.basicConfig(
@@ -93,14 +101,15 @@ def cmd_build(args: argparse.Namespace) -> int:
             )
             continue
 
-        filename = (args.files or {}).get(name)
+        filename = (args.files or {}).get(name) or DEFAULT_FILES.get(name)
         path = Path(args.input_dir) / filename if filename else None
         if path is None or not path.exists():
-            logger.warning(
-                "No input file for %s (pass --files '{\"%s\": \"<filename>\"}') "
-                "— skipping.", name, name,
-            )
-            continue
+            # A requested source that cannot be read is a failed build. Skipping
+            # it would silently produce a table missing a whole source — which
+            # is the pooled-vs-individual experiment's independent variable.
+            print(f"ERROR: --sources includes '{name}' but {path} does not exist.",
+                  file=sys.stderr)
+            return 2
 
         uniprot_by_gene = {g: a for g, (a, _) in MMR_ACCESSIONS.items()}
 
@@ -138,21 +147,32 @@ def cmd_build(args: argparse.Namespace) -> int:
 
 def cmd_train(args: argparse.Namespace) -> int:
     import pandas as pd
-    from vpdl.experiment import CellConfig, run_cell
+    from vpdl.device import log_summary
+    from vpdl.experiment import SEQUENCE_WINDOW_MODELS, CellConfig, run_cell
 
+    log_summary()
     table = pd.read_csv(args.data, low_memory=False)
     feature_columns = [c for c in table.columns if c.startswith("feature_")]
     if not feature_columns:
         print("No feature_* columns in the table.", file=sys.stderr)
         return 2
 
+    sequences = None
+    if args.model in SEQUENCE_WINDOW_MODELS:
+        from vpdl.sources.uniprot import load_sequences
+        sequences = load_sequences(Path(args.cache_dir) / "uniprot")
+
     for seed in args.seeds:
         config = CellConfig(
-            sources=tuple(args.sources), model=args.model, seed=seed,
+            sources=tuple(args.sources),
+            train_sources=tuple(args.train_sources),
+            eval_source=args.eval_source,
+            model=args.model, seed=seed,
             drop_groups=tuple(args.drop_groups or ()),
             n_bootstrap=args.n_bootstrap,
         )
-        result = run_cell(table, config, feature_columns, args.data, args.out)
+        result = run_cell(table, config, feature_columns, args.data, args.out,
+                          sequences=sequences)
         print(json.dumps(result.summary(), indent=2, default=str))
     return 0
 
@@ -167,25 +187,42 @@ def cmd_compare(args: argparse.Namespace) -> int:
         return 2
 
     records = [json.loads(path.read_text()) for path in summaries]
-    provenances = [record.get("provenance", {}) for record in records]
 
-    try:
-        assert_comparable(provenances)
-    except ValueError as error:
+    def refuse(error: Exception) -> int | None:
         print(f"REFUSED: {error}", file=sys.stderr)
         if not args.force:
             return 3
         print("Continuing anyway (--force).", file=sys.stderr)
+        return None
+
+    # Across arms: same table, same held-out test set. Within an arm: the seeds
+    # must additionally share a feature schema — they are replicates.
+    try:
+        assert_comparable([r.get("provenance", {}) for r in records])
+    except ValueError as error:
+        if (code := refuse(error)) is not None:
+            return code
 
     frame = pd.DataFrame([{
-        "cell": r["cell"],
-        "sources": "+".join(r["sources"]),
+        "arm": r.get("arm", "+".join(r["sources"])),
         "model": r["model"],
         "seed": r["seed"],
+        "provenance": r.get("provenance", {}),
         "mean_roc_auc_scoreable": r["mean_roc_auc_scoreable"],
     } for r in records])
 
-    pooled = frame.groupby(["sources", "model"])["mean_roc_auc_scoreable"].agg(
+    for (arm, model), group in frame.groupby(["arm", "model"]):
+        try:
+            assert_comparable(list(group["provenance"]), as_replicates=True)
+        except ValueError as error:
+            print(f"arm {arm}/{model}: seeds are not replicates.", file=sys.stderr)
+            if (code := refuse(error)) is not None:
+                return code
+        if len(group) < 3:
+            print(f"WARNING: {arm}/{model} has {len(group)} seed(s); three is the "
+                  "floor for reading a difference.", file=sys.stderr)
+
+    pooled = frame.groupby(["arm", "model"])["mean_roc_auc_scoreable"].agg(
         ["mean", "std", "count"]
     ).reset_index()
     print(pooled.to_string(index=False))
@@ -216,11 +253,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     train = sub.add_parser("train", help="leave-one-gene-out over a built table")
     train.add_argument("--data", required=True)
     train.add_argument("--sources", nargs="+", required=True,
-                       help="recorded in provenance; must describe --data")
+                       help="what --data was BUILT from; recorded in provenance")
+    train.add_argument("--train-sources", nargs="+", default=["clinvar"],
+                       dest="train_sources",
+                       help="label sources this arm TRAINS on — the experiment's "
+                            "independent variable (e.g. clinvar | clinvar pg_dms | pg_dms)")
+    train.add_argument("--eval-source", default="clinvar", dest="eval_source",
+                       help="labels every arm is SCORED against; hold this fixed")
     train.add_argument("--model", default="gbm", choices=["gbm", "mlp", "bilstm"])
     train.add_argument("--seeds", nargs="+", type=int, default=[42, 43, 44])
     train.add_argument("--drop-groups", nargs="*", dest="drop_groups")
     train.add_argument("--n-bootstrap", type=int, default=10_000)
+    train.add_argument("--cache-dir", default="data/cache",
+                       help="where UniProt sequences are cached (bilstm needs them)")
     train.add_argument("--out", default="runs")
     train.set_defaults(func=cmd_train)
 

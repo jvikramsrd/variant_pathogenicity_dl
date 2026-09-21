@@ -23,6 +23,7 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
+from vpdl.assemble import resolve_labels
 from vpdl.evaluate import best_threshold_by_mcc, evaluation_report
 from vpdl.features import (
     build_feature_matrix,
@@ -32,7 +33,7 @@ from vpdl.features import (
 )
 from vpdl.models import build_model, derive_seed
 from vpdl.provenance import provenance_record, schema_hash
-from vpdl.splits import assert_no_group_straddle, group_keys, lopo_splits, variant_keys
+from vpdl.splits import assert_no_group_straddle, group_keys, variant_keys
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,23 @@ def _windows_for(
 
 @dataclass
 class CellConfig:
+    """One cell of the matrix.
+
+    Three different "sources" questions, kept apart deliberately:
+
+    * `sources` — what the table was BUILT from. Provenance only.
+    * `train_sources` — which label sources this arm TRAINS on. **This is the
+      experiment's independent variable.**
+    * `eval_source` — what every arm is SCORED against. Held fixed, so all arms
+      are compared on the identical held-out variants with identical ground
+      truth. Scoring the pooled arm on DMS labels and the ClinVar arm on
+      clinical labels would compare two different test sets, not two
+      training regimes.
+    """
+
     sources: tuple[str, ...]
+    train_sources: tuple[str, ...] = ("clinvar",)
+    eval_source: str = "clinvar"
     model: str = "gbm"
     seed: int = 42
     drop_groups: tuple[str, ...] = ()
@@ -72,11 +89,19 @@ class CellConfig:
     model_kwargs: dict[str, Any] = field(default_factory=dict)
 
     @property
-    def slug(self) -> str:
-        sources = "+".join(sorted(self.sources)) or "none"
+    def arm(self) -> str:
+        """Everything that defines an arm; seeds of one arm share this string.
+
+        Includes the ablation: a run with gnomAD and a run without it are
+        different arms, never replicates of each other.
+        """
         ablation = ("__drop-" + "-".join(sorted(self.drop_groups))
                     if self.drop_groups else "")
-        return f"{sources}__{self.model}{ablation}__seed{self.seed}"
+        return "train-" + ("+".join(sorted(self.train_sources)) or "none") + ablation
+
+    @property
+    def slug(self) -> str:
+        return f"{self.arm}__{self.model}__seed{self.seed}"
 
 
 @dataclass
@@ -87,16 +112,23 @@ class CellResult:
     val_predictions: pd.DataFrame
     provenance: dict[str, Any]
     runtime_s: float
+    skipped: dict[str, str] = field(default_factory=dict)
 
     def summary(self) -> dict[str, Any]:
+        # A held-out fold under 50 variants (PMS2, at n=21) is reported but kept
+        # out of the headline mean, matching v1's "scoreable genes" convention.
         scoreable = [row for row in self.per_gene if row.get("n", 0) >= 50]
         return {
             "cell": self.config.slug,
+            "arm": self.config.arm,
             "sources": list(self.config.sources),
+            "train_sources": list(self.config.train_sources),
+            "eval_source": self.config.eval_source,
             "model": self.config.model,
             "seed": self.config.seed,
             "drop_groups": list(self.config.drop_groups),
             "genes_evaluated": [row["gene"] for row in self.per_gene],
+            "genes_skipped": self.skipped,
             "mean_roc_auc_all": float(np.nanmean(
                 [row["roc_auc"] for row in self.per_gene]
             )) if self.per_gene else float("nan"),
@@ -146,17 +178,28 @@ def run_cell(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    labelled = table[table["label"].notna()].reset_index(drop=True)
-    if labelled.empty:
-        raise ValueError(f"Cell {config.slug}: no labelled rows.")
+    eval_column = f"label__{config.eval_source}"
+    if eval_column not in table.columns:
+        raise ValueError(
+            f"Cell {config.slug}: the table has no '{config.eval_source}' labels "
+            f"to evaluate against. Every build must include {config.eval_source}, "
+            "even for arms that do not train on it — it defines the test set."
+        )
+
+    work = table.assign(
+        _train=resolve_labels(table, config.train_sources),
+        _eval=table[eval_column],
+    )
+    work = work[work["_train"].notna() | work["_eval"].notna()].reset_index(drop=True)
 
     columns = resolve_ablation(
         list(feature_columns), list(config.drop_groups),
         allow_proxy_leak=config.allow_proxy_leak,
     )
-    # Leave-one-gene-out makes any gene-constant column a gene-identity label.
-    # gnomAD's pLI / o-e missense / missense-Z are the concrete case.
-    columns = drop_gene_constant(labelled, columns)
+    # Leave-one-gene-out makes any gene-constant column a gene-identity label
+    # (gnomAD's pLI / o-e missense / missense-Z). Measured on the FULL table so
+    # the feature schema is identical across arms, whatever they train on.
+    columns = drop_gene_constant(table, columns)
     if not columns:
         raise ValueError(f"Cell {config.slug}: ablation removed every feature.")
 
@@ -164,15 +207,50 @@ def run_cell(
     predictions: list[pd.DataFrame] = []
     val_predictions: list[pd.DataFrame] = []
     held_out_all: list[str] = []
+    skipped: dict[str, str] = {}
 
-    for split_index, (train_positions, test_positions) in enumerate(
-        lopo_splits(labelled)
-    ):
-        assert_no_group_straddle(labelled, train_positions, test_positions)
+    # Say what is being trained on BEFORE any metric exists. A metric computed on
+    # the wrong table looks exactly like a metric computed on the right one; a
+    # gene with zero rows or a hash you do not recognise does not.
+    from vpdl.provenance import file_sha256
+    logger.info("%s | dataset sha256=%s… train on %s, score on %s",
+                config.slug, file_sha256(dataset_path)[:12],
+                "+".join(config.train_sources), config.eval_source)
+    for gene_name, rows in work.groupby("gene"):
+        logger.info(
+            "%s | %-5s train-labels=%5d (path=%d)   eval-labels=%4d (path=%d)",
+            config.slug, gene_name,
+            int(rows["_train"].notna().sum()), int((rows["_train"] == 1).sum()),
+            int(rows["_eval"].notna().sum()), int((rows["_eval"] == 1).sum()),
+        )
 
-        train_frame = labelled.iloc[train_positions].reset_index(drop=True)
-        test_frame = labelled.iloc[test_positions].reset_index(drop=True)
-        gene = str(test_frame["gene"].iloc[0])
+    eval_genes = sorted(
+        str(g) for g in work.loc[work["_eval"].notna(), "gene"].dropna().unique()
+        if str(g).strip()
+    )
+
+    for split_index, gene in enumerate(eval_genes):
+        train_positions = np.where((work["gene"] != gene) & work["_train"].notna())[0]
+        test_positions = np.where((work["gene"] == gene) & work["_eval"].notna())[0]
+        assert_no_group_straddle(work, train_positions, test_positions)
+
+        train_frame = work.iloc[train_positions].reset_index(drop=True)
+        test_frame = work.iloc[test_positions].reset_index(drop=True)
+
+        # Recorded BEFORE the skip check: the split hash identifies the
+        # evaluation set, so an arm that cannot train one fold still shares its
+        # test set with the other arms. The skip itself is reported separately.
+        held_out_all.extend(variant_keys(test_frame).tolist())
+
+        # A fold with nothing to learn from is reported, not crashed on and not
+        # silently dropped. A DMS-only arm hits this by construction on MSH2:
+        # every DMS label is MSH2, so holding it out leaves nothing to train on.
+        if len(train_frame) < 20 or train_frame["_train"].nunique() < 2:
+            reason = (f"untrainable: {len(train_frame)} training rows, "
+                      f"{train_frame['_train'].nunique()} class(es)")
+            logger.warning("%s | holdout=%s SKIPPED — %s", config.slug, gene, reason)
+            skipped[gene] = reason
+            continue
 
         # Keyed on the held-out GENE, not the loop position: a gene dropping out
         # of the panel would otherwise shift every subsequent split's seed and
@@ -185,15 +263,20 @@ def run_cell(
 
         matrix = build_feature_matrix(
             train_frame.iloc[inner_train], columns,
-            labels=train_frame.iloc[inner_train]["label"].to_numpy(),
+            labels=train_frame.iloc[inner_train]["_train"].to_numpy(),
         )
         X_train = matrix.X
         X_val = matrix.transform(train_frame.iloc[inner_val])
         X_test = matrix.transform(test_frame)
 
-        y_train = train_frame.iloc[inner_train]["label"].to_numpy(dtype=int)
-        y_val = train_frame.iloc[inner_val]["label"].to_numpy(dtype=int)
-        y_test = test_frame["label"].to_numpy(dtype=int)
+        # Training and inner-validation labels come from the arm's own sources,
+        # so a DMS-only arm's threshold is chosen on DMS labels — not on clinical
+        # ones, which would leak the evaluation signal into it. That makes MCC
+        # partly a threshold-transfer measure; ROC-AUC is the fair cross-arm
+        # comparison because it needs no threshold.
+        y_train = train_frame.iloc[inner_train]["_train"].to_numpy(dtype=int)
+        y_val = train_frame.iloc[inner_val]["_train"].to_numpy(dtype=int)
+        y_test = test_frame["_eval"].to_numpy(dtype=int)
 
         if config.model in SEQUENCE_WINDOW_MODELS:
             if not sequences:
@@ -244,7 +327,6 @@ def run_cell(
         per_gene.append(row)
 
         keys = variant_keys(test_frame)
-        held_out_all.extend(keys.tolist())
         predictions.append(pd.DataFrame({
             "cell": config.slug, "gene": gene, "variant_key": keys,
             "label": y_test, "score": test_scores, "threshold": threshold,
@@ -275,7 +357,7 @@ def run_cell(
     result = CellResult(
         config=config, per_gene=per_gene, predictions=predictions_frame,
         val_predictions=val_frame, provenance=provenance,
-        runtime_s=time.time() - started,
+        runtime_s=time.time() - started, skipped=skipped,
     )
 
     pd.DataFrame(per_gene).to_csv(out_dir / f"results_{config.slug}.csv", index=False)
@@ -288,13 +370,23 @@ def run_cell(
 
 
 def run_sweep(
-    tables: Mapping[tuple[str, ...], tuple[pd.DataFrame, Path, Sequence[str]]],
+    table: pd.DataFrame,
+    dataset_path: Path | str,
+    build_sources: Sequence[str],
+    train_source_sets: Sequence[tuple[str, ...]],
+    feature_columns: Sequence[str],
     models: Sequence[str] = ("gbm",),
     seeds: Sequence[int] = (42, 43, 44),
     out_dir: Path | str = "runs",
     drop_groups: Sequence[tuple[str, ...]] = ((),),
+    eval_source: str = "clinvar",
+    sequences: Mapping[str, str] | None = None,
 ) -> pd.DataFrame:
-    """Fill the matrix: every source-set x model x seed x ablation.
+    """Fill the matrix over ONE table: train-source set x model x ablation x seed.
+
+    One table, so every arm shares the dataset hash, the feature schema and the
+    held-out test set — the provenance gate passes because the arms genuinely
+    are comparable, not because it was loosened.
 
     Three seeds is the floor, not a default to lower. v1 measured MCC standard
     deviations up to 0.056 across seeds of one arm, so any single-seed
@@ -307,17 +399,18 @@ def run_sweep(
         )
 
     rows: list[dict[str, Any]] = []
-    for sources, (table, dataset_path, feature_columns) in tables.items():
+    for train_sources in train_source_sets:
         for model in models:
             for groups in drop_groups:
                 for seed in seeds:
                     config = CellConfig(
-                        sources=tuple(sources), model=model, seed=seed,
-                        drop_groups=tuple(groups),
+                        sources=tuple(build_sources),
+                        train_sources=tuple(train_sources),
+                        eval_source=eval_source,
+                        model=model, seed=seed, drop_groups=tuple(groups),
                     )
-                    result = run_cell(
-                        table, config, feature_columns, dataset_path, out_dir
-                    )
+                    result = run_cell(table, config, feature_columns,
+                                      dataset_path, out_dir, sequences=sequences)
                     rows.append(result.summary())
 
     frame = pd.DataFrame(rows)

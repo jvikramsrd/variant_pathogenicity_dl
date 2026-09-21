@@ -39,6 +39,8 @@ __all__ = [
     "GNOMAD_API",
     "GNOMAD_DATASET",
     "ACMG_THRESHOLDS",
+    "UNOBSERVED_LOG10_AF",
+    "fill_unobserved",
     "provides",
     "acmg_frequency_flags",
     "fetch_gene",
@@ -48,17 +50,16 @@ __all__ = [
 GNOMAD_API = "https://gnomad.broadinstitute.org/api"
 GNOMAD_DATASET = "gnomad_r4"
 
-# Generic ACMG/AMP frequency thresholds. DELIBERATELY generic.
-#
-# The InSiGHT MMR expert panel specifies gene-specific thresholds for
-# MLH1/MSH2/MSH6/PMS2 that are stricter than these, and using a genome-wide
-# default where a VCEP threshold exists is exactly the miscalibration this
-# project set out to study. Supply `thresholds=` from the VCEP specification
-# rather than relying on these, and record which was used in the run summary.
+# Frequency thresholds, taken from v1 (src/gnomad.py), which chose them for an
+# autosomal-dominant, early-onset cancer syndrome. An earlier draft of this
+# module used generic values (BS1 1e-2, PM2 1e-4) — ten times too permissive on
+# both flags for Lynch syndrome. The InSiGHT MMR expert panel publishes
+# gene-specific values; confirm against the VCEP specification before a
+# headline run and pass them via `thresholds=` if they differ.
 ACMG_THRESHOLDS: dict[str, float] = {
-    "ba1": 0.05,    # stand-alone benign: >5% in a general population
-    "bs1": 0.01,    # strong benign: greater than expected for the disorder
-    "pm2": 1e-4,    # moderate pathogenic: absent / extremely low frequency
+    "ba1": 0.05,    # stand-alone benign
+    "bs1": 1e-3,    # strong benign; AD, early onset -> conservative
+    "pm2": 1e-5,    # moderate pathogenic; absent or vanishingly rare
 }
 
 _VARIANT_QUERY = """
@@ -68,10 +69,11 @@ query PanelVariants($symbol: String!, $dataset: DatasetId!) {
     symbol
     variants(dataset: $dataset) {
       variant_id
-      genome { af }
-      exome { af }
-      hgvsp
       consequence
+      hgvsp
+      transcript_id
+      genome { af ac an }
+      exome  { af ac an }
     }
   }
 }
@@ -87,12 +89,50 @@ query GeneConstraint($symbol: String!) {
 """
 
 
+# log10 allele frequency assigned to variants gnomAD never observed. Below the
+# rarest frequency the v4 joint call set can report (~1 in 1.6M alleles, about
+# -6.2), so "absent" sorts as rarer than anything seen rather than being
+# imputed to a typical observed frequency.
+UNOBSERVED_LOG10_AF = -7.0
+
+
+def fill_unobserved(table: pd.DataFrame) -> pd.DataFrame:
+    """Give variants gnomAD never returned the evidence their absence implies.
+
+    gnomAD only reports observed variants, so after assembly most substitutions
+    have no gnomAD row and every gnomAD column is NaN. Left alone, median
+    imputation would make an unobserved variant look like a typical observed
+    one — erasing precisely the signal PM2 encodes. Absent means: not BA1, not
+    BS1, PM2, and rarer than any observed allele. An explicit
+    ``feature_gnomad_observed`` indicator keeps "absent" separable from
+    "observed at a very low frequency".
+    """
+    if "feature_acmg_pm2" not in table.columns:
+        return table
+
+    table = table.copy()
+    # The gnomAD source sets every flag on every row it emits, so a missing flag
+    # after the merge means gnomAD returned nothing for that variant.
+    unobserved = table["feature_acmg_pm2"].isna()
+    table["feature_gnomad_observed"] = (~unobserved).astype(float)
+    table.loc[unobserved, "feature_acmg_ba1"] = 0.0
+    table.loc[unobserved, "feature_acmg_bs1"] = 0.0
+    table.loc[unobserved, "feature_acmg_pm2"] = 1.0
+    table["feature_gnomad_log10_af"] = table["feature_gnomad_log10_af"].fillna(
+        UNOBSERVED_LOG10_AF
+    )
+    logger.info("gnomAD: %d of %d variants unobserved -> PM2, AF floor %.1f",
+                int(unobserved.sum()), len(table), UNOBSERVED_LOG10_AF)
+    return table
+
+
 def provides() -> SourceCapabilities:
     return SourceCapabilities(
         name="gnomad",
         supplies_labels=False,
         feature_columns=(
             "feature_gnomad_log10_af",
+            "feature_gnomad_observed",
             "feature_acmg_ba1",
             "feature_acmg_bs1",
             "feature_acmg_pm2",
@@ -217,10 +257,16 @@ def load(
                 continue
             wt_aa, position, mut_aa = parsed
 
-            exome = (variant.get("exome") or {}).get("af")
-            genome = (variant.get("genome") or {}).get("af")
-            frequencies = [f for f in (exome, genome) if f is not None]
-            allele_frequency = max(frequencies) if frequencies else np.nan
+            # Joint allele frequency: sum AC and AN across the exome and genome
+            # call sets, as v1 did. Taking max(af_exome, af_genome) instead
+            # overstates frequency whenever the two disagree, which moves
+            # variants across the BS1/PM2 lines.
+            parts = [p for p in (variant.get("exome"), variant.get("genome")) if p]
+            allele_count = sum(float(p.get("ac") or 0) for p in parts)
+            allele_number = sum(float(p.get("an") or 0) for p in parts)
+            allele_frequency = (
+                allele_count / allele_number if allele_number > 0 else np.nan
+            )
 
             record = {
                 "uniprot_id": uniprot_by_gene.get(gene),

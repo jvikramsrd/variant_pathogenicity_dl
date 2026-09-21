@@ -9,6 +9,12 @@ venv/
 # --- Data artefacts (large / derivable - never commit) ---
 data/raw/
 data/mmr/raw/
+
+# v2: API responses cached by `vpdl build`, and the assembled table itself.
+# The table regenerates from data/raw; its *.manifest.json records the hash
+# that ties results to it, and IS committed.
+data/cache/
+data/built/*.csv
 *.npz
 *.pt
 *.pdb

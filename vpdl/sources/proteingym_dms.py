@@ -66,44 +66,90 @@ def to_label(dms_score_bin: int | float | None) -> float:
     return 0.0 if value == 1 else 1.0
 
 
+def gene_from_assay_name(name: str) -> str:
+    """``MSH2_HUMAN_Jia_2020.csv`` -> ``MSH2``.
+
+    ProteinGym per-assay CSVs carry no gene column: the assay's identity lives
+    in its filename, and the reference file's ``UniProt_ID`` is an *entry name*
+    (``MSH2_HUMAN``), not an accession. Both reduce to the first token.
+    """
+    return Path(name).stem.split("_")[0].upper()
+
+
+def _parse_assay(frame: pd.DataFrame, source_name: str) -> pd.DataFrame:
+    if "mutant" not in frame.columns:
+        raise ValueError(
+            f"{source_name} lacks a 'mutant' column; this does not look like a "
+            "ProteinGym substitutions table."
+        )
+    # Multi-mutant entries ("A12V:G45D") fail this pattern and are dropped:
+    # a double mutant is not a single-variant observation.
+    parsed = frame["mutant"].astype(str).str.extract(r"^([A-Z])(\d+)([A-Z])$")
+    parsed.columns = ["wt_aa", "position", "mut_aa"]
+    frame = pd.concat([frame.reset_index(drop=True), parsed], axis=1)
+    frame = frame[frame["position"].notna()].copy()
+    frame["position"] = frame["position"].astype(int)
+    return frame
+
+
 def load(
     path: Path | str,
     uniprot_by_gene: Mapping[str, str],
     genes: Sequence[str] | None = None,
-    include_score_feature: bool = True,
+    include_score_feature: bool = False,
 ) -> pd.DataFrame:
-    """Load a ProteinGym substitutions table into the record schema.
+    """Load ProteinGym DMS data into the record schema.
 
-    Expects the standard ProteinGym columns ``mutant`` (e.g. ``A123V``),
-    ``DMS_score`` and ``DMS_score_bin``, plus a gene or UniProt identifier.
+    Accepts either the release archive ``DMS_ProteinGym_substitutions.zip``
+    (every assay, filtered to `genes` while reading) or a single per-assay CSV.
+    `genes` defaults to the panel in `uniprot_by_gene`, so pointing this at the
+    full archive does not pull in 200+ unrelated assays.
+
+    `include_score_feature` defaults to **False**. When this source supplies
+    labels, ``DMS_score`` is the continuous value the label was binarised from,
+    so feeding it back in as a feature is the label in disguise — v1's
+    ``dms_bin_median`` leak, which produced a fake 0.9987 AUC. The
+    ``assert_no_label_proxy`` guard would refuse it anyway; defaulting it off
+    means a normal build does not trip that guard.
     """
-    frame = pd.read_csv(path)
+    import zipfile
 
-    if "mutant" not in frame.columns:
-        raise ValueError(
-            f"{path} lacks a 'mutant' column; this does not look like a "
-            "ProteinGym substitutions table."
+    path = Path(path)
+    wanted = set(genes) if genes else set(uniprot_by_gene)
+    assays: list[pd.DataFrame] = []
+
+    if path.suffix == ".zip":
+        with zipfile.ZipFile(path) as archive:
+            for member in archive.namelist():
+                if not member.endswith(".csv"):
+                    continue
+                gene = gene_from_assay_name(member)
+                if gene not in wanted:
+                    continue
+                with archive.open(member) as handle:
+                    frame = _parse_assay(pd.read_csv(handle), member)
+                frame["gene"] = gene
+                frame["_assay"] = Path(member).stem
+                assays.append(frame)
+    else:
+        frame = _parse_assay(pd.read_csv(path), str(path))
+        column = next((c for c in ("gene", "gene_name") if c in frame.columns), None)
+        frame["gene"] = (
+            frame[column].astype(str).str.upper() if column
+            else gene_from_assay_name(path.name)
         )
+        frame["_assay"] = path.stem
+        assays.append(frame[frame["gene"].isin(wanted)])
 
-    parsed = frame["mutant"].astype(str).str.extract(
-        r"^([A-Z])(\d+)([A-Z])$"
-    )
-    parsed.columns = ["wt_aa", "position", "mut_aa"]
-    frame = pd.concat([frame, parsed], axis=1)
-    frame = frame[frame["position"].notna()].copy()
-    frame["position"] = frame["position"].astype(int)
+    if not assays:
+        logger.warning("ProteinGym: no assays found for %s in %s", sorted(wanted), path)
+        return pd.DataFrame(columns=["uniprot_id", "position", "wt_aa", "mut_aa",
+                                     "gene", "label", "label_source",
+                                     "evidence_tier"])
 
-    gene_column = next(
-        (name for name in ("gene", "gene_name", "UniProt_ID", "DMS_id")
-         if name in frame.columns),
-        None,
-    )
-    if gene_column is None:
-        raise ValueError(f"{path} has no gene identifier column.")
-    frame["gene"] = frame[gene_column].astype(str).str.split("_").str[0].str.upper()
-
-    if genes:
-        frame = frame[frame["gene"].isin(set(genes))]
+    frame = pd.concat(assays, ignore_index=True)
+    logger.info("ProteinGym: %d assay(s) matched: %s",
+                frame["_assay"].nunique(), sorted(frame["_assay"].unique()))
 
     records = pd.DataFrame({
         "uniprot_id": frame["gene"].map(uniprot_by_gene),
@@ -111,7 +157,7 @@ def load(
         "wt_aa": frame["wt_aa"],
         "mut_aa": frame["mut_aa"],
         "gene": frame["gene"],
-        "label": frame.get("DMS_score_bin", pd.Series(index=frame.index)).map(to_label),
+        "label": frame.get("DMS_score_bin", pd.Series(np.nan, index=frame.index)).map(to_label),
         "label_source": "pg_dms",
         "evidence_tier": f"proteingym_{PROTEINGYM_VERSION}_dms",
     })

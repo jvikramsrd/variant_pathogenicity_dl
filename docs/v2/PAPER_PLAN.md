@@ -102,13 +102,13 @@ difference. This single column is the paper's answer.
    ClinVar. Ablations that drop a family while a proxy remains are refused by
    `vpdl.features.resolve_ablation`; arms run with `allow_proxy_leak=True` must
    be reported as joint bounds.
-5. **ACMG frequency thresholds are currently generic.** `vpdl.sources.gnomad`
-   defaults to BA1 > 5%, BS1 > 1%, PM2 < 1e-4 — genome-wide values. The InSiGHT
-   MMR expert panel specifies stricter gene-specific thresholds for these four
-   genes, and using a genome-wide default where a VCEP threshold exists is the
-   exact miscalibration v1 set out to study. **Supply the VCEP numbers before
-   any headline run**, pass them via `thresholds=`, and record which set was
-   used. Do not let me guess them; they need reading off the specification.
+5. **ACMG frequency thresholds come from v1, not from the VCEP.**
+   `vpdl.sources.gnomad` uses BA1 > 5%, BS1 > 0.1%, PM2 < 1e-5 — v1's values,
+   chosen for an autosomal-dominant early-onset cancer syndrome. (A draft used
+   generic BS1 1% / PM2 1e-4, ten times too permissive; corrected 2026-09-21.)
+   The InSiGHT MMR expert panel publishes gene-specific thresholds. **Confirm
+   against the VCEP specification before a headline run**, pass any
+   differences via `thresholds=`, and record which set was used.
 6. **A negative result is a result.** If pooling does not help, the paper says
    so. The protocol is designed so that outcome is publishable rather than a
    dead end.
