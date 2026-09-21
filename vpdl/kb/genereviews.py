@@ -50,8 +50,14 @@ def read_chapter_ids(path: Path | str) -> dict[str, tuple[str, str]]:
     required link to the original is built from.
     """
     mapping: dict[str, tuple[str, str]] = {}
-    with Path(path).open(encoding="utf-8") as handle:
-        for line in handle:
+    with Path(path).open("rb") as handle:
+        for raw in handle:
+            # NCBI's file mixes encodings: UTF-8 throughout except a few titles
+            # in Latin-1 ("Cant\xfa syndrome", 2026-09-21). Decode line by line.
+            try:
+                line = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                line = raw.decode("cp1252", errors="replace")
             if not line.strip() or line.startswith("#"):
                 continue
             fields = line.rstrip("\n").split("\t")
@@ -154,8 +160,7 @@ def _grid(rows: list[ET.Element], repeat_colspan: bool) -> tuple[list[list[str]]
             while column in row:
                 column += 1
             text = _clean(_flat(cell))
-            colspan = max(1, int(cell.get("colspan") or 1))
-            rowspan = max(1, int(cell.get("rowspan") or 1))
+            colspan, rowspan = _span(cell.get("colspan")), _span(cell.get("rowspan"))
             for offset in range(colspan):
                 value = text if (offset == 0 or repeat_colspan) else ""
                 row[column + offset] = value
@@ -168,6 +173,12 @@ def _grid(rows: list[ET.Element], repeat_colspan: bool) -> tuple[list[list[str]]
         grid.append([row.get(c, "") for c in range(max(row) + 1)] if row else [])
         spans.append(row_spans)
     return grid, spans
+
+
+def _span(value: str | None) -> int:
+    """A rowspan/colspan attribute as a count; anything unreadable counts as 1."""
+    match = re.match(r"\s*(\d+)", value or "")
+    return max(1, min(int(match.group(1)), 100)) if match else 1
 
 
 def _span_header(labels: list[str]) -> str:
@@ -349,9 +360,12 @@ def load_genereviews(archive: Path | str, chapter_ids_path: Path | str) -> list[
     for stem, xml in iter_nxml(archive):
         try:
             parsed = parse_chapter(xml, chapter_ids)
-        except ET.ParseError as error:
+        except (ET.ParseError, ValueError, TypeError, AttributeError) as error:
+            # One malformed chapter must not cost a 900-chapter build; it is
+            # counted and named so it can be looked at.
             failed += 1
-            logger.warning("%s: not parseable (%s); skipped.", stem, error)
+            logger.warning("%s: could not be read (%s: %s); skipped.",
+                           stem, type(error).__name__, error)
             continue
         if not parsed:
             skipped += 1

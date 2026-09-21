@@ -106,6 +106,20 @@ def test_table_rows_carry_their_headers_through_rowspan_and_colspan():
     assert "Note: 1. Intervals are individualized." in lines
 
 
+def test_ncbis_mixed_encoding_chapter_list_is_read(tmp_path):
+    """The real file is UTF-8 except two Latin-1 titles; it crashed the first DGX build."""
+    from vpdl.kb.genereviews import read_chapter_ids
+
+    path = tmp_path / "ids.txt"
+    path.write_bytes(
+        "#GR_shortname\tGR_Title\tNBK_id\tPMID\n".encode()
+        + "cantu\tCantú syndrome\tNBK246980\t25275207\n".encode("latin-1")
+        + "hnpcc\tLynch Syndrome\tNBK1211\t20301390\n".encode("utf-8"))
+    ids = read_chapter_ids(path)
+    assert ids["cantu"] == ("Cantú syndrome", "NBK246980")
+    assert ids["hnpcc"] == ("Lynch Syndrome", "NBK1211")
+
+
 def test_chapters_missing_from_ncbis_id_list_are_skipped():
     from vpdl.kb.genereviews import parse_chapter
     assert parse_chapter(CHAPTER, {"other": ("Other", "NBK1")}) == []
