@@ -5,6 +5,56 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-09-21 (DGX Spark) — ProteinGym combined vs individual: combining HURTS, 212 of 217 assays
+
+`vpdl pg-combined` (ridge, CPU, `fold_random_5`) — 217 assays, 696,311 single
+substitutions, 95 zero-shot score features, sibling assays excluded via
+ProteinGym's reference file (55 assays affected). 532 s.
+
+**Reading check passed first.** 79 of the 95 score columns matched a published
+zero-shot column by name; for every one, our raw per-assay Spearman equals
+ProteinGym's (Pearson 1.0 across 217 assays, mean |diff| ≤ 0.0003). The features
+are the right columns, the right way up.
+
+| | |
+|---|---|
+| mean Spearman, individual (one model per assay) | **0.708** |
+| mean Spearman, combined (one model, all assays) | **0.597** |
+| mean / median delta (combined − individual) | **−0.110 / −0.101** |
+| combined better in | **5 / 217** assays (Wilcoxon p = 1.8e-36) |
+| zero-shot TranceptEVE_L alone, same variants | 0.450 |
+
+By assay size (mean delta): <1k variants −0.129 (57 assays), 1k–5k −0.118 (112),
+>5k −0.071 (48); Spearman(delta, size) = +0.29.
+
+Worst: TADBP_HUMAN_Bolognesi_2019 −0.386, RASK_HUMAN_Weng_2022_abundance −0.381,
+SOX30_HUMAN_Tsuboyama_2023_7JJK −0.351, RAD_ANTMA_Tsuboyama_2023_2CJJ −0.335,
+KCNE1_HUMAN_Muhammad_2023_expression −0.318. Best: AICDA_HUMAN_Gajula_2014_3cycles
++0.101 (209 variants); the other four gains are ≤ +0.015.
+
+What this does and does not show:
+- **Both arms learn.** Combined beats the no-training reference by +0.15, so one
+  shared weighting of the 95 predictors is useful — just much less useful than a
+  per-assay one. Same direction as the MMR result: pooling heterogeneous labels
+  cost accuracy there too.
+- **Small assays lose MORE, not less** — the opposite of the usual case for
+  pooling. Untested explanation: the combined loss is row-weighted, so the shared
+  weights are fitted mostly to the large assays. Test: weight each assay equally.
+- **Several of the worst assays measure stability, abundance or expression**
+  rather than activity. Untested explanation: which predictors work depends on
+  what an assay measures, and the combined model is not told. Test: delta by
+  ProteinGym's `coarse_selection_type`, or a combined model given it.
+- **Random folds favour the individual arm** (it trains on other substitutions at
+  the same positions). Owed: `--scheme fold_modulo_5` and `fold_contiguous_5`
+  before any claim about pooling in general.
+- One model class (linear). Owed: `--model gbm`.
+
+Code change after this run: ridge moved from sklearn `RidgeCV` to an equivalent
+Gram-matrix implementation that runs on the GPU (`--device`, L21 checks it
+matches sklearn). A `--device cuda` re-run should reproduce these numbers.
+
+---
+
 ## 2026-09-21 (DGX Spark) — ProteinGym: published per-assay results REPRODUCED
 
 `vpdl pg-reproduce` — One-Hot baseline on all 217 substitution assays, ProteinGym's

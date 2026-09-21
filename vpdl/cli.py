@@ -224,7 +224,10 @@ def cmd_pg_reproduce(args: argparse.Namespace) -> int:
 
 
 def cmd_pg_combined(args: argparse.Namespace) -> int:
+    from vpdl.device import log_summary
     from vpdl.proteingym.combined import run_comparison
+
+    log_summary()
 
     for path in (args.scores, args.folds):
         if not Path(path).exists():
@@ -239,12 +242,17 @@ def cmd_pg_combined(args: argparse.Namespace) -> int:
                      if label == "--reference" else "reading check skipped."),
                   file=sys.stderr)
 
-    result, summary, reading = run_comparison(
-        args.scores, args.folds,
-        reference_csv=args.reference, published_zero_shot_csv=args.published,
-        scheme=args.scheme, model=args.model, min_coverage=args.min_coverage,
-        seed=args.seed, out_dir=args.out, only=args.only or None,
-    )
+    try:
+        result, summary, reading = run_comparison(
+            args.scores, args.folds,
+            reference_csv=args.reference, published_zero_shot_csv=args.published,
+            scheme=args.scheme, model=args.model, min_coverage=args.min_coverage,
+            seed=args.seed, out_dir=args.out, only=args.only or None,
+            device=args.device,
+        )
+    except RuntimeError as error:                 # a refused --device cuda
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
 
     if reading is not None and len(reading):
         print("reading check (our raw zero-shot Spearman vs ProteinGym's), worst 5:")
@@ -444,6 +452,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     pgc.add_argument("--min-coverage", type=float, default=0.9, dest="min_coverage",
                      help="use a zero-shot model as a feature only if it scores at "
                           "least this fraction of all variants")
+    pgc.add_argument("--device", default="auto", choices=["auto", "cuda", "cpu"],
+                     help="auto: GPU if the model demonstrably trains there, else CPU "
+                          "with a warning; cuda: GPU or stop")
     pgc.add_argument("--seed", type=int, default=0)
     pgc.add_argument("--only", nargs="*", default=[], metavar="DMS_ID")
     pgc.add_argument("--out", default="runs/pg")

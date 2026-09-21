@@ -1191,3 +1191,65 @@ def test_label_disagreement_between_fold_and_score_files_stops_the_run(tmp_path)
     with pytest.raises(ValueError, match="join is wrong"):
         run_comparison(scores_zip, folds_zip, reference_csv=reference,
                        out_dir=tmp_path / "out")
+
+
+# The combined arm's ridge was rewritten (2026-09-21) from sklearn's RidgeCV into
+# explicit Gram-matrix algebra so it can run on the DGX GPU. Moving a model to a
+# new device must not change the model: same alpha, same predictions.
+
+@pytest.mark.parametrize("n, p", [(300, 12), (40, 60)])   # n > p and n < p
+def test_gram_ridge_matches_sklearn_ridgecv(n, p):
+    from sklearn.linear_model import RidgeCV
+
+    from vpdl.proteingym.combined import RIDGE_ALPHAS, ridge_gcv_predict
+
+    rng = np.random.default_rng(1)
+    base = rng.normal(size=(n, 3))
+    X = base @ rng.normal(size=(3, p)) + 0.3 * rng.normal(size=(n, p))  # correlated, like 95 zero-shot scores
+    y = X[:, 0] - 2 * X[:, 1] + rng.normal(size=n) + 5.0
+    X_new = rng.normal(size=(25, p))
+
+    reference = RidgeCV(alphas=RIDGE_ALPHAS).fit(X, y)
+    ours, alpha = ridge_gcv_predict(X, y, X_new)
+    assert alpha == pytest.approx(reference.alpha_)
+    assert np.allclose(ours, reference.predict(X_new), atol=1e-8)
+
+
+def test_gram_ridge_gives_the_same_answer_on_the_gpu():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("no CUDA device")
+    from vpdl.proteingym.combined import ridge_gcv_predict
+
+    rng = np.random.default_rng(2)
+    X, y, X_new = rng.normal(size=(500, 20)), rng.normal(size=500), rng.normal(size=(30, 20))
+    cpu, alpha_cpu = ridge_gcv_predict(X, y, X_new, device="cpu")
+    gpu, alpha_gpu = ridge_gcv_predict(X, y, X_new, device="cuda")
+    assert alpha_gpu == alpha_cpu
+    assert np.allclose(gpu, cpu, atol=1e-8)
+
+
+def test_asking_for_cuda_without_one_stops_instead_of_silently_using_the_cpu(monkeypatch):
+    import vpdl.device
+    from vpdl.proteingym.combined import resolve_device
+
+    cpu_only = vpdl.device.DeviceInfo(
+        kind="cpu", name="cpu", machine="x86_64", total_memory_gib=None,
+        compute_capability=None, supports_bf16=False, unified_memory=False,
+        torch_version=None)
+    monkeypatch.setattr(vpdl.device, "detect", lambda: cpu_only)
+
+    assert resolve_device("ridge", "cpu") == "cpu"
+    assert resolve_device("ridge", "auto") == "cpu"
+    with pytest.raises(RuntimeError, match="cuda was requested"):
+        resolve_device("ridge", "cuda")
+
+
+def test_xgboost_without_cuda_is_detected_not_trusted(monkeypatch):
+    xgboost = pytest.importorskip("xgboost")
+    from vpdl.proteingym.combined import resolve_device
+
+    monkeypatch.setattr(xgboost, "build_info", lambda: {"USE_CUDA": False})
+    assert resolve_device("gbm", "auto") == "cpu"
+    with pytest.raises(RuntimeError, match="built without CUDA"):
+        resolve_device("gbm", "cuda")

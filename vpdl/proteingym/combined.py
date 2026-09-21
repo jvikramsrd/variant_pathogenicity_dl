@@ -52,6 +52,8 @@ __all__ = [
     "standardize_within_assay",
     "targets_within_assay",
     "combined_training_masks",
+    "ridge_gcv_predict",
+    "resolve_device",
     "run_comparison",
 ]
 
@@ -89,7 +91,7 @@ def protein_map(dms_ids: Iterable[str], reference_csv: Path | str | None) -> tup
         for dms_id in missing:
             mapping[dms_id] = "_".join(dms_id.split("_")[:2])
         return mapping, "reference+heuristic"
-    logger.warning("No ProteinGym reference file — grouping sibling assays by an "
+    logger.warning("No ProteinGym reference file; grouping sibling assays by an "
                    "ID heuristic. Download reference_files/DMS_substitutions.csv.")
     return {d: "_".join(d.split("_")[:2]) for d in dms_ids}, "heuristic"
 
@@ -270,10 +272,121 @@ def combined_training_masks(
             yield own_test, train & ~siblings
 
 
-def _fit_predict(model: str, X_train, y_train, X_test, seed: int) -> np.ndarray:
+RIDGE_ALPHAS = tuple(np.logspace(-3, 3, 13))
+
+# Below this many training rows a GPU launch costs more than it saves: the 1,085
+# per-assay fits of the individual arm stay on the CPU, the combined arm's
+# ~550,000-row fits go to the GPU. Same model either side of the line.
+GPU_MIN_ROWS = 20_000
+
+
+def ridge_gcv_predict(X_train, y_train, X_test, alphas=RIDGE_ALPHAS, device: str = "cpu"):
+    """Ridge with alpha chosen by efficient leave-one-out, as sklearn's ``RidgeCV``.
+
+    Same model, same alpha grid, same selection rule (lowest mean squared
+    leave-one-out residual, unpenalised intercept) — written out from the p x p
+    Gram matrix so it runs on the GPU. L21 checks it against sklearn.
+    Returns ``(predictions, chosen_alpha)``.
+    """
+    on_gpu = device == "cuda"
+    if on_gpu:
+        import torch
+
+        def as_array(a):
+            return torch.as_tensor(np.asarray(a, dtype=float), dtype=torch.float64,
+                                   device="cuda")
+        eigh = torch.linalg.eigh
+    else:
+        def as_array(a):
+            return np.asarray(a, dtype=float)
+        eigh = np.linalg.eigh
+
+    X, y, X_new = as_array(X_train), as_array(y_train), as_array(X_test)
+    n = X.shape[0]
+    x_mean, y_mean = X.mean(0), y.mean()
+    Xc, yc = X - x_mean, y - y_mean
+    eigenvalues, V = eigh(Xc.T @ Xc)
+    eigenvalues = eigenvalues.clip(min=0)
+    Z = Xc @ V
+    Zy = Z.T @ yc
+    Z2 = Z * Z
+
+    best_alpha, best_error = None, None
+    for alpha in alphas:
+        shrink = 1.0 / (eigenvalues + alpha)
+        residual = yc - Z @ (shrink * Zy)
+        leverage = Z2 @ shrink + 1.0 / n          # 1/n: the intercept's share
+        error = float(((residual / (1.0 - leverage)) ** 2).mean())
+        if best_error is None or error < best_error:   # first minimum, as sklearn
+            best_alpha, best_error = alpha, error
+
+    coef = V @ (Zy / (eigenvalues + best_alpha))
+    predictions = (X_new - x_mean) @ coef + y_mean
+    if on_gpu:
+        predictions = predictions.cpu().numpy()
+    return np.asarray(predictions, dtype=float), float(best_alpha)
+
+
+def resolve_device(model: str, requested: str = "auto") -> str:
+    """``'cuda'`` only if this model demonstrably trains on the GPU here.
+
+    Checked by doing it, not by asking: XGBoost told to use a GPU it cannot use
+    logs a warning and quietly trains on the CPU (seen 2026-09-21), and a torch
+    wheel can see a GPU it has no kernels for. ``'auto'`` falls back to the CPU
+    and says why; ``'cuda'`` refuses to — asking for the GPU and silently getting
+    the CPU turns a minutes-long run into hours without a word.
+    """
+    if requested not in ("auto", "cuda", "cpu"):
+        raise ValueError(f"Unknown device {requested!r}; use auto, cuda or cpu.")
+    if requested == "cpu":
+        return "cpu"
+
+    problem = None
     if model == "ridge":
-        from sklearn.linear_model import RidgeCV
-        return RidgeCV(alphas=np.logspace(-3, 3, 13)).fit(X_train, y_train).predict(X_test)
+        from vpdl.device import detect
+        if detect().kind != "cuda":
+            problem = "torch cannot reach a CUDA GPU (see DGX_RUNBOOK Phase 10)"
+        else:
+            try:
+                import torch
+                probe = torch.ones(8, 8, dtype=torch.float64, device="cuda")
+                torch.linalg.eigh(probe @ probe.T)
+            except Exception as error:          # noqa: BLE001 — reported below
+                problem = f"a trial computation on CUDA failed: {error}"
+    elif model == "gbm":
+        import xgboost
+        if not xgboost.build_info().get("USE_CUDA", False):
+            problem = (f"xgboost {xgboost.__version__} was built without CUDA "
+                       "(pip install -U xgboost; the 'xgboost-cpu' package never has it)")
+        else:
+            rng = np.random.default_rng(0)
+            try:
+                trial = xgboost.XGBRegressor(n_estimators=2, tree_method="hist",
+                                             device="cuda", verbosity=0)
+                trial.fit(rng.random((64, 4)), rng.random(64))
+                config = json.loads(trial.get_booster().save_config())
+                used = str(config["learner"]["generic_param"].get("device", ""))
+                if not used.startswith("cuda"):
+                    problem = f"xgboost fell back to '{used}': no usable GPU"
+            except Exception as error:          # noqa: BLE001 — reported below
+                problem = f"a trial fit on CUDA failed: {error}"
+    else:
+        raise ValueError(f"Unknown model {model!r}; use ridge or gbm.")
+
+    if problem is None:
+        return "cuda"
+    if requested == "cuda":
+        raise RuntimeError(f"--device cuda was requested, but {problem}.")
+    logger.warning("%s runs on the CPU: %s.", model, problem)
+    return "cpu"
+
+
+def _fit_predict(model: str, X_train, y_train, X_test, seed: int,
+                 device: str = "cpu") -> np.ndarray:
+    if len(X_train) < GPU_MIN_ROWS:
+        device = "cpu"
+    if model == "ridge":
+        return ridge_gcv_predict(X_train, y_train, X_test, device=device)[0]
 
     if model == "gbm":
         from xgboost import XGBRegressor
@@ -284,7 +397,7 @@ def _fit_predict(model: str, X_train, y_train, X_test, seed: int) -> np.ndarray:
         regressor = XGBRegressor(
             n_estimators=2000 if stop else 300, learning_rate=0.05, max_depth=6,
             subsample=0.8, colsample_bytree=0.8, tree_method="hist",
-            random_state=seed, n_jobs=-1,
+            device=device, random_state=seed, n_jobs=-1,
             early_stopping_rounds=50 if stop else None,
         )
         if stop:
@@ -292,12 +405,15 @@ def _fit_predict(model: str, X_train, y_train, X_test, seed: int) -> np.ndarray:
                           eval_set=[(X_train[inner], y_train[inner])], verbose=False)
         else:
             regressor.fit(X_train, y_train)
+        # Predict where the data is: a GPU booster fed CPU arrays warns and
+        # takes a slower fallback path. The trees are the same either way.
+        regressor.get_booster().set_param({"device": "cpu"})
         return regressor.predict(X_test)
 
     raise ValueError(f"Unknown model {model!r}; use ridge or gbm.")
 
 
-def _individual(frame, features, scheme, model, seed) -> np.ndarray:
+def _individual(frame, features, scheme, model, seed, device="cpu") -> np.ndarray:
     predictions = np.full(len(frame), np.nan)
     for _, positions in frame.groupby("DMS_id", sort=False).indices.items():
         assay = frame.iloc[positions]
@@ -309,11 +425,11 @@ def _individual(frame, features, scheme, model, seed) -> np.ndarray:
             X_train, X_test = standardize_within_assay(train_rows, test_rows, features)
             predictions[positions[test]] = _fit_predict(
                 model, X_train, train_rows["DMS_score"].to_numpy(dtype=float),
-                X_test, seed)
+                X_test, seed, device)
     return predictions
 
 
-def _combined(frame, features, scheme, model, proteins, seed) -> np.ndarray:
+def _combined(frame, features, scheme, model, proteins, seed, device="cpu") -> np.ndarray:
     data = frame[["DMS_id", "DMS_score", *features]]
     folds = frame[scheme].to_numpy()
     predictions = np.full(len(frame), np.nan)
@@ -332,7 +448,7 @@ def _combined(frame, features, scheme, model, proteins, seed) -> np.ndarray:
             y[folds != fold] = targets_within_assay(fold_train)
             prepared[fold] = (X, y)
         X, y = prepared[fold]
-        predictions[test] = _fit_predict(model, X[train], y[train], X[test], seed)
+        predictions[test] = _fit_predict(model, X[train], y[train], X[test], seed, device)
         if index % 10 == 0:
             logger.info("combined: %d models fitted (%s)", index, model)
     return predictions
@@ -349,10 +465,15 @@ def run_comparison(
     seed: int = 0,
     out_dir: Path | str = "runs/pg",
     only: Iterable[str] | None = None,
+    device: str = "auto",
 ) -> tuple[pd.DataFrame, dict, pd.DataFrame | None]:
     """Individual vs combined, per assay. Returns (per-assay table, summary, reading check)."""
     if scheme not in FOLD_SCHEMES:
         raise ValueError(f"Unknown fold scheme {scheme!r}; use one of {FOLD_SCHEMES}.")
+    # Resolved before the slow load, so a refused --device cuda fails in seconds.
+    device = resolve_device(model, device)
+    logger.info("%s trains on: %s (fits under %d rows always use the CPU)",
+                model, device, GPU_MIN_ROWS)
     started = time.time()
     table = load_scores(scores_zip, folds_zip, only)
     frame = table.frame
@@ -386,9 +507,9 @@ def run_comparison(
                 frame["DMS_id"].nunique(), len(frame), len(features),
                 100 * min_coverage, protein_source)
 
-    individual = _individual(frame, features, scheme, model, seed)
+    individual = _individual(frame, features, scheme, model, seed, device)
     logger.info("individual arm done (%.0fs)", time.time() - started)
-    combined = _combined(frame, features, scheme, model, proteins, seed)
+    combined = _combined(frame, features, scheme, model, proteins, seed, device)
     logger.info("combined arm done (%.0fs)", time.time() - started)
 
     labels = frame["DMS_score"].to_numpy(dtype=float)
@@ -412,6 +533,7 @@ def run_comparison(
 
     valid = result.dropna(subset=["individual", "combined"])
     summary = _summarise(valid, model, scheme, features, protein_source, started)
+    summary["device"] = device
     summary["singles_without_scores"] = int(sum(table.unscored_singles.values()))
     if reading is not None and len(reading):
         summary["reading_check"] = {

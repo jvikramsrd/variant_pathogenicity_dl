@@ -396,14 +396,23 @@ wget https://raw.githubusercontent.com/OATML-Markslab/ProteinGym/main/benchmarks
 cd ../..
 ```
 
-**Run** (ridge, CPU; loading 217 score files takes a few minutes):
+**Run** (loading the 217 score files takes ~1.5 minutes on the CPU either way):
 ```bash
-vpdl pg-combined
+vpdl pg-combined --device cuda
 ```
-Then the tree model (slower — hours for the combined arm):
+Then the tree model — XGBoost on the GPU; hours on the CPU:
 ```bash
-vpdl pg-combined --model gbm
+vpdl pg-combined --model gbm --device cuda
 ```
+
+**GPU.** `--device cuda` puts the combined arm's large fits (~550,000 rows) on the
+GB10; fits under 20,000 rows (the individual arm) stay on the CPU, where they
+are faster. It stops in seconds with the reason if the GPU cannot be used —
+`--device auto` (the default) would fall back to the CPU with a warning instead.
+Ridge needs the CUDA PyTorch from Phase 10. XGBoost needs a CUDA build: recent
+`pip install -U xgboost` wheels for aarch64 include it (CUDA 13); the
+`xgboost-cpu` package never does. The summary's `device` field records where
+the run actually trained.
 
 **Reading it.** `mean_delta` > 0 means combining helped on average;
 `combined_better_in` says on how many assays; `wilcoxon_p` whether that is
