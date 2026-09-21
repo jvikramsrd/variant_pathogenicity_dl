@@ -366,6 +366,52 @@ ProteinGym), so exact equality is not expected. Most assays within ~0.05 and a
 correlation across assays above ~0.9 means the pipeline reproduces ProteinGym.
 A systematic gap means a protocol difference to find before going further.
 
+**Result (2026-09-21): reproduced.** Pearson 0.970 across 217 assays, mean
+|diff| 0.025; the largest gaps are long proteins where ours is higher (see
+RUNLOG).
+
+### Step 2 — combined vs individual
+
+Every assay gets two scores, both on ProteinGym's folds and metric:
+
+- **individual** — a model trained only on that assay;
+- **combined** — one model trained on all 217 assays' training folds.
+
+One-hot features cannot be pooled (position 12 of one protein means nothing in
+another), so both arms use ProteinGym's precomputed **zero-shot scores** as
+features — 95 unsupervised models, none trained on lab labels. The run first
+checks it read those scores right: its raw Spearman for each model must match
+ProteinGym's published zero-shot table.
+
+Assays of the **same protein** (24 proteins have more than one) are kept out of
+each other's combined model — otherwise a variant could be "learned" from its
+own sibling measurement.
+
+**Download** (the scores zip is the large one; skip it if already there):
+```bash
+cd data/raw
+wget -c https://marks.hms.harvard.edu/proteingym/ProteinGym_v1.3/zero_shot_substitutions_scores.zip
+wget https://raw.githubusercontent.com/OATML-Markslab/ProteinGym/main/reference_files/DMS_substitutions.csv
+wget https://raw.githubusercontent.com/OATML-Markslab/ProteinGym/main/benchmarks/DMS_zero_shot/substitutions/Spearman/DMS_substitutions_Spearman_DMS_level.csv
+cd ../..
+```
+
+**Run** (ridge, CPU; loading 217 score files takes a few minutes):
+```bash
+vpdl pg-combined
+```
+Then the tree model (slower — hours for the combined arm):
+```bash
+vpdl pg-combined --model gbm
+```
+
+**Reading it.** `mean_delta` > 0 means combining helped on average;
+`combined_better_in` says on how many assays; `wilcoxon_p` whether that is
+more than chance across assays; `mean_delta_by_size` whether small assays gain
+most (the expected pattern). `mean_zero_shot_TranceptEVE_L` is the
+no-training floor — a trained arm below it learned nothing useful.
+`reading_check.median_mean_abs_diff` should be ~0; if it is not, stop.
+
 ---
 
 ## What not to do

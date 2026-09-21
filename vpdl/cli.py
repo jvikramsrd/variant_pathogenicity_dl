@@ -223,6 +223,42 @@ def cmd_pg_reproduce(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pg_combined(args: argparse.Namespace) -> int:
+    from vpdl.proteingym.combined import run_comparison
+
+    for path in (args.scores, args.folds):
+        if not Path(path).exists():
+            print(f"ERROR: {path} not found — see docs/v2/DGX_RUNBOOK.md, "
+                  "ProteinGym section, for the download commands.", file=sys.stderr)
+            return 2
+    for label, path in (("--reference", args.reference),
+                        ("--published", args.published)):
+        if not Path(path).exists():
+            print(f"WARNING: {label} {path} not found; "
+                  + ("sibling assays grouped by ID heuristic."
+                     if label == "--reference" else "reading check skipped."),
+                  file=sys.stderr)
+
+    result, summary, reading = run_comparison(
+        args.scores, args.folds,
+        reference_csv=args.reference, published_zero_shot_csv=args.published,
+        scheme=args.scheme, model=args.model, min_coverage=args.min_coverage,
+        seed=args.seed, out_dir=args.out, only=args.only or None,
+    )
+
+    if reading is not None and len(reading):
+        print("reading check (our raw zero-shot Spearman vs ProteinGym's), worst 5:")
+        print(reading.tail(5).to_string(index=False))
+    print(json.dumps(summary, indent=2))
+    ranked = result.dropna(subset=["delta"]).sort_values("delta")
+    columns = ["DMS_id", "n", "has_siblings", "individual", "combined", "delta"]
+    print("\ncombined helps most:")
+    print(ranked.tail(5).iloc[::-1][columns].to_string(index=False))
+    print("\ncombined hurts most:")
+    print(ranked.head(5)[columns].to_string(index=False))
+    return 0
+
+
 def cmd_train(args: argparse.Namespace) -> int:
     import pandas as pd
     from vpdl.device import log_summary
@@ -389,6 +425,29 @@ def main(argv: Sequence[str] | None = None) -> int:
                     help="restrict to these assays, e.g. MSH2_HUMAN_Jia_2020")
     pg.add_argument("--out", default="runs/pg")
     pg.set_defaults(func=cmd_pg_reproduce)
+
+    pgc = sub.add_parser(
+        "pg-combined",
+        help="one model per assay vs one model on all assays, per ProteinGym assay")
+    pgc.add_argument("--scores", default="data/raw/zero_shot_substitutions_scores.zip",
+                     help="ProteinGym's zero-shot scores zip (the features)")
+    pgc.add_argument("--folds", default="data/raw/cv_folds_singles_substitutions.zip")
+    pgc.add_argument("--reference", default="data/raw/DMS_substitutions.csv",
+                     help="ProteinGym reference file; maps each assay to its protein "
+                          "so sibling assays are kept out of each other's training")
+    pgc.add_argument("--published",
+                     default="data/raw/DMS_substitutions_Spearman_DMS_level.csv",
+                     help="published zero-shot Spearman, for the reading check")
+    pgc.add_argument("--scheme", default="fold_random_5",
+                     choices=["fold_random_5", "fold_modulo_5", "fold_contiguous_5"])
+    pgc.add_argument("--model", default="ridge", choices=["ridge", "gbm"])
+    pgc.add_argument("--min-coverage", type=float, default=0.9, dest="min_coverage",
+                     help="use a zero-shot model as a feature only if it scores at "
+                          "least this fraction of all variants")
+    pgc.add_argument("--seed", type=int, default=0)
+    pgc.add_argument("--only", nargs="*", default=[], metavar="DMS_ID")
+    pgc.add_argument("--out", default="runs/pg")
+    pgc.set_defaults(func=cmd_pg_combined)
 
     compare = sub.add_parser("compare", help="pool cells, provenance-gated")
     compare.add_argument("--runs", default="runs")

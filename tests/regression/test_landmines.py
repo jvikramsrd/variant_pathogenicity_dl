@@ -1051,3 +1051,143 @@ def test_capping_a_source_the_arm_does_not_train_on_is_an_error():
     train = resolve_labels(table, ["clinvar"])
     with pytest.raises(ValueError, match="does not train"):
         apply_train_caps(table, train, ["clinvar"], [("pg_dms", 10)], seed=42)
+
+
+# ---------------------------------------------------------------------------
+# L21. Combined vs individual across ProteinGym: pool features, never answers
+# ---------------------------------------------------------------------------
+# Added with pg-combined (2026-09-21). The combined arm trains one model on every
+# assay's training folds. Three ways that goes quietly wrong: reading the wrong
+# zero-shot column (names differ between ProteinGym's files), standardising with
+# statistics that include test rows, and — the big one — training on a SIBLING
+# assay of the same protein, where the same variant carries the same features and
+# a correlated score. 24 proteins / 55 assays in ProteinGym have siblings.
+
+def test_published_model_names_match_score_file_columns():
+    from vpdl.proteingym.combined import normalize_model_name as norm
+
+    assert norm("ESM-1v (ensemble)") == norm("ESM1v_ensemble")
+    assert norm("TranceptEVE L") == norm("TranceptEVE_L")
+    assert norm("EVE (ensemble)") == norm("EVE_ensemble")
+    assert norm("ESM2 (650M)") != norm("ESM2 (15B)")
+
+
+def test_within_assay_standardisation_uses_training_rows_only():
+    from vpdl.proteingym.combined import standardize_within_assay
+
+    train = pd.DataFrame({"DMS_id": ["A", "A", "B", "B"], "f": [0.0, 2.0, 100.0, 300.0]})
+    test = pd.DataFrame({"DMS_id": ["A", "B"], "f": [1.0, 200.0]})
+    X_train, X_test = standardize_within_assay(train, test, ["f"])
+    # Each assay on its own scale: both test rows sit at their assay's mean.
+    assert np.allclose(X_test[:, 0], 0.0)
+
+    moved = test.assign(f=[1000.0, 200.0])
+    X_train_again, _ = standardize_within_assay(train, moved, ["f"])
+    assert np.array_equal(X_train, X_train_again), "test values leaked into the statistics"
+
+
+def _sibling_frame():
+    rows = []
+    for assay in ("P_1", "P_2", "Q_1"):
+        for i in range(10):
+            rows.append({"DMS_id": assay, "fold_random_5": i % 2, "DMS_score": float(i)})
+    frame = pd.DataFrame(rows)
+    proteins = frame["DMS_id"].str[0].to_numpy()          # P_1, P_2 share protein P
+    return frame, proteins
+
+
+def test_sibling_assays_never_train_each_others_combined_model():
+    from vpdl.proteingym.combined import combined_training_masks
+
+    frame, proteins = _sibling_frame()
+    tested = np.zeros(len(frame), dtype=int)
+    for test, train in combined_training_masks(frame, "fold_random_5", proteins):
+        tested += test
+        assert not (test & train).any(), "a row trained on its own prediction"
+        test_folds = set(frame.loc[test, "fold_random_5"])
+        assert not frame.loc[train, "fold_random_5"].isin(test_folds).any()
+        for assay in frame.loc[test, "DMS_id"].unique():
+            if assay.startswith("P"):
+                sibling = "P_2" if assay == "P_1" else "P_1"
+                assert not frame.loc[train, "DMS_id"].eq(sibling).any(), \
+                    f"{assay}'s combined model trained on its sibling {sibling}"
+                assert frame.loc[train, "DMS_id"].eq(assay).any(), \
+                    "an assay's own training folds belong in its combined model"
+    assert (tested == 1).all(), "every variant must be predicted exactly once"
+
+
+def _write_pg_zips(tmp_path, corrupt_label=False):
+    import zipfile
+
+    from vpdl.proteingym.data import AMINO_ACIDS
+
+    rng = np.random.default_rng(0)
+    folds_zip, scores_zip = tmp_path / "folds.zip", tmp_path / "scores.zip"
+    published = []
+    with zipfile.ZipFile(folds_zip, "w") as folds, zipfile.ZipFile(scores_zip, "w") as scores:
+        for dms_id in ("PROTA_HUMAN_X_2020", "PROTA_HUMAN_Y_2021", "PROTB_YEAST_Z_2019"):
+            wild_type = "".join(rng.choice(list(AMINO_ACIDS), 12))
+            rows = []
+            for position in range(1, 13):
+                wt = wild_type[position - 1]
+                for mut in AMINO_ACIDS:
+                    if mut == wt:
+                        continue
+                    effect = rng.normal()
+                    rows.append({
+                        "mutant": f"{wt}{position}{mut}",
+                        "mutated_sequence": wild_type[:position - 1] + mut + wild_type[position:],
+                        "DMS_score": effect + rng.normal(0, 0.5),
+                        "fold_random_5": int(rng.integers(0, 5)),
+                        "TranceptEVE_L": effect + rng.normal(0, 0.7),
+                        "ESM1v_ensemble": effect + rng.normal(0, 0.7),
+                        "noise_model": rng.normal(),
+                    })
+            frame = pd.DataFrame(rows)
+            folds.writestr(f"{dms_id}.csv", frame[["mutant", "mutated_sequence", "DMS_score",
+                                                   "fold_random_5"]].to_csv(index=False))
+            score_file = frame.drop(columns="fold_random_5").assign(DMS_score_bin=1)
+            if corrupt_label:
+                score_file.loc[0, "DMS_score"] += 1.0
+            scores.writestr(f"{dms_id}.csv", score_file.to_csv(index=False))
+            from scipy.stats import spearmanr
+            published.append({"DMS ID": dms_id,
+                              "TranceptEVE L": spearmanr(frame["DMS_score"],
+                                                         frame["TranceptEVE_L"])[0]})
+    reference = tmp_path / "DMS_substitutions.csv"
+    pd.DataFrame({"DMS_id": ["PROTA_HUMAN_X_2020", "PROTA_HUMAN_Y_2021", "PROTB_YEAST_Z_2019"],
+                  "UniProt_ID": ["PROTA_HUMAN", "PROTA_HUMAN", "PROTB_YEAST"]}
+                 ).to_csv(reference, index=False)
+    published_csv = tmp_path / "published.csv"
+    pd.DataFrame(published).to_csv(published_csv, index=False)
+    return scores_zip, folds_zip, reference, published_csv
+
+
+def test_combined_comparison_runs_end_to_end_and_reads_scores_correctly(tmp_path):
+    from vpdl.proteingym.combined import run_comparison
+
+    scores_zip, folds_zip, reference, published = _write_pg_zips(tmp_path)
+    result, summary, reading = run_comparison(
+        scores_zip, folds_zip, reference_csv=reference, published_zero_shot_csv=published,
+        model="ridge", out_dir=tmp_path / "out")
+
+    assert len(result) == 3
+    assert result[["individual", "combined"]].notna().all().all()
+    assert result.set_index("DMS_id")["has_siblings"].to_dict() == {
+        "PROTA_HUMAN_X_2020": True, "PROTA_HUMAN_Y_2021": True, "PROTB_YEAST_Z_2019": False}
+    # Informative features: both arms must find the signal.
+    assert (result["individual"] > 0.5).all() and (result["combined"] > 0.5).all()
+    # Our raw Spearman of the TranceptEVE column equals the "published" one.
+    assert reading.loc[0, "model"] == "TranceptEVE_L"
+    assert reading.loc[0, "mean_abs_diff"] < 1e-4
+    assert summary["protein_grouping"] == "reference"
+    assert (tmp_path / "out" / "combined_ridge_fold_random_5.csv").exists()
+
+
+def test_label_disagreement_between_fold_and_score_files_stops_the_run(tmp_path):
+    from vpdl.proteingym.combined import run_comparison
+
+    scores_zip, folds_zip, reference, _ = _write_pg_zips(tmp_path, corrupt_label=True)
+    with pytest.raises(ValueError, match="join is wrong"):
+        run_comparison(scores_zip, folds_zip, reference_csv=reference,
+                       out_dir=tmp_path / "out")
