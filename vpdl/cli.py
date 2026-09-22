@@ -476,7 +476,7 @@ def cmd_slm_corpus(args: argparse.Namespace) -> int:
         return 2
     try:
         summary = build_corpus(args.out, pubmed_dir=args.pubmed, kb_dir=args.kb,
-                               limit_files=args.limit_files)
+                               limit_files=args.limit_files, workers=args.workers)
     except FileNotFoundError as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2
@@ -676,6 +676,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     slm_corpus.add_argument("--out", default="data/slm/corpus")
     slm_corpus.add_argument("--limit-files", type=int, default=None, dest="limit_files",
                             help="read only the first N PubMed files (a quick trial run)")
+    slm_corpus.add_argument("--workers", type=int, default=None,
+                            help="processes reading PubMed files (default: all cores)")
     slm_corpus.set_defaults(func=cmd_slm_corpus)
 
     slm_tok = sub.add_parser("slm-tokenizer", help="small LM: train the vocabulary")

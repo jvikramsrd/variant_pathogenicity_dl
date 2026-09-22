@@ -20,7 +20,7 @@ pip install -e ".[slm]"
 ```bash
 pytest tests/slm -q
 ```
-Expect **14 passed**. Among them: a run interrupted halfway and resumed must end
+Expect **17 passed**. Among them: a run interrupted halfway and resumed must end
 with exactly the same weights as one that never stopped.
 
 ## 1. Trial run (minutes)
@@ -52,12 +52,22 @@ add `--no-compile`.
 
 ## 2. Full run (days)
 
-Download all 1,334 files (51.8 GB), each by its exact name, from inside the
-project folder. `-c` resumes a partly downloaded file; re-running the loop
-skips finished ones. (A recursive `wget -r` does not work: NCBI's robots.txt
-tells link-following tools to stay out, and wget obeys it.)
+Download all 1,334 files (51.8 GB), each by its exact name, 8 at a time, from
+inside the project folder. `-c` resumes a partly downloaded file; re-running
+the command skips finished ones. NCBI publishes no connection limit we could
+find; 8 is a moderate level for a public server. If lines with `429` or `503`
+appear, NCBI is throttling: stop and re-run with `-P 4`. (A recursive
+`wget -r` does not work: NCBI's robots.txt tells link-following tools to stay
+out, and wget obeys it.)
 ```bash
-cd ~/variant_pathogenicity_dl && for n in $(seq -f "%04g" 1 1334); do wget -c -q --show-progress -P data/raw/pubmed https://ftp.ncbi.nlm.nih.gov/pubmed/baseline/pubmed26n$n.xml.gz; done
+cd ~/variant_pathogenicity_dl && seq -f "https://ftp.ncbi.nlm.nih.gov/pubmed/baseline/pubmed26n%04g.xml.gz" 1 1334 | xargs -n 1 -P 8 wget -c -nv --tries=5 -P data/raw/pubmed
+```
+Each finished file prints one line. Never run two download commands at once:
+two `wget`s writing the same file corrupt it.
+
+Measured speed (MB per minute; 51.8 GB takes ~9 minutes at 100 MB/s):
+```bash
+a=$(du -sm data/raw/pubmed | cut -f1); sleep 60; b=$(du -sm data/raw/pubmed | cut -f1); echo "$((b-a)) MB per minute"
 ```
 A file cut short by a dropped connection is skipped by `slm-corpus` and listed
 under `unreadable_files` in `data/slm/corpus/stats.json`: re-run the loop, then

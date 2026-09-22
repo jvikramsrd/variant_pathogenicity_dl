@@ -133,6 +133,23 @@ def test_a_truncated_download_is_skipped_and_named_not_fatal(tmp_path):
     assert "pmid:1" in documents and "pmid:4" in documents, "files after the bad one were lost"
 
 
+def test_parallel_and_single_process_builds_are_identical(tmp_path):
+    """Workers finish in any order; the corpus must not depend on it."""
+    from vpdl.slm.corpus import build_corpus
+
+    pubmed = tmp_path / "pubmed"
+    pubmed.mkdir()
+    for number in range(1, 6):
+        pmids = [number * 10 + k for k in range(4)] + [1]        # PMID 1 repeats everywhere
+        _pubmed_file(pubmed / f"pubmed26n{number:04d}.xml.gz", [_article(p) for p in pmids])
+    one = build_corpus(tmp_path / "one", pubmed_dir=pubmed, workers=1)
+    many = build_corpus(tmp_path / "many", pubmed_dir=pubmed, workers=3)
+    for name in ["train-00000.jsonl", "val.jsonl"]:
+        assert (tmp_path / "one" / name).read_bytes() == (tmp_path / "many" / name).read_bytes()
+    assert one["pubmed_decisions"] == many["pubmed_decisions"]
+    assert one["pubmed_decisions"]["duplicate_pmid"] == 4
+
+
 # -- tokenizer and token files ----------------------------------------------------------
 
 def _corpus_with_text(tmp_path, documents=400):
