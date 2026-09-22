@@ -140,7 +140,7 @@ def provides() -> SourceCapabilities:
             "feature_gnomad_oe_mis",
             "feature_gnomad_mis_z",
         ),
-        licence="ODbL / free for any use with attribution",
+        licence="CC0 1.0 (gnomad.broadinstitute.org/policies, checked 2026-09-21; attribution requested)",
         notes=(
             "Per-variant AF and ACMG flags are usable under LOPO; the three "
             "gene-level constraint columns are gene-constant and MUST be "

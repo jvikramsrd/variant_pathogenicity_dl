@@ -410,8 +410,8 @@ python main.py --gene TP53,BRCA1,PTEN --extra_features all \
 ## 13. gnomAD v4 allele frequencies
 
 * **API**: `https://gnomad.broadinstitute.org/api` (GraphQL), dataset `gnomad_r4`.
-* **Licence**: gnomAD data is in the public domain (ODbL-compatible terms; see
-  the gnomAD site for the current statement).
+* **Licence**: CC0 1.0 public domain dedication; attribution requested
+  (gnomad.broadinstitute.org/policies, checked 2026-09-21).
 * **Content**: per-gene missense substitutions with genome/exome/joint AF,
   AC, AN. Joined onto the master table by `(gene, position, wt_aa, mut_aa)`.
 * **Processing rules** (`src/gnomad.py`): HGVSp parsing rejects fs/ext/*
