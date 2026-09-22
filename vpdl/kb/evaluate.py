@@ -128,6 +128,8 @@ def evaluate(
             "variant_lookup_correct": (f"{variant_hits}/{len(variant_questions)}"
                                        if variant_hits is not None else None),
             "mean_seconds": share(r["seconds"] for r in rows),
+            # Where the model actually ran, as Ollama reported it (1.0 = all on GPU).
+            "gpu_share": getattr(client, "gpu_share", {}).get(model),
         })
     (out / "summary.json").write_text(json.dumps(summaries, indent=2))
     return summaries

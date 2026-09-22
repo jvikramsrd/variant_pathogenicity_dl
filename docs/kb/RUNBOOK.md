@@ -94,6 +94,40 @@ Each model's answers are written to `runs/kb/answers_<model>.jsonl` (passage ids
 not passage text). Reading them is the faithfulness check — whether each
 sentence really says what its cited passage says — and it needs a person.
 
+## Is it on the GPU?
+
+Ollama decides by itself whether a model runs on the GPU, and when it cannot use
+the GPU it quietly runs on the CPU: answers still come, 10-50x slower. So every
+`kb-*` command checks. After each model's first use it asks Ollama where the
+model loaded, logs `bge-m3: 100% on GPU`, and **stops** if any part is on the
+CPU. `kb-eval` also records it per model as `gpu_share` (1.0 = all on GPU).
+
+To look yourself while something is running:
+```bash
+ollama ps
+```
+The `PROCESSOR` column should read `100% GPU`. Anything with `CPU` in it means
+the GPU is not being used (fully or partly).
+
+If a command stops with "running ...% on the CPU":
+
+1. Check the driver sees the GPU (it should list the GB10):
+```bash
+nvidia-smi
+```
+2. Restart Ollama so it looks for the GPU again, then re-run the command:
+```bash
+sudo systemctl restart ollama
+```
+3. Still on the CPU? See what Ollama found when it started, and paste this:
+```bash
+journalctl -u ollama --no-pager | grep -iE "gpu|cuda|inference compute" | tail -20
+```
+
+`--allow-cpu` runs anyway. Use it only to test, never for an evaluation you
+will report: the timing would be wrong, and it hides the problem. If `ollama ps`
+says `100% GPU` but `vpdl` says otherwise, paste both outputs.
+
 ## Honest limits of the evaluation
 
 - All 24 answerable questions come from one chapter (Lynch syndrome). Searching

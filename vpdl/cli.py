@@ -377,6 +377,14 @@ def cmd_kb_build(args: argparse.Namespace) -> int:
     from vpdl.kb.search import KnowledgeIndex
     from vpdl.kb.variants import build_variant_db
 
+    try:
+        return _kb_build(args, load_genereviews, LocalOllama, KnowledgeIndex, build_variant_db)
+    except RuntimeError as error:                 # Ollama down, model missing, or on CPU
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+
+
+def _kb_build(args, load_genereviews, LocalOllama, KnowledgeIndex, build_variant_db) -> int:
     kb = Path(args.kb)
     did_something = False
     if args.genereviews:
@@ -387,7 +395,7 @@ def cmd_kb_build(args: argparse.Namespace) -> int:
         chunks = load_genereviews(args.genereviews, args.chapter_ids)
         embeddings = None
         if not args.no_embed:
-            client = LocalOllama()
+            client = LocalOllama(require_gpu=not args.allow_cpu)
             embeddings = KnowledgeIndex.embed_chunks(
                 chunks, lambda texts: client.embed(texts, args.embed_model))
         KnowledgeIndex(chunks, embeddings, None if args.no_embed else args.embed_model).save(kb)
@@ -428,7 +436,8 @@ def cmd_kb_ask(args: argparse.Namespace) -> int:
     _utf8_stdout()
     try:
         index, variant_db, evidence = _open_kb(args)
-        answer = ask(" ".join(args.question), index, LocalOllama(), args.model,
+        answer = ask(" ".join(args.question), index,
+                     LocalOllama(require_gpu=not args.allow_cpu), args.model,
                      k=args.k, variant_db=variant_db, evidence=evidence)
     except (FileNotFoundError, RuntimeError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
@@ -444,7 +453,8 @@ def cmd_kb_eval(args: argparse.Namespace) -> int:
     _utf8_stdout()
     try:
         index, variant_db, _ = _open_kb(args)
-        summaries = evaluate(load_questions(args.questions), index, LocalOllama(),
+        summaries = evaluate(load_questions(args.questions), index,
+                             LocalOllama(require_gpu=not args.allow_cpu),
                              args.models, args.out, k=args.k, variant_db=variant_db)
     except (FileNotFoundError, RuntimeError, ValueError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
@@ -575,6 +585,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     kb_build.add_argument("--clinvar", default=None, help="variant_summary.txt.gz")
     kb_build.add_argument("--genes", nargs="+", default=["MLH1", "MSH2", "MSH6", "PMS2", "EPCAM"],
                           help="genes for the ClinVar lookup; 'all' for every gene")
+    kb_build.add_argument("--allow-cpu", action="store_true", dest="allow_cpu",
+                        help="run even if Ollama puts the model on the CPU "
+                             "(default: stop, so a slow CPU run is never silent)")
     kb_build.set_defaults(func=cmd_kb_build)
 
     kb_ask = sub.add_parser("kb-ask", help="ask the knowledge base a question")
@@ -585,6 +598,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     kb_ask.add_argument("--evidence", default="data/built/mmr.csv",
                         help="vpdl table with AlphaMissense/gnomAD values (optional)")
     kb_ask.add_argument("--show-retrieved", action="store_true", dest="show_retrieved")
+    kb_ask.add_argument("--allow-cpu", action="store_true", dest="allow_cpu",
+                        help="run even if Ollama puts the model on the CPU "
+                             "(default: stop, so a slow CPU run is never silent)")
     kb_ask.set_defaults(func=cmd_kb_ask)
 
     kb_eval = sub.add_parser("kb-eval", help="score models on the evaluation questions")
@@ -593,6 +609,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     kb_eval.add_argument("--models", nargs="+", default=["llama3.1:8b"])
     kb_eval.add_argument("--k", type=int, default=6)
     kb_eval.add_argument("--out", default="runs/kb")
+    kb_eval.add_argument("--allow-cpu", action="store_true", dest="allow_cpu",
+                        help="run even if Ollama puts the model on the CPU "
+                             "(default: stop, so a slow CPU run is never silent)")
     kb_eval.set_defaults(func=cmd_kb_eval)
 
     args = parser.parse_args(argv)

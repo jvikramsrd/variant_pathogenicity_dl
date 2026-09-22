@@ -237,30 +237,87 @@ def test_the_client_refuses_any_machine_but_this_one():
     assert LocalOllama("http://localhost:11434").url == "http://localhost:11434"
 
 
-def test_chat_sets_a_context_window_big_enough_for_the_passages(monkeypatch):
-    """Ollama's default window truncates from the start: the rules go first."""
+class _Response(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _fake_ollama(monkeypatch, size_vram_share=1.0, calls=None):
+    """A stand-in Ollama: /api/chat, /api/embed, and /api/ps reporting where the
+    model sits (share of its bytes in GPU memory)."""
     import vpdl.kb.ollama as ollama
 
     sent = {}
 
-    class Response(io.BytesIO):
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            return False
-
     def fake_urlopen(request, timeout):
+        path = request.full_url.rsplit(":11434", 1)[-1]
+        if calls is not None:
+            calls.append(path)
+        if path == "/api/ps":
+            size = 5_000_000_000
+            return _Response(json.dumps({"models": [
+                {"name": "m:latest", "model": "m:latest", "size": size,
+                 "size_vram": int(size * size_vram_share)}]}).encode())
         sent.update(json.loads(request.data))
-        return Response(json.dumps(
+        if path == "/api/embed":
+            return _Response(json.dumps({"embeddings": [[0.1, 0.2]]}).encode())
+        return _Response(json.dumps(
             {"message": {"content": "<think>hidden</think>Answer [S1]."}}).encode())
 
     monkeypatch.setattr(ollama.urllib.request, "urlopen", fake_urlopen)
+    return ollama, sent
+
+
+def test_chat_sets_a_context_window_big_enough_for_the_passages(monkeypatch):
+    """Ollama's default window truncates from the start: the rules go first."""
+    ollama, sent = _fake_ollama(monkeypatch)
     reply = ollama.LocalOllama().chat([{"role": "user", "content": "q"}], "m")
     assert reply == "Answer [S1]."
     assert sent["options"]["num_ctx"] >= 8192
     assert sent["options"]["temperature"] == 0
     assert sent["stream"] is False
+
+
+def test_a_model_that_ollama_put_on_the_cpu_stops_the_run(monkeypatch):
+    """Ollama falls back to the CPU without an error; answers just arrive 10-50x
+    slower. The client asks where the model loaded instead of assuming."""
+    ollama, _ = _fake_ollama(monkeypatch, size_vram_share=0.0)
+    with pytest.raises(RuntimeError, match="on the CPU"):
+        ollama.LocalOllama().chat([{"role": "user", "content": "q"}], "m")
+    with pytest.raises(RuntimeError, match="on the CPU"):
+        ollama.LocalOllama().embed(["x"], "m")
+
+
+def test_a_partly_offloaded_model_also_stops_the_run(monkeypatch):
+    ollama, _ = _fake_ollama(monkeypatch, size_vram_share=0.8)
+    with pytest.raises(RuntimeError, match="20% on the CPU"):
+        ollama.LocalOllama().chat([{"role": "user", "content": "q"}], "m")
+
+
+def test_allow_cpu_runs_anyway_but_records_where(monkeypatch):
+    ollama, _ = _fake_ollama(monkeypatch, size_vram_share=0.0)
+    client = ollama.LocalOllama(require_gpu=False)
+    assert client.chat([{"role": "user", "content": "q"}], "m") == "Answer [S1]."
+    assert client.gpu_share["m"] == 0.0
+
+
+def test_the_gpu_is_checked_once_per_model_not_per_question(monkeypatch):
+    calls = []
+    ollama, _ = _fake_ollama(monkeypatch, calls=calls)
+    client = ollama.LocalOllama()
+    for _ in range(3):
+        client.chat([{"role": "user", "content": "q"}], "m")
+    assert calls.count("/api/ps") == 1
+    assert client.gpu_share == {"m": 1.0}
+
+
+def test_untagged_model_names_match_ollamas_latest_tag(monkeypatch):
+    ollama, _ = _fake_ollama(monkeypatch)
+    assert ollama.LocalOllama().placement("m") == 1.0          # listed as "m:latest"
+    assert ollama.LocalOllama().placement("other") is None
 
 
 def test_a_stopped_server_gives_an_instruction_not_a_traceback(monkeypatch):
