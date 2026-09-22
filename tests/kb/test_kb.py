@@ -216,6 +216,35 @@ def test_a_short_numeric_answer_counts_as_an_answer():
     assert check_citations("66-71 years [S3].", 6).ok
 
 
+def test_annotated_citations_count_but_only_their_passage_numbers():
+    """llama3.1 wrote "[S1 Note: 9]" on the DGX. It cites S1; the 9 is a footnote."""
+    from vpdl.kb.answer import check_citations
+    result = check_citations("Testing PMS2 is difficult because of pseudogenes "
+                             "[S1 Note: 9]. Homology also complicates it "
+                             "[S2 Gene ^1: PMS2; Special Consideration].", 6)
+    assert result.ok and result.cited == [1, 2]
+
+
+def test_copied_literature_references_are_not_citations():
+    """llama3.1 copied GeneReviews' own references instead of citing a passage.
+    The words may be right, but nothing says which passage they came from."""
+    from vpdl.kb.answer import check_citations
+    result = check_citations("Approximately 3% of unselected CRCs "
+                             "[Pearlman et al 2017, Jiang et al 2019].", 6)
+    assert not result.ok and result.reason == "uncited_sentence"
+
+
+def test_an_uncited_closing_remark_is_withheld_on_purpose():
+    """qwen3 added "emphasized across multiple guidelines", which no passage said.
+    Strictness about closing remarks is what caught it."""
+    from vpdl.kb.answer import check_citations
+    result = check_citations(
+        "The most effective way is risk-reducing hysterectomy with bilateral "
+        "salpingo-oophorectomy [S1][S3]. This approach is emphasized across "
+        "multiple guidelines as the primary preventive strategy.", 6)
+    assert not result.ok and result.reason == "uncited_sentence"
+
+
 def test_a_short_uncited_number_is_still_withheld():
     from vpdl.kb.answer import check_citations
     result = check_citations("The risk is 48% [S1]. Also 12%.", 6)

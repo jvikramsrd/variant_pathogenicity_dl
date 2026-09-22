@@ -139,3 +139,9 @@ says `100% GPU` but `vpdl` says otherwise, paste both outputs.
   quality in anything published.
 - Keyword matching checks that the key fact appears, not that the answer is
   right in every word.
+- After the first DGX run (2026-09-22) the prompt and the citation reader were
+  changed in response to its answers (docs/RUNLOG.md). The 37 questions are now
+  a development set; accuracy must be measured on new questions.
+- A cited, verbatim answer can still be wrong for the question — llama3.1:8b did
+  exactly that on the first run. Reading the answers is part of every
+  evaluation, not optional.

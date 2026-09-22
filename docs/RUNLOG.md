@@ -40,6 +40,30 @@ Reading it:
   and decide the fix: prompt format vs. citation rule.
 - qwen3 is 20x slower, most likely its thinking mode.
 
+**Answer review (same day).** Every answer that failed or was withheld was read:
+- **llama3.1:8b gave one clinically misleading answer that passed every
+  check** (`ihc-mlh1-pms2-loss`). The source's first step for MLH1/PMS2 loss is
+  BRAF and/or MLH1 promoter methylation testing on the tumour; llama answered
+  with the step that comes after it ("germline or paired germline/tumor
+  testing"). Verbatim words, valid citations, wrong for the question.
+  **llama3.1:8b is disqualified** for this use. qwen3:32b answered it correctly.
+- llama's 5 "uncited" answers were correct but copied GeneReviews' literature
+  references ("[Pearlman et al 2017, ...]") instead of passage numbers; its
+  `pms2-difficult` answer cited as "[S1 Note: 9]", which the check did not read.
+- qwen3's 5 "uncited" answers cited once per paragraph or added a closing
+  sentence. One closing sentence ("emphasized across multiple guidelines") is
+  not in any passage — the strict rule caught a real embellishment, so it stays.
+- The three llama "empty" answers ("48% [S1]", "38% [S2]", "66-71 years
+  [S2][S5]") were correct.
+
+Changes: the citation check reads "[S1 Note: 9]" as S1; the prompt now forbids
+copying literature references and closing remarks, requires a citation on
+every sentence, asks for steps in order, and shows a format example.
+**These changes were made after reading the evaluation's answers, so the next
+run on the same 32 questions is a development result, not a clean test.** A
+fresh question set, written before looking at answers, is owed before any
+accuracy claim.
+
 ---
 
 ## 2026-09-21 (DGX Spark) — ProteinGym combined vs individual: combining HURTS, 212 of 217 assays

@@ -28,11 +28,18 @@ DISCLAIMER = ("RESEARCH USE ONLY. Decision support for qualified experts; "
 SYSTEM_PROMPT = f"""You answer questions from clinical genetics researchers and clinicians, using ONLY the numbered source passages you are given.
 
 Rules:
-1. Every sentence must end with at least one citation such as [S1] or [S2][S3], naming the passage(s) that state it.
-2. Use only what the passages state. Do not add anything from memory, even if you believe it is true.
-3. If the passages do not answer the question, reply with exactly: {NOT_FOUND}
-4. Never say whether a specific variant is pathogenic, benign or uncertain. Variant classifications are reported separately from the database.
-5. Be concise. Copy numbers, ages, intervals and gene names exactly as written in the passages."""
+1. Every sentence must end with its own citation such as [S1] or [S2][S3], naming the passage(s) that state it — even when the sentence before cites the same passage.
+2. Cite with passage numbers only. References inside the passages, such as [Smith et al 2020], are not citations: do not copy them.
+3. Use only what the passages state. Do not add anything from memory, even if you believe it is true.
+4. Do not add introductions, summaries or concluding remarks. Every sentence must state something a passage says.
+5. If the passages do not answer the question, reply with exactly: {NOT_FOUND}
+6. Never say whether a specific variant is pathogenic, benign or uncertain. Variant classifications are reported separately from the database.
+7. Be concise. Copy numbers, ages, intervals and gene names exactly as written in the passages.
+8. When a passage gives steps in order, keep the order; do not skip to a later step.
+
+Format example (the content here is invented; only the format matters):
+Question: How often is the scan repeated?
+Answer: The scan is repeated every 2 years from age 40 [S2]. It is not recommended before age 30 [S2][S5]."""
 
 
 class ModelClient(Protocol):
@@ -50,7 +57,10 @@ def build_messages(question: str, passages: Sequence[Chunk]) -> list[dict]:
 
 # -- citation check -----------------------------------------------------------
 
-_CITATION = re.compile(r"\[\s*S\d+(?:\s*[,;]\s*S?\d+)*\s*\]")
+# "[S1]", "[S1, S3]", "[S1; S2]" — and "[S1 Note: 9]", which llama3.1 wrote on
+# the first DGX run: only the S-numbers are passage numbers, never the "9".
+_CITATION = re.compile(r"\[\s*S\d+[^\]]*\]")
+_PASSAGE_NUMBER = re.compile(r"(?<![A-Za-z])S\s*(\d+)")
 _ABBREVIATIONS = ("e.g.", "i.e.", "et al.", "vs.", "approx.", "Fig.", "No.", "Dr.", "ca.")
 _SPLIT = re.compile(r"(?<=[.!?])\s+")
 _LEADING_CITATIONS = re.compile(r"^((?:\[[^\]]*\]\s*)+)(.*)$", re.DOTALL)
@@ -117,7 +127,7 @@ def check_citations(answer: str, n_passages: int) -> CitationCheck:
             continue
         claims += 1
         numbers = [int(n) for group in _CITATION.findall(sentence)
-                   for n in re.findall(r"\d+", group)]
+                   for n in _PASSAGE_NUMBER.findall(group)]
         if not numbers:
             return CitationCheck(False, "uncited_sentence", sentence[:200])
         bad = [n for n in numbers if not 1 <= n <= n_passages]
