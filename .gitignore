@@ -69,3 +69,8 @@ Thumbs.db
 # Knowledge base: GeneReviews passages, embeddings, ClinVar lookup table.
 # Regenerable with `vpdl kb-build`; GeneReviews text is not ours to republish.
 data/kb/
+
+# Small LM: corpus shards, token files, checkpoints. Regenerable; far too large for git.
+data/slm/
+runs/slm/**/checkpoint.pt
+runs/slm/**/final/

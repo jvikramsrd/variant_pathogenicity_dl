@@ -18,6 +18,8 @@ dependencies = [
 # Tabular models. The expected headline arm: v1's own results already showed a
 # curated-feature head beating every ESM cell in the grid.
 gbm = ["xgboost>=2.0", "lightgbm>=4.1"]
+# Small language model from scratch (docs/slm/). torch is installed separately.
+slm = ["tokenizers>=0.20", "transformers>=4.46"]
 
 # Protein language model branch. torch is NOT pinned here on purpose --
 # see the platform note below.

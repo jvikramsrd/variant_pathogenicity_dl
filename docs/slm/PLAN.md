@@ -1,8 +1,17 @@
 # A small language model trained from scratch — plan
 
-Status: **proposal, nothing built** (2026-09-22). Numbers below were checked on
-that date; the DGX's own training speed is measured in step 0 before any size
-is fixed.
+Status: **steps 1–4 built, not yet run on the DGX** (2026-09-22). Code:
+`vpdl/slm/`; how to run: [RUNBOOK.md](RUNBOOK.md).
+
+Measured on the DGX (step 0, 2026-09-22): **90.1 TFLOPS** BF16 on an 8192×8192
+matrix multiply. Refined estimate, counting attention at a 2,048-token context
+and assuming ~40% of that sustained: small (~110M, 2.5B tokens) **~17 hours**,
+medium (~340M, 7B tokens) **~6 days**. `vpdl slm-train --benchmark` replaces
+these with measured figures before the real run.
+
+Decided while building: pretraining uses a **2,048-token** context (4,096 would
+add ~70% compute for the small model through attention alone); the context is
+extended to 4,096 during task tuning, where the reader needs six passages.
 
 ## What "from scratch" means here
 
@@ -31,16 +40,18 @@ refusal test as medgemma:27b.
 
 ## Compute budget
 
-Training cost ≈ 6 × parameters × tokens. StorageReview measured ~100 TFLOPS of
-achievable BF16 matrix throughput on the DGX Spark; training typically sustains
-35–50% of that. At 40 TFLOPS:
+Training cost per token ≈ 6 × parameters, plus attention over the context
+(12 × layers × width × context). Measured DGX peak: 90.1 TFLOPS BF16; training
+typically sustains 35–50% of peak. At ~36 TFLOPS sustained, 2,048-token context:
 
 | Size | Tokens | Time on the DGX |
 |---|---|---|
-| 125M | 2.5B (20 tokens per parameter, the Chinchilla rule) | ~13 hours |
-| 125M | 10B | ~2 days |
-| 350M | 7B | ~4 days |
-| 1B | 20B | ~5 weeks — not practical here |
+| small (~110M) | 2.5B (20 tokens per parameter, the Chinchilla rule) | ~17 hours |
+| small | 10B | ~3 days |
+| medium (~340M) | 7B | ~6 days |
+| 1B | 20B | ~5–6 weeks — not practical here |
+
+`vpdl slm-train --benchmark 20` measures the real figure on real data first.
 
 ## Data
 
@@ -58,12 +69,16 @@ distributed** until the licences have been reviewed for releasing weights.
 
 ## Model
 
-- **Tokenizer:** our own byte-pair vocabulary (~32k) trained on the corpus, so
-  gene symbols and variant notation (MLH1, c.199G>A) split into few pieces.
-  BioGPT did the same (42,384 tokens).
+- **Tokenizer:** our own byte-level byte-pair vocabulary (32k) trained on the
+  corpus (BioGPT also trained its own: 42,384 tokens). Any text round-trips
+  exactly; identifiers split at letter/digit/punctuation boundaries
+  ("MLH1" → "MLH" + "1"; "c.199G>A" → "c" "." "199" "G" ">" "A") rather than at
+  arbitrary points, and `tokenizer_meta.json` records how probe terms split.
 - **Architecture:** Llama-style decoder (RoPE, RMSNorm, SwiGLU).
-  125M = 12 layers × 768 wide; 350M = 24 layers × 1024 wide.
-- **Context: 4,096 tokens** — the reader must see 6 passages (~3–4k tokens).
+  small (~110M with the 32k vocabulary) = 12 layers × 768 wide;
+  medium (~340M) = 24 layers × 1024 wide.
+- **Context:** 2,048 tokens in pretraining; extended to 4,096 in task tuning,
+  where the reader must see 6 passages (~3–4k tokens).
 - Built as a Hugging Face `LlamaForCausalLM` with **random** weights, so it
   exports to GGUF → Ollama → `kb-eval` unchanged, GPU check included.
 
@@ -87,9 +102,9 @@ the passages, cite `[S#]` on every sentence, and say `NOT_FOUND`.
 1. **Corpus:** download PubMed abstracts; add GeneReviews, MedlinePlus, ClinGen
    text; remove duplicates; hold out 1% (1–2 days, mostly downloading).
 2. **Tokenizer** (hours).
-3. **Pretrain 125M** as the pipeline check (~1 day). Pass: held-out perplexity
+3. **Pretrain small (~110M)** as the pipeline check (~17 hours). Pass: held-out perplexity
    falls steadily; samples read as biomedical text.
-4. **Pretrain 350M** if the 125M run is sane (~4–5 days).
+4. **Pretrain medium (~340M)** if the small run is sane (~6 days).
 5. **Generate and filter** task examples (1–2 days); fine-tune (hours).
 6. **Export and evaluate** with `kb-eval` on fresh questions against
    medgemma:27b. The bar: `refused_correctly` = 1.0 first, then correct facts.

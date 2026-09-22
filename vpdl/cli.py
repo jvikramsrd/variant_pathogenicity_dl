@@ -7,6 +7,7 @@
     vpdl train --data T --model gbm      leave-one-gene-out over a built table
     vpdl compare --runs runs/            pool cells, provenance-gated
     vpdl kb-build / kb-ask / kb-eval     local knowledge base (docs/kb/)
+    vpdl slm-corpus / -tokenizer / -pack / -train   small LM from scratch (docs/slm/)
 """
 
 from __future__ import annotations
@@ -465,6 +466,59 @@ def cmd_kb_eval(args: argparse.Namespace) -> int:
     return 0
 
 
+# -- small language model from scratch (docs/slm/) --------------------------------
+
+def cmd_slm_corpus(args: argparse.Namespace) -> int:
+    from vpdl.slm.corpus import build_corpus
+
+    if args.pubmed is None and args.kb is None:
+        print("ERROR: pass --pubmed and/or --kb.", file=sys.stderr)
+        return 2
+    try:
+        summary = build_corpus(args.out, pubmed_dir=args.pubmed, kb_dir=args.kb,
+                               limit_files=args.limit_files)
+    except FileNotFoundError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+    print(json.dumps(summary, indent=2))
+    return 0
+
+
+def cmd_slm_tokenizer(args: argparse.Namespace) -> int:
+    from vpdl.slm.tokenizer import train_tokenizer
+
+    _utf8_stdout()
+    meta = train_tokenizer(args.corpus, args.out, vocab_size=args.vocab,
+                           sample_bytes=args.sample_gb * 1e9)
+    print(json.dumps(meta, indent=2, ensure_ascii=False))
+    return 0
+
+
+def cmd_slm_pack(args: argparse.Namespace) -> int:
+    from vpdl.slm.pack import pack
+
+    meta = pack(args.corpus, args.tokenizer, args.out)
+    print(json.dumps(meta["splits"], indent=2))
+    return 0
+
+
+def cmd_slm_train(args: argparse.Namespace) -> int:
+    from vpdl.slm.model import DEFAULTS
+    from vpdl.slm.train import TrainConfig, train
+
+    defaults = DEFAULTS[args.size]
+    config = TrainConfig(size=args.size, context=args.context, micro_batch=args.micro_batch,
+                         total_tokens=int(args.tokens or defaults["tokens"]),
+                         lr=args.lr or defaults["lr"], seed=args.seed, compile=args.compile)
+    try:
+        result = train(args.data, args.out, config, benchmark_steps=args.benchmark)
+    except (ValueError, RuntimeError, FileNotFoundError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 2
+    print(json.dumps(result, indent=2))
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="vpdl", description=__doc__)
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -616,7 +670,48 @@ def main(argv: Sequence[str] | None = None) -> int:
                              "(default: stop, so a slow CPU run is never silent)")
     kb_eval.set_defaults(func=cmd_kb_eval)
 
+    slm_corpus = sub.add_parser("slm-corpus", help="small LM: build the pretraining text")
+    slm_corpus.add_argument("--pubmed", default=None, help="folder of pubmed*.xml.gz files")
+    slm_corpus.add_argument("--kb", default=None, help="knowledge base folder (GeneReviews passages)")
+    slm_corpus.add_argument("--out", default="data/slm/corpus")
+    slm_corpus.add_argument("--limit-files", type=int, default=None, dest="limit_files",
+                            help="read only the first N PubMed files (a quick trial run)")
+    slm_corpus.set_defaults(func=cmd_slm_corpus)
+
+    slm_tok = sub.add_parser("slm-tokenizer", help="small LM: train the vocabulary")
+    slm_tok.add_argument("--corpus", default="data/slm/corpus")
+    slm_tok.add_argument("--out", default="data/slm/tokenizer.json")
+    slm_tok.add_argument("--vocab", type=int, default=32_000)
+    slm_tok.add_argument("--sample-gb", type=float, default=2.0, dest="sample_gb",
+                         help="train on an even sample of about this much text")
+    slm_tok.set_defaults(func=cmd_slm_tokenizer)
+
+    slm_pack = sub.add_parser("slm-pack", help="small LM: text -> token files")
+    slm_pack.add_argument("--corpus", default="data/slm/corpus")
+    slm_pack.add_argument("--tokenizer", default="data/slm/tokenizer.json")
+    slm_pack.add_argument("--out", default="data/slm")
+    slm_pack.set_defaults(func=cmd_slm_pack)
+
+    slm_train = sub.add_parser("slm-train", help="small LM: pretrain from random weights")
+    slm_train.add_argument("--data", default="data/slm")
+    slm_train.add_argument("--out", default=None, help="default: runs/slm/<size>")
+    slm_train.add_argument("--size", default="small", choices=["tiny", "small", "medium"])
+    slm_train.add_argument("--tokens", type=float, default=None,
+                           help="training tokens (default ~20 per parameter: small 2.5e9, medium 7e9)")
+    slm_train.add_argument("--context", type=int, default=2048)
+    slm_train.add_argument("--micro-batch", type=int, default=16, dest="micro_batch")
+    slm_train.add_argument("--lr", type=float, default=None,
+                           help="peak learning rate (default: small 6e-4, medium 3e-4)")
+    slm_train.add_argument("--seed", type=int, default=0)
+    slm_train.add_argument("--compile", action="store_true",
+                           help="torch.compile the model (faster if it works on this GPU)")
+    slm_train.add_argument("--benchmark", type=int, default=0, metavar="STEPS",
+                           help="run this many steps, report speed and projected time, save nothing")
+    slm_train.set_defaults(func=cmd_slm_train)
+
     args = parser.parse_args(argv)
+    if getattr(args, "func", None) is cmd_slm_train and args.out is None:
+        args.out = f"runs/slm/{args.size}"
     _configure_logging(args.verbose)
     return int(args.func(args) or 0)
 
