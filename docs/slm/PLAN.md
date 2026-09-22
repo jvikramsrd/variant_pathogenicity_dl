@@ -3,11 +3,10 @@
 Status: **steps 1–4 built, not yet run on the DGX** (2026-09-22). Code:
 `vpdl/slm/`; how to run: [RUNBOOK.md](RUNBOOK.md).
 
-Measured on the DGX (step 0, 2026-09-22): **90.1 TFLOPS** BF16 on an 8192×8192
-matrix multiply. Refined estimate, counting attention at a 2,048-token context
-and assuming ~40% of that sustained: small (~110M, 2.5B tokens) **~17 hours**,
-medium (~340M, 7B tokens) **~6 days**. `vpdl slm-train --benchmark` replaces
-these with measured figures before the real run.
+Measured on the DGX (2026-09-22): peak **90.1 TFLOPS** BF16 (matrix multiply);
+training the small model reached **30.7 TFLOPS with `torch.compile`** (20.4
+without) — **~20 hours** for 2.5B tokens. Medium (~340M, 7B tokens): ~7 days
+by the same arithmetic, to be benchmarked. Details: docs/RUNLOG.md.
 
 Decided while building: pretraining uses a **2,048-token** context (4,096 would
 add ~70% compute for the small model through attention alone); the context is
@@ -41,17 +40,15 @@ refusal test as medgemma:27b.
 ## Compute budget
 
 Training cost per token ≈ 6 × parameters, plus attention over the context
-(12 × layers × width × context). Measured DGX peak: 90.1 TFLOPS BF16; training
-typically sustains 35–50% of peak. At ~36 TFLOPS sustained, 2,048-token context:
+(12 × layers × width × context). Measured on the DGX: 90.1 TFLOPS peak; 30.7
+TFLOPS sustained while training the small model with `torch.compile`.
 
 | Size | Tokens | Time on the DGX |
 |---|---|---|
-| small (~110M) | 2.5B (20 tokens per parameter, the Chinchilla rule) | ~17 hours |
-| small | 10B | ~3 days |
-| medium (~340M) | 7B | ~6 days |
-| 1B | 20B | ~5–6 weeks — not practical here |
-
-`vpdl slm-train --benchmark 20` measures the real figure on real data first.
+| small (~110M) | 2.5B (20 tokens per parameter, the Chinchilla rule) | **20 h (measured projection)** |
+| small | 10B | ~3.3 days |
+| medium (~340M) | 7B | ~7 days (estimate; benchmark first) |
+| 1B | 20B | ~6–7 weeks — not practical here |
 
 ## Data
 

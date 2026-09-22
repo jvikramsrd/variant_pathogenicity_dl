@@ -16,6 +16,7 @@ import hashlib
 import json
 import logging
 import time
+import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
 from typing import Iterator
@@ -35,7 +36,9 @@ def in_validation(doc_id: str, per_mille: int = VALIDATION_PER_MILLE) -> bool:
 
 
 def iter_documents(pubmed_dir: Path | str | None, kb_dir: Path | str | None,
-                   stats: Counter, limit_files: int | None = None) -> Iterator[dict]:
+                   stats: Counter, limit_files: int | None = None,
+                   unreadable: list[str] | None = None) -> Iterator[dict]:
+    unreadable = unreadable if unreadable is not None else []
     if pubmed_dir is not None:
         files = sorted(Path(pubmed_dir).glob("pubmed*.xml*"))
         if limit_files:
@@ -44,12 +47,21 @@ def iter_documents(pubmed_dir: Path | str | None, kb_dir: Path | str | None,
             raise FileNotFoundError(f"No pubmed*.xml.gz files in {pubmed_dir}.")
         seen: set[str] = set()
         for index, path in enumerate(files, start=1):
-            for abstract in iter_abstracts(path, stats):
-                if abstract.pmid in seen:
-                    stats["duplicate_pmid"] += 1
-                    continue
-                seen.add(abstract.pmid)
-                yield {"id": f"pmid:{abstract.pmid}", "source": "pubmed", "text": abstract.text}
+            try:
+                for abstract in iter_abstracts(path, stats):
+                    if abstract.pmid in seen:
+                        stats["duplicate_pmid"] += 1
+                        continue
+                    seen.add(abstract.pmid)
+                    yield {"id": f"pmid:{abstract.pmid}", "source": "pubmed",
+                           "text": abstract.text}
+            except (EOFError, OSError, ET.ParseError) as error:
+                # A truncated download must not cost an hour-long build. The file
+                # is named in stats.json; re-download it (wget -c) and rebuild.
+                stats["unreadable_files"] += 1
+                unreadable.append(path.name)
+                logger.warning("%s could not be read (%s: %s); skipped.",
+                               path.name, type(error).__name__, error)
             if index % 50 == 0 or index == len(files):
                 logger.info("PubMed: %d/%d files, %d abstracts kept", index, len(files),
                             stats["kept"])
@@ -76,12 +88,13 @@ def build_corpus(out_dir: Path | str, pubmed_dir: Path | str | None = None,
         old.unlink()                         # a rebuild never mixes with an old corpus
     started = time.time()
     stats: Counter = Counter()
+    unreadable: list[str] = []
     per_source: dict[str, Counter] = {}
     shard, in_shard = 0, 0
     train = (out / f"train-{shard:05d}.jsonl").open("w", encoding="utf-8")
     val = (out / "val.jsonl").open("w", encoding="utf-8")
     try:
-        for doc in iter_documents(pubmed_dir, kb_dir, stats, limit_files):
+        for doc in iter_documents(pubmed_dir, kb_dir, stats, limit_files, unreadable):
             split = "val" if in_validation(doc["id"]) else "train"
             counts = per_source.setdefault(doc["source"], Counter())
             counts[f"{split}_documents"] += 1
@@ -107,6 +120,7 @@ def build_corpus(out_dir: Path | str, pubmed_dir: Path | str | None = None,
         "kb_dir": str(kb_dir) if kb_dir else None,
         "validation_per_mille": VALIDATION_PER_MILLE,
         "pubmed_decisions": dict(stats),
+        "unreadable_files": unreadable,
         "sources": {name: dict(counts) for name, counts in per_source.items()},
         "train_shards": shard + 1,
         "seconds": round(time.time() - started, 1),

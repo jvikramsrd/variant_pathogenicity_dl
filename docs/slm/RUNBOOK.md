@@ -46,14 +46,23 @@ Measure the real training speed (20 steps; saves nothing):
 vpdl slm-train --size small --benchmark 20
 ```
 It prints `tokens_per_s`, achieved `tflops`, and `projected_hours` for the
-full small run. Try once more with `--compile`; keep whichever is faster.
+full small run. `torch.compile` is on by default (measured 2026-09-22: 34,700
+vs 23,000 tokens/s, identical losses); if compilation fails on some machine,
+add `--no-compile`.
 
 ## 2. Full run (days)
 
-Download all 1,334 files (51.8 GB; `-c` resumes if interrupted):
+Download all 1,334 files (51.8 GB), each by its exact name, from inside the
+project folder. `-c` resumes a partly downloaded file; re-running the loop
+skips finished ones. (A recursive `wget -r` does not work: NCBI's robots.txt
+tells link-following tools to stay out, and wget obeys it.)
 ```bash
-wget -c -r -np -nd -A "pubmed26n*.xml.gz" -P data/raw/pubmed https://ftp.ncbi.nlm.nih.gov/pubmed/baseline/
+cd ~/variant_pathogenicity_dl && for n in $(seq -f "%04g" 1 1334); do wget -c -q --show-progress -P data/raw/pubmed https://ftp.ncbi.nlm.nih.gov/pubmed/baseline/pubmed26n$n.xml.gz; done
 ```
+A file cut short by a dropped connection is skipped by `slm-corpus` and listed
+under `unreadable_files` in `data/slm/corpus/stats.json`: re-run the loop, then
+rebuild.
+
 Rebuild corpus, vocabulary and token files on everything (same three commands
 as the trial; the corpus step replaces the trial corpus):
 ```bash

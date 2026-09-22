@@ -5,6 +5,32 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-09-22 (DGX Spark) — small language model: training speed measured
+
+Trial corpus: 5 PubMed baseline files + GeneReviews passages. `vpdl slm-train
+--size small --benchmark 20` (109.5M parameters, 2,048-token context,
+524,288 tokens per step, random weights).
+
+| | eager | `--compile` |
+|---|---|---|
+| tokens / s | 23,039 | **34,710** |
+| achieved TFLOPS (BF16) | 20.4 | 30.7 |
+| share of measured peak (90.1) | 23% | 34% |
+| projected, 2.5B tokens | 30.1 h | **20.0 h** |
+| loss at step 10 / 20; val at 20 | 9.656 / 9.016; 8.979 | identical |
+
+- Training works on the GPU; loss falls from ~10.4 (uniform over 32k tokens).
+- Identical losses show compilation changed speed, not the computation.
+  `--compile` is now the default.
+- First attempt failed inside Triton: `Python.h` missing. PyTorch routes the
+  rotary-embedding outer product through a Triton kernel even without
+  compile. Fixed with `sudo apt install python3.12-dev`; `slm-train` now
+  checks for the header up front.
+- Medium (~340M, 7B tokens) by the same FLOP arithmetic: ~7 days at 30.7
+  TFLOPS, likely less (larger matrices use the GPU better). To be benchmarked.
+
+---
+
 ## 2026-09-22 (DGX Spark) — knowledge base: second evaluation (development set); medgemma:27b chosen
 
 `vpdl kb-eval --models qwen3:32b medgemma:27b llama3.1:8b`, after the prompt and

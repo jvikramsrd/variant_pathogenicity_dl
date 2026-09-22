@@ -31,7 +31,7 @@ from vpdl.slm.tokenizer import EOS, SPECIAL_TOKENS, load_tokenizer
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["TrainConfig", "learning_rate", "TokenWindows", "train"]
+__all__ = ["TrainConfig", "learning_rate", "TokenWindows", "same_run", "train"]
 
 
 @dataclass(frozen=True)
@@ -100,6 +100,18 @@ class TokenWindows:
         return x, y
 
 
+# Settings that change how fast a run goes but not what it computes: a run may be
+# resumed with them changed (e.g. dropping --compile after a compiler problem).
+# Measured on the DGX 2026-09-22: compiled and eager runs gave identical losses.
+SPEED_ONLY = frozenset({"compile"})
+
+
+def same_run(saved: dict, current: dict) -> bool:
+    """Whether a checkpoint's settings match this run's, ignoring speed-only ones."""
+    keys = (set(saved) | set(current)) - SPEED_ONLY
+    return all(saved.get(key) == current.get(key) for key in keys)
+
+
 def _git_commit() -> str | None:
     try:
         return subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True,
@@ -161,7 +173,7 @@ def train(data_dir: Path | str, out_dir: Path | str, config: TrainConfig,
     start = 0
     if checkpoint.exists() and not benchmark_steps:
         state = torch.load(checkpoint, map_location=device, weights_only=True)
-        if state["config"] != asdict(config):
+        if not same_run(state["config"], asdict(config)):
             raise ValueError(f"{checkpoint} was written with a different configuration; "
                              "use a new --out directory or the same settings.")
         model.load_state_dict(state["model"])

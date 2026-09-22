@@ -9,8 +9,8 @@ loaded anywhere: ``build`` seeds and initialises every parameter itself.
 Sizes (with the 32k vocabulary; input and output embeddings are shared):
 
     tiny     ~0.1M   tests only
-    small    ~110M   12 layers x 768   — the pipeline check (~17 hours on the DGX)
-    medium   ~340M   24 layers x 1024  — the real run (~6 days)
+    small    ~110M   12 layers x 768   — the pipeline check (~20 hours on the DGX, measured)
+    medium   ~340M   24 layers x 1024  — the real run (~7 days, estimated)
 """
 
 from __future__ import annotations

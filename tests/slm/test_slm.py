@@ -114,6 +114,25 @@ def test_corpus_counts_every_decision_and_keeps_private_books_out(tmp_path):
     assert json.loads((tmp_path / "corpus" / "stats.json").read_text())["train_shards"] == 1
 
 
+def test_a_truncated_download_is_skipped_and_named_not_fatal(tmp_path):
+    from vpdl.slm.corpus import build_corpus
+
+    pubmed = tmp_path / "pubmed"
+    pubmed.mkdir()
+    _pubmed_file(pubmed / "pubmed26n0001.xml.gz", [_article(1)])
+    _pubmed_file(pubmed / "pubmed26n0002.xml.gz", [_article(2), _article(3)])
+    whole = (pubmed / "pubmed26n0002.xml.gz").read_bytes()
+    (pubmed / "pubmed26n0002.xml.gz").write_bytes(whole[: len(whole) // 2])   # cut short
+    _pubmed_file(pubmed / "pubmed26n0003.xml.gz", [_article(4)])
+
+    summary = build_corpus(tmp_path / "corpus", pubmed_dir=pubmed)
+    assert summary["unreadable_files"] == ["pubmed26n0002.xml.gz"]
+    assert summary["pubmed_decisions"]["unreadable_files"] == 1
+    documents = [json.loads(line)["id"] for path in sorted((tmp_path / "corpus").glob("*.jsonl"))
+                 for line in path.read_text(encoding="utf-8").splitlines()]
+    assert "pmid:1" in documents and "pmid:4" in documents, "files after the bad one were lost"
+
+
 # -- tokenizer and token files ----------------------------------------------------------
 
 def _corpus_with_text(tmp_path, documents=400):
@@ -270,6 +289,19 @@ def test_resuming_with_different_settings_is_refused(tmp_path):
     train(data, tmp_path / "run", _tiny_config(total_tokens=256 * 10), device="cpu")
     with pytest.raises(ValueError, match="different configuration"):
         train(data, tmp_path / "run", _tiny_config(total_tokens=256 * 10, lr=1e-3), device="cpu")
+
+
+def test_compile_can_change_on_resume_but_the_maths_cannot():
+    """Dropping --compile after a compiler problem must not strand a 3-day checkpoint."""
+    pytest.importorskip("torch")
+    from dataclasses import asdict
+
+    from vpdl.slm.train import same_run
+
+    base = asdict(_tiny_config())
+    assert same_run(base, {**base, "compile": not base["compile"]})
+    assert not same_run(base, {**base, "lr": base["lr"] * 2})
+    assert not same_run(base, {**base, "context": 64})
 
 
 def test_a_diverged_run_stops_instead_of_training_on(tmp_path, monkeypatch):

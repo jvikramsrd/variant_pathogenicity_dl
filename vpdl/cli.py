@@ -703,8 +703,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     slm_train.add_argument("--lr", type=float, default=None,
                            help="peak learning rate (default: small 6e-4, medium 3e-4)")
     slm_train.add_argument("--seed", type=int, default=0)
-    slm_train.add_argument("--compile", action="store_true",
-                           help="torch.compile the model (faster if it works on this GPU)")
+    slm_train.add_argument("--no-compile", action="store_false", dest="compile",
+                           help="skip torch.compile (on by default: 1.5x faster on the DGX, "
+                                "identical losses, 2026-09-22)")
     slm_train.add_argument("--benchmark", type=int, default=0, metavar="STEPS",
                            help="run this many steps, report speed and projected time, save nothing")
     slm_train.set_defaults(func=cmd_slm_train)
