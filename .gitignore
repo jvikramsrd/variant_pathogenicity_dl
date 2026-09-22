@@ -72,5 +72,6 @@ data/kb/
 
 # Small LM: corpus shards, token files, checkpoints. Regenerable; far too large for git.
 data/slm/
-runs/slm/**/checkpoint.pt
+runs/slm/**/checkpoints/
+runs/slm/**/milestones/
 runs/slm/**/final/

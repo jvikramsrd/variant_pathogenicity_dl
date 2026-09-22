@@ -272,6 +272,16 @@ def test_training_from_random_weights_learns_and_exports(tmp_path):
     assert out.shape == (1, 6)
 
 
+def _same_weights(torch, first_run, second_run) -> bool:
+    """Final checkpoints of two runs hold bit-identical weights."""
+    from vpdl.slm.train import latest_checkpoint
+
+    first = torch.load(latest_checkpoint(first_run), weights_only=True)
+    second = torch.load(latest_checkpoint(second_run), weights_only=True)
+    assert first["step"] == second["step"]
+    return all(torch.equal(first["model"][k], second["model"][k]) for k in first["model"])
+
+
 def test_a_resumed_run_ends_with_exactly_the_weights_of_an_uninterrupted_one(tmp_path, monkeypatch):
     torch = _torch()
     import vpdl.slm.train as training
@@ -293,9 +303,98 @@ def test_a_resumed_run_ends_with_exactly_the_weights_of_an_uninterrupted_one(tmp
     monkeypatch.setattr(training, "learning_rate", real)
     training.train(data, tmp_path / "resumed", config, device="cpu")   # picks up at step 10
 
-    first = torch.load(tmp_path / "straight" / "checkpoint.pt", weights_only=True)["model"]
-    second = torch.load(tmp_path / "resumed" / "checkpoint.pt", weights_only=True)["model"]
-    assert all(torch.equal(first[name], second[name]) for name in first)
+    assert _same_weights(torch, tmp_path / "straight", tmp_path / "resumed")
+
+
+def test_ctrl_c_saves_a_checkpoint_between_scheduled_ones_and_loses_nothing(tmp_path, monkeypatch):
+    """Stop requested mid-interval (step 12 of 20, checkpoints every 10): the step
+    finishes, a checkpoint is written at 13, and resuming ends exactly where an
+    uninterrupted run does."""
+    torch = _torch()
+    import vpdl.slm.train as training
+
+    data = _tiny_data(tmp_path)
+    config = _tiny_config(total_tokens=256 * 20)
+    training.train(data, tmp_path / "straight", config, device="cpu")
+
+    real = training.learning_rate
+
+    def press_ctrl_c_at_12(step, cfg):
+        if step == 12:
+            training._request_stop(None, None)          # what the Ctrl-C handler does
+        return real(step, cfg)
+
+    monkeypatch.setattr(training, "learning_rate", press_ctrl_c_at_12)
+    result = training.train(data, tmp_path / "stopped", config, device="cpu")
+    assert result["stopped"] and result["step"] == 13
+    assert training.latest_checkpoint(tmp_path / "stopped").name == "step-0000013.pt"
+    monkeypatch.setattr(training, "learning_rate", real)
+    training.train(data, tmp_path / "stopped", config, device="cpu")
+    assert _same_weights(torch, tmp_path / "straight", tmp_path / "stopped")
+
+
+def test_a_run_started_with_the_old_single_checkpoint_file_continues(tmp_path):
+    """Runs begun before rotating checkpoints kept one checkpoint.pt; don't restart them."""
+    torch = _torch()
+    from vpdl.slm.train import latest_checkpoint, train
+
+    data = _tiny_data(tmp_path)
+    config = _tiny_config(total_tokens=256 * 20)
+    train(data, tmp_path / "straight", config, device="cpu")
+
+    early = tmp_path / "early"
+    train(data, early, _tiny_config(total_tokens=256 * 20), device="cpu")
+    ten = torch.load(early / "checkpoints" / "step-0000010.pt", weights_only=True)
+    old_layout = tmp_path / "old"
+    old_layout.mkdir()
+    torch.save(ten, old_layout / "checkpoint.pt")               # as the old code left it
+    train(data, old_layout, config, device="cpu")
+    assert latest_checkpoint(old_layout).name == "step-0000020.pt"
+    assert _same_weights(torch, tmp_path / "straight", old_layout)
+
+
+def test_checkpoints_rotate_and_milestones_are_loadable(tmp_path):
+    _torch()
+    from transformers import AutoModelForCausalLM
+
+    from vpdl.slm.train import list_checkpoints, train
+
+    data = _tiny_data(tmp_path)
+    train(data, tmp_path / "run", _tiny_config(total_tokens=256 * 40, checkpoint_every=10,
+                                              keep_last=2, milestone_every=20), device="cpu")
+    assert [p.name for p in list_checkpoints(tmp_path / "run")] == [
+        "step-0000030.pt", "step-0000040.pt"]
+    milestones = sorted(p.name for p in (tmp_path / "run" / "milestones").iterdir())
+    assert milestones == ["step-0000020", "step-0000040"]
+    AutoModelForCausalLM.from_pretrained(tmp_path / "run" / "milestones" / "step-0000020")
+
+
+def test_time_based_checkpoints_fire_between_step_based_ones(tmp_path):
+    _torch()
+    from vpdl.slm.train import list_checkpoints, train
+
+    data = _tiny_data(tmp_path)
+    train(data, tmp_path / "run", _tiny_config(total_tokens=256 * 6, checkpoint_every=1000,
+                                              checkpoint_minutes=0, keep_last=100), device="cpu")
+    assert len(list_checkpoints(tmp_path / "run")) == 6, "a zero-minute interval saves every step"
+
+
+def test_rolling_back_replays_exactly_and_keeps_the_abandoned_checkpoints(tmp_path):
+    torch = _torch()
+    from vpdl.slm.train import latest_checkpoint, list_checkpoints, train
+
+    data = _tiny_data(tmp_path)
+    config = _tiny_config(total_tokens=256 * 30, checkpoint_every=10, keep_last=5)
+    run = tmp_path / "run"
+    train(data, run, config, device="cpu")
+    original_final = torch.load(latest_checkpoint(run), weights_only=True)["model"]
+
+    train(data, run, config, device="cpu", resume_from=run / "checkpoints" / "step-0000010.pt")
+    [aside] = [p for p in (run / "checkpoints").iterdir() if p.is_dir()]
+    assert sorted(p.name for p in aside.iterdir()) == ["step-0000020.pt", "step-0000030.pt"]
+    replayed = torch.load(latest_checkpoint(run), weights_only=True)["model"]
+    assert all(torch.equal(original_final[k], replayed[k]) for k in original_final)
+    assert [p.name for p in list_checkpoints(run)][-1] == "step-0000030.pt"
 
 
 def test_resuming_with_different_settings_is_refused(tmp_path):
@@ -317,6 +416,7 @@ def test_compile_can_change_on_resume_but_the_maths_cannot():
 
     base = asdict(_tiny_config())
     assert same_run(base, {**base, "compile": not base["compile"]})
+    assert same_run(base, {**base, "checkpoint_every": 999, "keep_last": 9, "milestone_every": 0})
     assert not same_run(base, {**base, "lr": base["lr"] * 2})
     assert not same_run(base, {**base, "context": 64})
 
@@ -353,4 +453,4 @@ def test_benchmark_reports_speed_and_saves_nothing(tmp_path):
     data = _tiny_data(tmp_path)
     result = train(data, tmp_path / "bench", _tiny_config(), device="cpu", benchmark_steps=4)
     assert result["tokens_per_s"] > 0 and result["projected_hours"] >= 0
-    assert not (tmp_path / "bench" / "checkpoint.pt").exists()
+    assert not (tmp_path / "bench" / "checkpoints").exists()

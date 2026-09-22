@@ -20,7 +20,7 @@ pip install -e ".[slm]"
 ```bash
 pytest tests/slm -q
 ```
-Expect **17 passed**. Among them: a run interrupted halfway and resumed must end
+Expect **22 passed**. Among them: a run interrupted halfway and resumed must end
 with exactly the same weights as one that never stopped.
 
 ## 1. Trial run (minutes)
@@ -92,9 +92,27 @@ tmux new -s slm
 ```bash
 vpdl slm-train --size small
 ```
-Detach with `Ctrl-b d`; reattach with `tmux attach -t slm`. If anything stops
-it, run the same `slm-train` command again: it resumes from the last
-checkpoint (every 250 steps) exactly where it left off.
+Detach with `Ctrl-b d`; reattach with `tmux attach -t slm`.
+
+**Checkpoints.** A full checkpoint is saved every 250 steps and at least every
+30 minutes; the last 3 are kept in `runs/slm/<size>/checkpoints/`.
+
+- **To stop:** press `Ctrl-C` once (or `kill`, or shut the machine down). It
+  finishes the current step, saves a checkpoint, and exits — nothing is lost.
+  A second `Ctrl-C` aborts immediately without saving.
+- **To continue:** run the same `slm-train` command. It resumes from the newest
+  checkpoint, exactly as if it had never stopped.
+- **After a crash or power cut:** same command; at most ~30 minutes of work is lost.
+- **To roll back** (e.g. the loss spiked): pick an earlier checkpoint and
+```bash
+vpdl slm-train --size small --resume-from runs/slm/small/checkpoints/step-0001000.pt
+```
+  Newer checkpoints are moved to `checkpoints/abandoned-<time>/`, not deleted.
+- **Milestones:** every 1,000 steps the weights alone are saved to
+  `milestones/step-NNNNNNN/` — loadable for evaluation while training goes on.
+
+Disk: a full small checkpoint is ~1.3 GB (weights + optimiser state), a
+milestone ~0.45 GB; the small run needs ~6 GB, the medium ~35 GB.
 
 Only if the small run is healthy, the medium model (~5–6 days):
 ```bash
@@ -126,7 +144,8 @@ tail -f runs/slm/small/log.jsonl
 | `data/slm/train.bin`, `val.bin`, `data_meta.json` | token files and their counts |
 | `runs/slm/<size>/run.json` | settings, parameter count, GPU, git commit, data counts |
 | `runs/slm/<size>/log.jsonl` | the training record |
-| `runs/slm/<size>/checkpoint.pt` | latest checkpoint (not committed) |
+| `runs/slm/<size>/checkpoints/` | last 3 full checkpoints (not committed) |
+| `runs/slm/<size>/milestones/` | weights every 1,000 steps (not committed) |
 | `runs/slm/<size>/final/` | the trained model in Hugging Face format (not committed) |
 
 `run.json` and `log.jsonl` are small and **are** the evidence for the paper:

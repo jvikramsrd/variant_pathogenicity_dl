@@ -509,9 +509,13 @@ def cmd_slm_train(args: argparse.Namespace) -> int:
     defaults = DEFAULTS[args.size]
     config = TrainConfig(size=args.size, context=args.context, micro_batch=args.micro_batch,
                          total_tokens=int(args.tokens or defaults["tokens"]),
-                         lr=args.lr or defaults["lr"], seed=args.seed, compile=args.compile)
+                         lr=args.lr or defaults["lr"], seed=args.seed, compile=args.compile,
+                         checkpoint_every=args.checkpoint_every,
+                         checkpoint_minutes=args.checkpoint_minutes,
+                         keep_last=args.keep_last, milestone_every=args.milestone_every)
     try:
-        result = train(args.data, args.out, config, benchmark_steps=args.benchmark)
+        result = train(args.data, args.out, config, benchmark_steps=args.benchmark,
+                       resume_from=args.resume_from)
     except (ValueError, RuntimeError, FileNotFoundError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2
@@ -708,6 +712,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     slm_train.add_argument("--no-compile", action="store_false", dest="compile",
                            help="skip torch.compile (on by default: 1.5x faster on the DGX, "
                                 "identical losses, 2026-09-22)")
+    slm_train.add_argument("--checkpoint-every", type=int, default=250, dest="checkpoint_every",
+                           help="save a full checkpoint every N steps...")
+    slm_train.add_argument("--checkpoint-minutes", type=float, default=30.0,
+                           dest="checkpoint_minutes",
+                           help="...and at least this often, whichever comes first")
+    slm_train.add_argument("--keep-last", type=int, default=3, dest="keep_last",
+                           help="full checkpoints kept for rolling back")
+    slm_train.add_argument("--milestone-every", type=int, default=1000, dest="milestone_every",
+                           help="save weights for evaluation every N steps (0 = off)")
+    slm_train.add_argument("--resume-from", default=None, dest="resume_from", metavar="CHECKPOINT",
+                           help="roll back to this checkpoint (default: resume from the newest)")
     slm_train.add_argument("--benchmark", type=int, default=0, metavar="STEPS",
                            help="run this many steps, report speed and projected time, save nothing")
     slm_train.set_defaults(func=cmd_slm_train)
