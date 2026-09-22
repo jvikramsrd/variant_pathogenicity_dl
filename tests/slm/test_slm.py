@@ -283,6 +283,20 @@ def test_a_diverged_run_stops_instead_of_training_on(tmp_path, monkeypatch):
         training.train(data, tmp_path / "run", _tiny_config(), device="cpu")
 
 
+def test_missing_python_headers_become_one_instruction(monkeypatch, tmp_path):
+    """First DGX run died inside Triton for want of Python.h."""
+    _torch()
+    import sysconfig
+
+    import vpdl.slm.train as training
+
+    monkeypatch.setattr(sysconfig, "get_paths", lambda: {"include": str(tmp_path)})
+    message = training.missing_python_headers()
+    assert message and "sudo apt install python" in message and "-dev" in message
+    (tmp_path / "Python.h").write_text("")
+    assert training.missing_python_headers() is None
+
+
 def test_benchmark_reports_speed_and_saves_nothing(tmp_path):
     torch = _torch()
     from vpdl.slm.train import train

@@ -108,6 +108,26 @@ def _git_commit() -> str | None:
         return None
 
 
+def missing_python_headers() -> str | None:
+    """The fix to print if Triton cannot build its GPU launcher, else None.
+
+    Recent PyTorch routes some ordinary operations (the rotary position
+    embedding's outer product among them) through Triton kernels even without
+    ``torch.compile``, and Triton compiles a small C helper on first use that
+    needs ``Python.h``. Without it the first training step dies deep inside
+    Triton (first DGX run, 2026-09-22); checking up front turns that into one line.
+    """
+    import sys
+    import sysconfig
+    header = Path(sysconfig.get_paths()["include"]) / "Python.h"
+    if header.exists():
+        return None
+    version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    return (f"PyTorch's GPU kernels (Triton) need the Python development headers, and "
+            f"{header} is missing. Install them once, then re-run: "
+            f"sudo apt install python{version}-dev")
+
+
 def _loss(model, x, y):
     import torch.nn.functional as F
     logits = model(input_ids=x).logits
@@ -125,6 +145,8 @@ def train(data_dir: Path | str, out_dir: Path | str, config: TrainConfig,
     special = {t: tokenizer.token_to_id(t) for t in SPECIAL_TOKENS}
     device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
     on_gpu = device.type == "cuda"
+    if on_gpu and (problem := missing_python_headers()):
+        raise RuntimeError(problem)
 
     model = build(config.size, vocab, config.context, special, config.seed).to(device)
     model.config.use_cache = False

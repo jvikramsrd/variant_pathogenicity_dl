@@ -8,13 +8,19 @@ the full run then only repeats it at scale.
 
 ## 0. Once: install and test
 
+PyTorch runs some operations through Triton kernels, which need the Python
+development headers to build on first use (without them the first training
+step fails with "Python.h: No such file or directory"):
+```bash
+sudo apt install python3.12-dev
+```
 ```bash
 pip install -e ".[slm]"
 ```
 ```bash
 pytest tests/slm -q
 ```
-Expect **13 passed**. Among them: a run interrupted halfway and resumed must end
+Expect **14 passed**. Among them: a run interrupted halfway and resumed must end
 with exactly the same weights as one that never stopped.
 
 ## 1. Trial run (minutes)
