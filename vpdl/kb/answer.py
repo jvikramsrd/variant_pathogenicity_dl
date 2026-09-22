@@ -106,9 +106,15 @@ def check_citations(answer: str, n_passages: int) -> CitationCheck:
     cited: list[int] = []
     claims = 0
     for sentence in _sentences(text):
-        words = re.findall(r"[A-Za-z]{2,}", _CITATION.sub("", sentence))
-        if len(words) < 4 or sentence.rstrip(" *").endswith(":"):
-            continue                         # a heading or fragment, not a claim
+        bare = _CITATION.sub("", sentence)
+        cites = bool(_CITATION.search(sentence))
+        if bare.rstrip(" *").endswith(":") and not cites:
+            continue                         # a heading: "Surveillance:"
+        # A short fragment ("In summary") is not a claim, but anything with a
+        # number or a citation is: "48% [S1]." is a complete, checkable answer,
+        # and was withheld as "empty" before 2026-09-22 (first DGX evaluation).
+        if not (cites or re.search(r"\d", bare) or len(re.findall(r"[A-Za-z]{2,}", bare)) >= 4):
+            continue
         claims += 1
         numbers = [int(n) for group in _CITATION.findall(sentence)
                    for n in re.findall(r"\d+", group)]

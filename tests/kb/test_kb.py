@@ -209,6 +209,19 @@ def test_cited_answers_pass(answer):
     assert check_citations(answer, n_passages=2).ok
 
 
+def test_a_short_numeric_answer_counts_as_an_answer():
+    """First DGX run: llama3.1 answered "48% [S1]." and it was withheld as empty."""
+    from vpdl.kb.answer import check_citations
+    assert check_citations("48% [S1].", 6).ok
+    assert check_citations("66-71 years [S3].", 6).ok
+
+
+def test_a_short_uncited_number_is_still_withheld():
+    from vpdl.kb.answer import check_citations
+    result = check_citations("The risk is 48% [S1]. Also 12%.", 6)
+    assert not result.ok and result.reason == "uncited_sentence"
+
+
 def test_one_uncited_sentence_withholds_the_whole_answer():
     from vpdl.kb.answer import check_citations
     result = check_citations("Colonoscopy is advised every 1-2 years [S1]. "

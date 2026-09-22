@@ -5,6 +5,43 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-09-22 (DGX Spark) — knowledge base: first build and evaluation; safety bar met
+
+`vpdl kb-build` — 892 GeneReviews chapters -> 44,476 passages (122 archive files
+not in NCBI's chapter list skipped, 0 unreadable); bge-m3 embeddings 651 s, 100%
+on GPU; ClinVar lookup 32,827 Lynch-gene records.
+`vpdl kb-eval --models llama3.1:8b qwen3:32b` — 24 answerable, 8 unanswerable,
+5 variant-lookup questions (`docs/kb/eval_questions.jsonl`). Both models 100% on GPU.
+
+| | llama3.1:8b | qwen3:32b |
+|---|---|---|
+| right section found (search, all 892 chapters) | 23/24 | 23/24 |
+| unanswerable questions answered "not found" | **8/8** | **8/8** |
+| answerable questions answered (valid citations) | 14/24 | 18/24 |
+| answered AND key facts present | 13/24 | 18/24 |
+| withheld by the citation check | 9 | 5 |
+| variant lookups correct | 5/5 | 5/5 |
+| seconds per question | 1.7 | 34.6 |
+
+Reading it:
+- **Safety bar met by both:** no unanswerable question was answered.
+- **qwen3:32b: every answer it gave carried the key facts** (18/18). The six
+  it did not give were withheld or "not found" — safe failures.
+- **llama3.1:8b: one answered question lacks its key fact** — either a wrong
+  answer that passed the citation check or a correct one in other words.
+  Must be read before this model is used at all.
+- **Three llama withholdings were a bug in the check, not the model:** answers
+  that were just a number ("48% [S1].") were treated as empty. Fixed the same
+  day (a sentence with a number or citation is a claim); re-run owed.
+- Both models answered `ashkenazi-founder` "not found" — consistent with the
+  one search miss.
+- The remaining withholdings (6 llama, 5 qwen) are sentences without a citation.
+  The offending sentences are in `runs/kb/answers_<model>.jsonl` (`detail`)
+  and decide the fix: prompt format vs. citation rule.
+- qwen3 is 20x slower, most likely its thinking mode.
+
+---
+
 ## 2026-09-21 (DGX Spark) — ProteinGym combined vs individual: combining HURTS, 212 of 217 assays
 
 `vpdl pg-combined` (ridge, CPU, `fold_random_5`) — 217 assays, 696,311 single
