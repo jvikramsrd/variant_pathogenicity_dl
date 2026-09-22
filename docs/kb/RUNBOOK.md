@@ -23,14 +23,16 @@ Ollama listens on `127.0.0.1` only, which is what we want. **Do not set
 ollama pull bge-m3
 ```
 ```bash
-ollama pull llama3.1:8b
+ollama pull medgemma:27b
 ```
 ```bash
 ollama pull qwen3:32b
 ```
-`bge-m3` (~1.2 GB) turns text into vectors for meaning search. The other two
-(~5 GB and ~20 GB) are the answering candidates; the evaluation decides which
-one is used. More candidates can be added the same way.
+`bge-m3` (~1.2 GB) turns text into vectors for meaning search. `medgemma:27b`
+(17 GB, Google's medical model) is the default answering model and `qwen3:32b`
+(~20 GB) the second candidate — chosen by `kb-eval` on 2026-09-22 (RUNLOG).
+`llama3.1:8b` was tested and disqualified: it gave a cited but clinically
+misleading answer.
 
 ## 3. Download the sources (once; refresh monthly)
 
@@ -72,7 +74,7 @@ a normal outcome.
 ## 6. Evaluate — this decides which model is trusted
 
 ```bash
-vpdl kb-eval --models llama3.1:8b qwen3:32b
+vpdl kb-eval --models medgemma:27b qwen3:32b
 ```
 Runs the 32 fixed questions in [eval_questions.jsonl](eval_questions.jsonl)
 through each model (plus 5 variant-lookup checks) and prints, per model:

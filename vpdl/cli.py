@@ -593,7 +593,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     kb_ask = sub.add_parser("kb-ask", help="ask the knowledge base a question")
     kb_ask.add_argument("question", nargs="+")
     kb_ask.add_argument("--kb", default="data/kb")
-    kb_ask.add_argument("--model", default="llama3.1:8b")
+    # Chosen by kb-eval (docs/RUNLOG.md, 2026-09-22): as accurate as qwen3:32b on
+    # the development set, never withheld, 6x faster. llama3.1:8b is disqualified.
+    kb_ask.add_argument("--model", default="medgemma:27b")
     kb_ask.add_argument("--k", type=int, default=6, help="passages given to the model")
     kb_ask.add_argument("--evidence", default="data/built/mmr.csv",
                         help="vpdl table with AlphaMissense/gnomAD values (optional)")
@@ -606,7 +608,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     kb_eval = sub.add_parser("kb-eval", help="score models on the evaluation questions")
     kb_eval.add_argument("--kb", default="data/kb")
     kb_eval.add_argument("--questions", default="docs/kb/eval_questions.jsonl")
-    kb_eval.add_argument("--models", nargs="+", default=["llama3.1:8b"])
+    kb_eval.add_argument("--models", nargs="+", default=["medgemma:27b", "qwen3:32b"])
     kb_eval.add_argument("--k", type=int, default=6)
     kb_eval.add_argument("--out", default="runs/kb")
     kb_eval.add_argument("--allow-cpu", action="store_true", dest="allow_cpu",

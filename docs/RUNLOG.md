@@ -5,6 +5,38 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-09-22 (DGX Spark) — knowledge base: second evaluation (development set); medgemma:27b chosen
+
+`vpdl kb-eval --models qwen3:32b medgemma:27b llama3.1:8b`, after the prompt and
+citation-reader changes below. Same index and questions as the first run —
+**a development result, not a clean test** (the changes were made after reading
+the first run's answers).
+
+| | qwen3:32b | medgemma:27b | llama3.1:8b |
+|---|---|---|---|
+| unanswerable questions answered "not found" | **8/8** | **8/8** | **8/8** |
+| answerable answered, key facts present | 22/24 | 22/24 | 21/24 |
+| answered but key fact missing | 0 | 0 | 0 |
+| withheld by the citation check | 1 | 0 | 2 |
+| "not found" on answerable questions | 1 | 2 | 1 |
+| seconds per question | 35.3 | **6.2** | 1.6 |
+
+(first run: qwen3 18/24, llama 13/24 with one misleading answer)
+
+- The prompt change removed nearly all citation-format withholdings.
+- **medgemma:27b becomes the default**: same score as qwen3:32b, nothing
+  withheld, ~6x faster. It answered the MLH1/PMS2 immunohistochemistry
+  question "not found" rather than risk it — a safe failure.
+- `ashkenazi-founder` is "not found" for every model: the one search miss
+  (MSH2 c.1906G>C sits in a large variant table), handled safely.
+- llama3.1:8b now passes the keyword check on the IHC question, but it stays
+  disqualified: one prompt change is not evidence the failure mode is gone.
+- Owed before any accuracy claim: (1) read medgemma's 22 answers against their
+  cited passages; (2) a fresh question set from other chapters, written before
+  looking at any answers.
+
+---
+
 ## 2026-09-22 (DGX Spark) — knowledge base: first build and evaluation; safety bar met
 
 `vpdl kb-build` — 892 GeneReviews chapters -> 44,476 passages (122 archive files
