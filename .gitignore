@@ -75,3 +75,12 @@ data/slm/
 runs/slm/**/checkpoints/
 runs/slm/**/milestones/
 runs/slm/**/final/
+
+# DL branch (docs/dl/): feature store, pretraining corpus, training checkpoints and
+# exported embedding arrays are large and regenerable. Run records (summaries,
+# predictions, registry.jsonl) stay small text and are not ignored.
+features/
+data/dl/
+runs/dl/**/checkpoints/
+runs/dl/**/*.npy
+runs/dl/**/backbone_delta.pt

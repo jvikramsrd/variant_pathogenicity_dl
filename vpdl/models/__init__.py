@@ -51,12 +51,38 @@ def _bilstm(**kwargs: Any):
     return BiLSTMClassifier(**kwargs)
 
 
+def _window(encoder: str) -> Callable[..., Any]:
+    def build(**kwargs: Any):
+        from vpdl.models.seqwin import WindowEncoderClassifier
+        return WindowEncoderClassifier(encoder=encoder, **kwargs)
+    return build
+
+
+def _fusion(**kwargs: Any):
+    from vpdl.dl.fusion import FusionClassifier
+    return FusionClassifier(**kwargs)
+
+
+def _plm_finetune(**kwargs: Any):
+    from vpdl.dl.plm.finetune import PLMFinetuneClassifier
+    return PLMFinetuneClassifier(**kwargs)
+
+
 # Lazily constructed: importing the registry must not require torch, so a
 # tabular-only run works on a box with no CUDA stack installed.
 MODELS: dict[str, Callable[..., Any]] = {
     "gbm": _gbm,
     "mlp": _mlp,
     "bilstm": _bilstm,
+    # DL branch (docs/dl/DL_ARCHITECTURE.md). Window baselines share the
+    # bilstm arm's inputs; fusion takes tabular + embedding modalities;
+    # plm_finetune trains a protein language model end to end with PEFT.
+    "aa_mlp": _window("aa_mlp"),
+    "cnn": _window("cnn"),
+    "bilstm_attn": _window("bilstm_attn"),
+    "transformer": _window("transformer"),
+    "fusion": _fusion,
+    "plm_finetune": _plm_finetune,
 }
 
 

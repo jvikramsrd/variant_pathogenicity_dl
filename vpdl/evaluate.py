@@ -181,6 +181,12 @@ class EvaluationResult:
     sensitivity: float
     specificity: float
     precision: float
+    # Added for the DL branch. Brier and ECE are NaN when scores are not
+    # probabilities, and on class-weighted models they measure that weighting
+    # as much as the model — compare calibrated values (vpdl.dl.calibration).
+    f1: float = float("nan")
+    brier: float = float("nan")
+    ece: float = float("nan")
     extra: dict[str, Any] = field(default_factory=dict)
 
     def as_dict(self) -> dict[str, Any]:
@@ -217,6 +223,8 @@ def evaluation_report(
     fp = float(((predicted == 1) & (y == 0)).sum())
     fn = float(((predicted == 0) & (y == 1)).sum())
 
+    from vpdl.dl.calibration import brier_score, expected_calibration_error
+
     return EvaluationResult(
         n=len(y),
         n_positive=int((y == 1).sum()),
@@ -233,5 +241,8 @@ def evaluation_report(
         sensitivity=tp / (tp + fn) if (tp + fn) else float("nan"),
         specificity=tn / (tn + fp) if (tn + fp) else float("nan"),
         precision=tp / (tp + fp) if (tp + fp) else float("nan"),
+        f1=2 * tp / (2 * tp + fp + fn) if (2 * tp + fp + fn) else float("nan"),
+        brier=brier_score(y, s),
+        ece=expected_calibration_error(y, s),
         extra=dict(extra or {}) | {"n_bootstrap": n_bootstrap},
     )

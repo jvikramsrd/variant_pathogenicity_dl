@@ -44,6 +44,7 @@ __all__ = [
     "provides",
     "acmg_frequency_flags",
     "fetch_gene",
+    "iter_gnomad_records",
     "load",
 ]
 
@@ -226,22 +227,18 @@ def fetch_gene(symbol: str, cache_dir: Path, dataset: str = GNOMAD_DATASET) -> P
     return target
 
 
-def load(
+def iter_gnomad_records(
     cache_dir: Path | str,
     genes: Sequence[str],
-    uniprot_by_gene: Mapping[str, str],
-    thresholds: Mapping[str, float] | None = None,
-    include_constraint: bool = True,
-) -> pd.DataFrame:
-    """Emit the record schema with gnomAD feature columns.
+):
+    """Yield one dict per missense gnomAD variant, in cache order.
 
-    Supplies no labels: every row carries ``label = NaN`` and joins onto
-    variants other sources contribute. Population frequency is evidence about
-    a variant, never supervision.
+    The single reader of the cached gnomAD payloads. :func:`load` turns these
+    into feature columns; the DL canonical table (:mod:`vpdl.dl.canonical`)
+    also needs the raw allele count and number, which are recorded there but
+    deliberately never emitted as features (AN tracks coverage, not biology).
     """
     from vpdl.sources.clinvar import parse_hgvs_p
-
-    rows: list[dict] = []
 
     for gene in genes:
         payload = json.loads(Path(fetch_gene(gene, Path(cache_dir))).read_text())
@@ -267,33 +264,65 @@ def load(
             allele_frequency = (
                 allele_count / allele_number if allele_number > 0 else np.nan
             )
-
-            record = {
-                "uniprot_id": uniprot_by_gene.get(gene),
+            yield {
+                "gene": gene,
                 "position": position,
                 "wt_aa": wt_aa,
                 "mut_aa": mut_aa,
-                "gene": gene,
-                "label": np.nan,
-                "label_source": "gnomad",
-                "evidence_tier": "population",
-                "feature_gnomad_log10_af": (
-                    float(np.log10(allele_frequency))
-                    if np.isfinite(allele_frequency) and allele_frequency > 0
-                    else np.nan
-                ),
+                "gnomad_variant_id": variant.get("variant_id"),
+                "transcript_id": variant.get("transcript_id"),
+                "ac": allele_count,
+                "an": allele_number,
+                "af": allele_frequency,
+                "constraint": constraint,
             }
-            flags = acmg_frequency_flags(allele_frequency, thresholds)
-            record.update({key: float(value) for key, value in flags.items()})
 
-            if include_constraint:
-                # Gene-constant by construction. Emitted because they are real
-                # evidence, and dropped for LOPO by drop_gene_constant().
-                record["feature_gnomad_pli"] = constraint.get("pLI", np.nan)
-                record["feature_gnomad_oe_mis"] = constraint.get("oe_mis", np.nan)
-                record["feature_gnomad_mis_z"] = constraint.get("mis_z", np.nan)
 
-            rows.append(record)
+def load(
+    cache_dir: Path | str,
+    genes: Sequence[str],
+    uniprot_by_gene: Mapping[str, str],
+    thresholds: Mapping[str, float] | None = None,
+    include_constraint: bool = True,
+) -> pd.DataFrame:
+    """Emit the record schema with gnomAD feature columns.
+
+    Supplies no labels: every row carries ``label = NaN`` and joins onto
+    variants other sources contribute. Population frequency is evidence about
+    a variant, never supervision.
+    """
+    rows: list[dict] = []
+
+    for variant in iter_gnomad_records(cache_dir, genes):
+        gene = variant["gene"]
+        allele_frequency = variant["af"]
+        constraint = variant["constraint"]
+        record = {
+            "uniprot_id": uniprot_by_gene.get(gene),
+            "position": variant["position"],
+            "wt_aa": variant["wt_aa"],
+            "mut_aa": variant["mut_aa"],
+            "gene": gene,
+            "label": np.nan,
+            "label_source": "gnomad",
+            "evidence_tier": "population",
+            "feature_gnomad_log10_af": (
+                float(np.log10(allele_frequency))
+                if np.isfinite(allele_frequency) and allele_frequency > 0
+                else np.nan
+            ),
+        }
+        flags = acmg_frequency_flags(allele_frequency, thresholds)
+        record.update({key: float(value) for key, value in flags.items()})
+
+        if include_constraint:
+            # Gene-constant by construction. Emitted because they are real
+            # evidence, and dropped for LOPO by drop_gene_constant().
+            record["feature_gnomad_pli"] = constraint.get("pLI", np.nan)
+            record["feature_gnomad_oe_mis"] = constraint.get("oe_mis", np.nan)
+            record["feature_gnomad_mis_z"] = constraint.get("mis_z", np.nan)
+
+        rows.append(record)
 
     frame = pd.DataFrame(rows)
     logger.info(

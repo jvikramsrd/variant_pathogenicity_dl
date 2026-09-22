@@ -39,8 +39,13 @@ PRIOR_GROUPS: dict[str, tuple[str, ...]] = {
     "gnomad": ("gnomad", "acmg_ba1", "acmg_bs1", "acmg_pm2", "allele_freq"),
     "prior_scores": ("alphamissense", "revel", "eve", "esm1b", "gemme",
                      "tranception", "primateai", "_score"),
-    "structure": ("plddt", "disorder", "sasa", "secondary_structure"),
+    # `struct_` / `genomic_` prefix the DL-branch columns (vpdl.dl.structure,
+    # vpdl.dl.genomic). Matching is first-group-wins in this order, so those
+    # column names must also avoid the prior_scores keywords above ("_score",
+    # "eve", ...); tests/dl/test_features_groups.py enforces it.
+    "structure": ("plddt", "disorder", "sasa", "secondary_structure", "struct_"),
     "domains": ("interpro", "domain", "functional_site", "uniprot_site"),
+    "genomic": ("genomic_",),
 }
 
 # Which family acts as a stand-in for which other. AlphaMissense was trained on

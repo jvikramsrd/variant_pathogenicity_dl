@@ -26,6 +26,7 @@ __all__ = [
     "parse_hgvs_p",
     "significance_to_label",
     "apply_homology_gate",
+    "iter_variant_summary",
     "load",
 ]
 
@@ -172,6 +173,83 @@ def apply_homology_gate(
     return out
 
 
+# variant_summary.txt columns carried by iter_variant_summary(), beyond the
+# ones load() needs. Absent columns (older or newer releases) come back as None
+# rather than failing: they describe a record, they do not decide whether it
+# is one.
+_RECORD_EXTRAS = {
+    "allele_id": "#AlleleID",
+    "variation_id": "VariationID",
+    "type": "Type",
+    "assembly": "Assembly",
+    "chromosome": "Chromosome",
+    "position_vcf": "PositionVCF",
+    "ref_vcf": "ReferenceAlleleVCF",
+    "alt_vcf": "AlternateAlleleVCF",
+    "rcv": "RCVaccession",
+    "last_evaluated": "LastEvaluated",
+    "number_submitters": "NumberSubmitters",
+    "origin": "OriginSimple",
+}
+
+
+def iter_variant_summary(
+    path: Path | str,
+    genes: Sequence[str],
+    min_stars: int = 0,
+) -> Iterable[dict]:
+    """Yield every clean-missense ClinVar record for `genes`, one dict each.
+
+    The single parser of ``variant_summary.txt(.gz)``. :func:`load` projects
+    these records onto the source schema; the DL canonical table
+    (:mod:`vpdl.dl.canonical`) reads them whole, because it needs what
+    :func:`load` discards — the genomic coordinates, every record behind one
+    protein change (not just the first), and the review stars.
+
+    Records are yielded in file order and NOT de-duplicated: ClinVar lists each
+    variant once per assembly, and several nucleotide changes can produce one
+    protein change. Deciding what that means is the caller's job.
+    """
+    wanted = set(genes)
+    opener = gzip.open if str(path).endswith(".gz") else open
+
+    with opener(path, "rt", encoding="utf-8", errors="replace") as handle:
+        header = handle.readline().rstrip("\n").split("\t")
+        index = {name: position for position, name in enumerate(header)}
+        extras = {key: index.get(column) for key, column in _RECORD_EXTRAS.items()}
+        for line in handle:
+            fields = line.rstrip("\n").split("\t")
+            if len(fields) != len(header):
+                continue
+            gene = fields[index.get("GeneSymbol", 0)]
+            if gene not in wanted:
+                continue
+            review_status = fields[index.get("ReviewStatus", 0)]
+            stars = _review_stars(review_status)
+            if stars < min_stars:
+                continue
+            name = fields[index.get("Name", 0)]
+            parsed = parse_hgvs_p(name)
+            if parsed is None:
+                continue
+            wt_aa, position, mut_aa = parsed
+            significance = fields[index.get("ClinicalSignificance", 0)]
+            record = {
+                "gene": gene,
+                "position": position,
+                "wt_aa": wt_aa,
+                "mut_aa": mut_aa,
+                "name": name,
+                "significance": significance,
+                "label": significance_to_label(significance),
+                "review_status": review_status,
+                "stars": stars,
+            }
+            record.update({key: (fields[column] if column is not None else None)
+                           for key, column in extras.items()})
+            yield record
+
+
 def load(
     path: Path | str,
     genes: Sequence[str],
@@ -183,40 +261,28 @@ def load(
 
     One pass for all requested genes. v1 streamed the whole ~4 GB decompressed
     file once *per gene* (CODE_REVIEW D1).
-    """
-    wanted = set(genes)
-    rows: list[dict] = []
-    opener = gzip.open if str(path).endswith(".gz") else open
 
-    with opener(path, "rt", encoding="utf-8", errors="replace") as handle:
-        header = handle.readline().rstrip("\n").split("\t")
-        index = {name: position for position, name in enumerate(header)}
-        for line in handle:
-            fields = line.rstrip("\n").split("\t")
-            if len(fields) != len(header):
-                continue
-            gene = fields[index.get("GeneSymbol", 0)]
-            if gene not in wanted:
-                continue
-            stars = _review_stars(fields[index.get("ReviewStatus", 0)])
-            if stars < min_stars:
-                continue
-            parsed = parse_hgvs_p(fields[index.get("Name", 0)])
-            if parsed is None:
-                continue
-            wt_aa, position, mut_aa = parsed
-            rows.append({
-                "uniprot_id": uniprot_by_gene.get(gene),
-                "position": position,
-                "wt_aa": wt_aa,
-                "mut_aa": mut_aa,
-                "gene": gene,
-                "label": significance_to_label(
-                    fields[index.get("ClinicalSignificance", 0)]
-                ),
-                "label_source": "clinvar",
-                "evidence_tier": fields[index.get("ReviewStatus", 0)],
-            })
+    Known limitation, kept on purpose: several ClinVar records can map to one
+    protein change, and the ``drop_duplicates(keep="first")`` below resolves
+    them by file order — including when their classifications disagree.
+    Changing it would change the hash of every table already trained on, so
+    the stricter, order-independent resolution lives in
+    :func:`vpdl.dl.canonical.clinvar_protein_labels` instead.
+    """
+    rows = [
+        {
+            "uniprot_id": uniprot_by_gene.get(record["gene"]),
+            "position": record["position"],
+            "wt_aa": record["wt_aa"],
+            "mut_aa": record["mut_aa"],
+            "gene": record["gene"],
+            "label": record["label"],
+            "label_source": "clinvar",
+            "evidence_tier": record["review_status"],
+        }
+        for record in iter_variant_summary(path, genes, min_stars=min_stars)
+    ]
+    wanted = set(genes)
 
     frame = pd.DataFrame(rows)
     if frame.empty:

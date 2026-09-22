@@ -1,0 +1,22 @@
+# Siamese PLM fine-tuning cell on the DGX Spark.
+# Used as:  vpdl-dl train --config configs/dl/finetune_lora_dgx.toml --data data/built/canonical_full.csv \
+#               --sources clinvar pg_dms alphamissense gnomad --model plm_finetune --tag lora-r8
+# model_kwargs is passed to vpdl.dl.plm.finetune.PLMFinetuneClassifier.
+
+split = "logo"
+train_sources = ["clinvar"]
+eval_source = "clinvar"
+modalities = "none"                  # PLM + nothing tabular; add "population" for Model B
+seeds = [42, 43, 44]
+n_bootstrap = 10000
+out = "runs/dl/finetune"
+model_kwargs = '''{
+  "backbone": "esm2_650m",
+  "strategy": {"kind": "lora", "lora_rank": 8, "lora_alpha": 16.0, "lora_targets": ["query", "value"]},
+  "context": "centered",
+  "epochs": 10, "patience": 3,
+  "batch_size": 16, "grad_accum": 1,
+  "lr_backbone": 1e-4, "lr_head": 3e-4,
+  "precision": "auto", "gradient_checkpointing": true,
+  "wt_marginal_residual": true
+}'''

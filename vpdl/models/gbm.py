@@ -56,6 +56,7 @@ class GBMClassifier:
         n_estimators: int = 600,
         learning_rate: float = 0.03,
         max_depth: int = 4,
+        early_stopping_rounds: int | None = None,
         **kwargs: Any,
     ) -> None:
         # Seed first, construct second -- see derive_seed's docstring for the
@@ -63,6 +64,11 @@ class GBMClassifier:
         self.seed = derive_seed(seed, split_index)
         np.random.seed(self.seed % (2**32))
 
+        # Opt-in (None = the configuration every published GBM number used).
+        # With it, trees stop growing when the inner-validation log-loss stops
+        # improving — the neural arms' early stopping, which is what the
+        # 2026-09-21 RUNLOG says a fair cross-model comparison needs.
+        self.early_stopping_rounds = early_stopping_rounds
         self.backend = available_backend(backend)
         self.params = dict(
             n_estimators=n_estimators,
@@ -101,8 +107,27 @@ class GBMClassifier:
 
     def fit(self, X, y, X_val=None, y_val=None, sample_weight=None):
         logger.info("GBM backend=%s seed=%d n=%d", self.backend, self.seed, len(y))
+        stop = (self.early_stopping_rounds and X_val is not None and y_val is not None
+                and len(np.unique(y_val)) == 2)
+        if self.early_stopping_rounds and not stop:
+            logger.warning("GBM early stopping requested but no two-class inner-validation "
+                           "set was given; fitting all %d trees.", self.params["n_estimators"])
         if self.backend == "sklearn":
+            if stop:
+                logger.warning("sklearn backend: early stopping uses its own internal "
+                               "split, not the inner-validation set; fitting all trees.")
             self.model.fit(X, y)
+        elif stop and self.backend == "xgboost":
+            self.model.set_params(early_stopping_rounds=int(self.early_stopping_rounds))
+            self.model.fit(X, y, sample_weight=sample_weight,
+                           eval_set=[(X_val, y_val)], verbose=False)
+            logger.info("GBM early stop: best iteration %s",
+                        getattr(self.model, "best_iteration", None))
+        elif stop and self.backend == "lightgbm":
+            import lightgbm
+            self.model.fit(X, y, sample_weight=sample_weight, eval_set=[(X_val, y_val)],
+                           callbacks=[lightgbm.early_stopping(int(self.early_stopping_rounds),
+                                                              verbose=False)])
         else:
             self.model.fit(X, y, sample_weight=sample_weight)
         return self

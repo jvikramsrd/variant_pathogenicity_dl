@@ -24,11 +24,17 @@ slm = ["tokenizers>=0.20", "transformers>=4.46"]
 # Protein language model branch. torch is NOT pinned here on purpose --
 # see the platform note below.
 plm = ["transformers>=4.40", "fair-esm>=2.0"]
+# DL branch (vpdl/dl/, docs/dl/). Same transformers floor as `slm`, so
+# installing it never upgrades the library under a running SLM job; the ESM
+# SDPA path falls back to eager attention where a version lacks it.
+# matplotlib only draws reliability diagrams.
+dl = ["transformers>=4.46", "matplotlib>=3.7"]
 
 dev = ["pytest>=8.0", "pytest-cov>=4.1"]
 
 [project.scripts]
 vpdl = "vpdl.cli:main"
+vpdl-dl = "vpdl.dl.cli:main"
 
 # ---------------------------------------------------------------------------
 # PyTorch is installed separately, per platform, and deliberately not listed as

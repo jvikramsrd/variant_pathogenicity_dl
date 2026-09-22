@@ -1,0 +1,17 @@
+# Continued / variant-aware pretraining on the DGX Spark (GB10, 128 GB unified).
+# Used as:  vpdl-dl pretrain --config configs/dl/pretrain_dgx.toml --arm P1 \
+#               --corpus data/dl/corpus/strict-MLH1 --out runs/dl/pretrain/P1-MLH1
+# Explicit flags override these values. See docs/dl/PRETRAINING_BUDGET.md.
+
+backbone = "esm2_650m"
+crop = 512              # residues per crop; MSH6-length homologs are cropped at random
+epochs = 20             # upper bound; early stopping on held-out corpus MLM loss
+patience = 3
+batch_size = 16         # micro-batch; unified memory makes this configuration, not survival
+grad_accum = 2          # effective batch 32 crops
+lr = 2e-4               # LoRA learning rate (the frozen base does not move)
+precision = "auto"      # bf16 on GB10
+compile = true          # 1.5x measured for the SLM on this box; identical losses there
+seed = 0
+# LoRA on attention and FFN projections; rank 16 ~ 0.6% of ESM-2 650M parameters.
+strategy = '{"kind": "lora", "lora_rank": 16, "lora_alpha": 32.0, "lora_targets": ["query", "key", "value", "dense"]}'

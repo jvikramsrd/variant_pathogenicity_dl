@@ -1,0 +1,18 @@
+# DL fusion cell: tabular modalities + PLM embedding block(s).
+# Used as:  vpdl-dl train --config configs/dl/fusion_dgx.toml --data data/built/canonical_full.csv \
+#               --sources clinvar pg_dms alphamissense gnomad --model fusion --tag concat \
+#               --modalities population,structure,genomic \
+#               --embedding-blocks "esm2/esm2_650m@P0/<key>:site.concat4"
+# The <key> is printed by `vpdl-dl embed`.
+
+split = "logo"
+train_sources = ["clinvar"]
+eval_source = "clinvar"
+seeds = [42, 43, 44]
+n_bootstrap = 10000
+score_rows = "functional"          # also score held-out-gene assay variants (validation only)
+export_dir = "runs/dl/fusion/export"
+out = "runs/dl/fusion"
+model_kwargs = '''{"mode": "concat", "shared_dim": 64, "hidden": 128, "dropout": 0.2,
+                   "modality_dropout": 0.1, "epochs": 200, "patience": 15, "batch_size": 64,
+                   "mc_samples": 30}'''

@@ -38,12 +38,21 @@ from vpdl.splits import assert_no_group_straddle, group_keys, variant_keys
 logger = logging.getLogger(__name__)
 
 __all__ = ["CellConfig", "CellResult", "run_cell", "run_sweep",
-           "apply_train_caps", "SEQUENCE_WINDOW_MODELS"]
+           "apply_train_caps", "SEQUENCE_WINDOW_MODELS", "FRAME_MODELS",
+           "MATRIX_WIDTH_MODELS"]
 
 # Models consuming residue windows rather than a feature matrix. They take a
 # different fit signature, so run_cell branches rather than pretending the
-# interfaces match.
-SEQUENCE_WINDOW_MODELS = frozenset({"bilstm"})
+# interfaces match. The DL-branch window baselines (vpdl/models/seqwin.py) take
+# exactly the bilstm arm's inputs.
+SEQUENCE_WINDOW_MODELS = frozenset({"bilstm", "aa_mlp", "cnn", "bilstm_attn", "transformer"})
+
+# Models consuming variant rows + sequences (a protein language model trained
+# end to end), plus the tabular matrix as a side input.
+FRAME_MODELS = frozenset({"plm_finetune"})
+
+# Matrix models whose constructor needs the feature width.
+MATRIX_WIDTH_MODELS = frozenset({"mlp", "fusion"})
 
 
 def _windows_for(
@@ -90,6 +99,17 @@ class CellConfig:
     inner_val_fraction: float = 0.2
     n_bootstrap: int = 10_000
     model_kwargs: dict[str, Any] = field(default_factory=dict)
+    # DL branch. Defaults reproduce the original cell exactly (and its slug).
+    # split: vpdl.dl.splits scheme. embedding_blocks: feature-store specs
+    # "family/model_tag/key:representation" appended to the matrix.
+    # score_rows: also score held-out-gene rows beyond the labelled test set
+    # ("functional" = rows with validation-only assay values, "all" = every
+    # row), written to scores_<slug>.csv. tag: distinguishes two configurations
+    # of one model (model_kwargs are not otherwise in the slug).
+    split: str = "logo"
+    embedding_blocks: tuple[str, ...] = ()
+    score_rows: str = "none"
+    tag: str = ""
 
     @property
     def arm(self) -> str:
@@ -102,12 +122,29 @@ class CellConfig:
                     if self.drop_groups else "")
         caps = "".join(f"__cap-{source}{limit}"
                        for source, limit in sorted(self.train_caps))
+        split = f"__split-{self.split}" if self.split != "logo" else ""
+        blocks = "".join(f"__emb-{_block_token(b)}" for b in self.embedding_blocks)
         return ("train-" + ("+".join(sorted(self.train_sources)) or "none")
-                + caps + ablation)
+                + caps + ablation + split + blocks)
 
     @property
     def slug(self) -> str:
-        return f"{self.arm}__{self.model}__seed{self.seed}"
+        model = f"{self.model}-{self.tag}" if self.tag else self.model
+        return f"{self.arm}__{model}__seed{self.seed}"
+
+
+def _block_token(spec: str) -> str:
+    """Filename-safe slug token for an embedding-block spec."""
+    import re
+
+    if spec.startswith("perfold="):
+        location, _, representation = spec.rpartition(":")
+        return re.sub(r"[^A-Za-z0-9_.+@=-]", "-",
+                      f"perfold-{Path(location[len('perfold='):]).stem}-{representation}")
+    location, _, representation = spec.partition(":")
+    parts = location.split("/")
+    short = f"{parts[1]}-{parts[2][:8]}" if len(parts) == 3 else location
+    return re.sub(r"[^A-Za-z0-9_.+@=-]", "-", f"{short}-{representation}")
 
 
 @dataclass
@@ -134,6 +171,9 @@ class CellResult:
             "model": self.config.model,
             "seed": self.config.seed,
             "drop_groups": list(self.config.drop_groups),
+            "split": self.config.split,
+            "embedding_blocks": list(self.config.embedding_blocks),
+            "tag": self.config.tag,
             "genes_evaluated": [row["gene"] for row in self.per_gene],
             "genes_skipped": self.skipped,
             "mean_roc_auc_all": float(np.nanmean(
@@ -221,10 +261,14 @@ def run_cell(
     dataset_path: Path | str,
     out_dir: Path | str,
     sequences: Mapping[str, str] | None = None,
+    dl_context: Any = None,
 ) -> CellResult:
     """Train and evaluate one cell leave-one-gene-out. Writes artefacts.
 
-    `sequences` is required only for models in :data:`SEQUENCE_WINDOW_MODELS`.
+    `sequences` is required only for models in :data:`SEQUENCE_WINDOW_MODELS`
+    and :data:`FRAME_MODELS`. `dl_context` (:class:`vpdl.dl.runner.DLContext`)
+    supplies feature-store embeddings, functional-validation keys and export
+    settings for the DL branch; None reproduces the original cell exactly.
     """
     started = time.time()
     out_dir = Path(out_dir)
@@ -253,7 +297,10 @@ def run_cell(
     # (gnomAD's pLI / o-e missense / missense-Z). Measured on the FULL table so
     # the feature schema is identical across arms, whatever they train on.
     columns = drop_gene_constant(table, columns)
-    if not columns:
+    # Sequence-window and PLM models have their own input; for them (and for
+    # embedding-only arms) an empty tabular side is a legitimate arm.
+    if not columns and not (config.embedding_blocks or config.model in SEQUENCE_WINDOW_MODELS
+                            or config.model in FRAME_MODELS):
         raise ValueError(f"Cell {config.slug}: ablation removed every feature.")
 
     per_gene: list[dict[str, Any]] = []
@@ -277,14 +324,30 @@ def run_cell(
             int(rows["_eval"].notna().sum()), int((rows["_eval"] == 1).sum()),
         )
 
-    eval_genes = sorted(
-        str(g) for g in work.loc[work["_eval"].notna(), "gene"].dropna().unique()
-        if str(g).strip()
-    )
+    from vpdl.dl.leakage import leakage_gate
+    from vpdl.dl.splits import GENE_DISJOINT_SCHEMES, make_folds
 
-    for split_index, gene in enumerate(eval_genes):
-        train_positions = np.where((work["gene"] != gene) & work["_train"].notna())[0]
-        test_positions = np.where((work["gene"] == gene) & work["_eval"].notna())[0]
+    folds = make_folds(work, config.split, seed=config.seed)
+    if config.score_rows not in ("none", "functional", "all"):
+        raise ValueError(f"score_rows must be none|functional|all, got {config.score_rows!r}")
+    if config.score_rows != "none" and config.split not in GENE_DISJOINT_SCHEMES:
+        raise ValueError(f"score_rows={config.score_rows!r} needs a gene-disjoint split; "
+                         f"under {config.split!r} the scored genes were trained on.")
+    functional_keys = (set(dl_context.functional_keys) if dl_context is not None
+                       and config.score_rows == "functional" else set())
+    # Refuse to train through critical leakage (duplicates, straddling folds,
+    # functional data reaching training, label-derived features).
+    leakage = leakage_gate(work, folds, config.split, columns, config.train_sources,
+                           config.eval_source,
+                           validating_functional=config.score_rows == "functional",
+                           functional_keys=functional_keys)
+    if (config.embedding_blocks or config.model == "fusion") and dl_context is None:
+        from vpdl.dl.runner import DLContext
+        dl_context = DLContext()
+    extra_scores: list[pd.DataFrame] = []
+
+    for split_index, fold in enumerate(folds):
+        train_positions, test_positions = fold.train_positions, fold.test_positions
         assert_no_group_straddle(work, train_positions, test_positions)
 
         train_frame = work.iloc[train_positions].reset_index(drop=True)
@@ -301,14 +364,15 @@ def run_cell(
         if len(train_frame) < 20 or train_frame["_train"].nunique() < 2:
             reason = (f"untrainable: {len(train_frame)} training rows, "
                       f"{train_frame['_train'].nunique()} class(es)")
-            logger.warning("%s | holdout=%s SKIPPED — %s", config.slug, gene, reason)
-            skipped[gene] = reason
+            logger.warning("%s | holdout=%s SKIPPED — %s", config.slug, fold.name, reason)
+            skipped[fold.name] = reason
             continue
 
-        # Keyed on the held-out GENE, not the loop position: a gene dropping out
-        # of the panel would otherwise shift every subsequent split's seed and
-        # silently change results for a cell that did not change.
-        split_key = gene
+        # Keyed on the held-out GENE (the fold name under leave-one-gene-out),
+        # not the loop position: a gene dropping out of the panel would
+        # otherwise shift every subsequent split's seed and silently change
+        # results for a cell that did not change.
+        split_key = fold.name
         inner_train, inner_val = _inner_split(
             train_frame, config.inner_val_fraction,
             derive_seed(config.seed, split_key),
@@ -321,6 +385,16 @@ def run_cell(
         X_train = matrix.X
         X_val = matrix.transform(train_frame.iloc[inner_val])
         X_test = matrix.transform(test_frame)
+        model_kwargs = dict(config.model_kwargs)
+        augment = None
+        if dl_context is not None and (config.embedding_blocks or config.model == "fusion"):
+            augment = dl_context.augmenter(config, columns, train_frame.iloc[inner_train],
+                                           fold=fold)
+            X_train = augment(train_frame.iloc[inner_train], X_train)
+            X_val = augment(train_frame.iloc[inner_val], X_val)
+            X_test = augment(test_frame, X_test)
+            if config.model == "fusion":
+                model_kwargs = augment.fusion_kwargs() | model_kwargs
 
         # Training and inner-validation labels come from the arm's own sources,
         # so a DMS-only arm's threshold is chosen on DMS labels — not on clinical
@@ -331,7 +405,7 @@ def run_cell(
         y_val = train_frame.iloc[inner_val]["_train"].to_numpy(dtype=int)
         y_test = test_frame["_eval"].to_numpy(dtype=int)
 
-        if config.model in SEQUENCE_WINDOW_MODELS:
+        if config.model in SEQUENCE_WINDOW_MODELS or config.model in FRAME_MODELS:
             if not sequences:
                 raise ValueError(
                     f"Model {config.model!r} consumes sequence windows, so "
@@ -339,13 +413,15 @@ def run_cell(
                     "them the wild-type and variant windows cannot be built, "
                     "and a silently identical pair is regression landmine L12."
                 )
+
+        if config.model in SEQUENCE_WINDOW_MODELS:
             windows_train = _windows_for(train_frame.iloc[inner_train], sequences)
             windows_val = _windows_for(train_frame.iloc[inner_val], sequences)
             windows_test = _windows_for(test_frame, sequences)
 
             model = build_model(
                 config.model, seed=config.seed, split_index=split_key,
-                n_tabular_features=X_train.shape[1], **config.model_kwargs,
+                n_tabular_features=X_train.shape[1], **model_kwargs,
             )
             model.fit(
                 windows_train, y_train, tabular=X_train,
@@ -353,47 +429,84 @@ def run_cell(
             )
             val_scores = model.predict_proba(windows_val, tabular=X_val)
             test_scores = model.predict_proba(windows_test, tabular=X_test)
+
+            def score(frame, X):
+                return model.predict_proba(_windows_for(frame, sequences), tabular=X)
+        elif config.model in FRAME_MODELS:
+            model = build_model(config.model, seed=config.seed, split_index=split_key,
+                                n_tabular_features=X_train.shape[1], **model_kwargs)
+            model.fit_frames(train_frame.iloc[inner_train], y_train,
+                             train_frame.iloc[inner_val], y_val, tabular=X_train,
+                             tabular_val=X_val, sequences=sequences)
+            val_scores = model.predict_frames(train_frame.iloc[inner_val], X_val, sequences)
+            test_scores = model.predict_frames(test_frame, X_test, sequences)
+
+            def score(frame, X):
+                return model.predict_frames(frame, X, sequences)
         else:
             model = build_model(
                 config.model,
                 seed=config.seed,
                 split_index=split_key,
                 **({"n_features": X_train.shape[1]}
-                   if config.model in {"mlp"} else {}),
-                **config.model_kwargs,
+                   if config.model in MATRIX_WIDTH_MODELS else {}),
+                **model_kwargs,
             )
             model.fit(X_train, y_train, X_val=X_val, y_val=y_val)
 
             val_scores = model.predict_proba(X_val)
             test_scores = model.predict_proba(X_test)
 
+            def score(frame, X):
+                return model.predict_proba(X)
+
         # Threshold from inner validation only. Selecting it on `test_scores`
         # would inflate every threshold-dependent metric below.
         threshold, _ = best_threshold_by_mcc(y_val, val_scores)
 
-        report = evaluation_report(
-            y_test, test_scores, threshold=threshold,
-            n_bootstrap=config.n_bootstrap, seed=config.seed,
-            check_orientation=False,   # reported, not enforced, per fold
-        )
-        row = {"gene": gene, "split_index": split_index} | report.as_dict()
-        per_gene.append(row)
+        # One row per held-out gene. Under leave-one-gene-out a fold IS one
+        # gene, so this is the original per-fold row; under the family split a
+        # fold holds two genes and each is still reported on its own.
+        test_genes = test_frame["gene"].to_numpy()
+        for gene in fold.test_genes:
+            in_gene = test_genes == gene
+            report = evaluation_report(
+                y_test[in_gene], test_scores[in_gene], threshold=threshold,
+                n_bootstrap=config.n_bootstrap, seed=config.seed,
+                check_orientation=False,   # reported, not enforced, per fold
+            )
+            row = {"gene": gene, "split_index": split_index} | report.as_dict()
+            if config.split != "logo":
+                row["fold"] = fold.name
+            per_gene.append(row)
+            logger.info(
+                "%s | holdout=%s n=%d ROC-AUC=%.4f MCC=%.4f",
+                config.slug, gene, report.n, report.roc_auc, report.mcc,
+            )
 
         keys = variant_keys(test_frame)
-        predictions.append(pd.DataFrame({
-            "cell": config.slug, "gene": gene, "variant_key": keys,
+        fold_predictions = pd.DataFrame({
+            "cell": config.slug, "gene": test_frame["gene"].to_numpy(), "variant_key": keys,
             "label": y_test, "score": test_scores, "threshold": threshold,
-        }))
-        val_predictions.append(pd.DataFrame({
-            "cell": config.slug, "gene": gene,
+        })
+        if config.split != "logo":
+            fold_predictions["fold"] = fold.name
+        predictions.append(fold_predictions)
+        fold_val = pd.DataFrame({
+            "cell": config.slug, "gene": train_frame.iloc[inner_val]["gene"].to_numpy()
+            if config.split != "logo" else fold.name,
             "variant_key": variant_keys(train_frame.iloc[inner_val]),
             "label": y_val, "score": val_scores,
-        }))
+        })
+        if config.split != "logo":
+            fold_val["fold"] = fold.name
+        val_predictions.append(fold_val)
 
-        logger.info(
-            "%s | holdout=%s n=%d ROC-AUC=%.4f MCC=%.4f",
-            config.slug, gene, report.n, report.roc_auc, report.mcc,
-        )
+        if config.score_rows != "none" or (dl_context is not None and dl_context.export_dir):
+            from vpdl.dl.runner import score_extra_rows
+            extra_scores.append(score_extra_rows(
+                table, fold, config, model, matrix, augment, score, functional_keys,
+                dl_context, out_dir, test_frame, X_test))
 
     predictions_frame = (pd.concat(predictions, ignore_index=True)
                          if predictions else pd.DataFrame())
@@ -406,6 +519,20 @@ def run_cell(
         held_out_keys=held_out_all,
         sources=config.sources,
     ) | {"feature_schema_columns": schema_hash(columns)}
+    if config.split != "logo" or config.embedding_blocks or dl_context is not None:
+        # Recorded only for DL-branch cells, so original cells' summaries are
+        # unchanged. feature_version pins the feature-store entries read.
+        provenance |= {
+            "split_scheme": config.split,
+            "embedding_blocks": list(config.embedding_blocks),
+            "feature_version": (dl_context.feature_version(config.embedding_blocks)
+                                if dl_context is not None else None),
+            "leakage": {"critical": len(leakage.critical),
+                        "warnings": sum(f.severity == "warning" for f in leakage.findings)},
+        }
+    if extra_scores:
+        pd.concat(extra_scores, ignore_index=True).to_csv(
+            out_dir / f"scores_{config.slug}.csv", index=False)
 
     result = CellResult(
         config=config, per_gene=per_gene, predictions=predictions_frame,
