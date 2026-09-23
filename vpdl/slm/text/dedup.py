@@ -28,6 +28,7 @@ overflow — the values are exact, not wrapped.
 from __future__ import annotations
 
 import hashlib
+import math
 import re
 from dataclasses import dataclass
 from typing import Iterable, Sequence
@@ -145,23 +146,64 @@ class ClusterResult:
         return dict(zip(values.tolist(), counts.tolist()))
 
 
+def _shingle_and_sign(payload: tuple) -> tuple[list[np.ndarray], np.ndarray]:
+    """Shingles and MinHash signatures for one chunk (runs in a worker process).
+
+    Each worker builds its own :class:`MinHasher` from the same seed, so the
+    permutations — and therefore the signatures — are identical however many
+    processes are used.
+    """
+    chunk, k, num_perm, seed = payload
+    hasher = MinHasher(num_perm, seed)
+    sets = [shingles(text, k) for text in chunk]
+    block = (np.stack([hasher.signature(s) for s in sets]) if sets
+             else np.zeros((0, num_perm), dtype=np.uint64))
+    return sets, block
+
+
+def _signatures(texts: Sequence[str], k: int, num_perm: int, seed: int,
+                workers: int | None) -> tuple[list[np.ndarray], np.ndarray]:
+    """Shingle and sign every document, across `workers` processes (default: all cores)."""
+    import multiprocessing
+    import os
+
+    workers = workers if workers is not None else (os.cpu_count() or 1)
+    chunk_size = max(256, math.ceil(len(texts) / max(1, workers * 4)))
+    chunks = [(list(texts[i:i + chunk_size]), k, num_perm, seed)
+              for i in range(0, len(texts), chunk_size)]
+    if workers <= 1 or len(chunks) <= 1:
+        results = [_shingle_and_sign(chunk) for chunk in chunks]
+    else:
+        with multiprocessing.Pool(min(workers, len(chunks))) as pool:
+            results = pool.map(_shingle_and_sign, chunks)
+    sets: list[np.ndarray] = []
+    blocks = []
+    for chunk_sets, block in results:
+        sets.extend(chunk_sets)
+        blocks.append(block)
+    return sets, (np.vstack(blocks) if blocks else np.zeros((0, num_perm), dtype=np.uint64))
+
+
 def cluster_documents(texts: Sequence[str], threshold: float, num_perm: int = 128,
                       bands: int | None = None, k: int = 5, seed: int = 1,
-                      max_bucket_pairs: int = 50) -> ClusterResult:
+                      max_bucket_pairs: int = 50, workers: int | None = 1) -> ClusterResult:
     """Union-find clusters of documents whose shingle Jaccard >= `threshold`.
 
     `bands` defaults to the banding whose LSH threshold (1/b)^(1/r) sits just
     below `threshold`, so true pairs are rarely missed; every candidate is then
     checked exactly. In a bucket larger than `max_bucket_pairs`, each member is
     checked against the bucket's first member only (linear, not quadratic).
+
+    ``workers`` shingles and signs across processes — the part that dominates on
+    millions of narratives. ``None`` uses every core; the result is identical
+    whatever the number (each worker seeds its own permutations the same way),
+    which ``tests/slm`` checks.
     """
     n = len(texts)
     finder = UnionFind(n)
     if n < 2:
         return ClusterResult(np.arange(n), n, 1 if n else 0, 0, 0)
-    hasher = MinHasher(num_perm, seed)
-    sets = [shingles(t, k) for t in texts]
-    signatures = np.stack([hasher.signature(s) for s in sets])
+    sets, signatures = _signatures(texts, k, num_perm, seed, workers)
     if bands is None:
         bands = _choose_bands(num_perm, threshold)
     rows = num_perm // bands

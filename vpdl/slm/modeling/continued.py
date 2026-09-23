@@ -31,7 +31,7 @@ import signal
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import numpy as np
 
@@ -42,7 +42,13 @@ from vpdl.slm.train import (TokenWindows, latest_checkpoint, learning_rate, list
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["PretrainConfig", "pack_for_tokenizer", "run_pretrain", "mask_tokens"]
+__all__ = ["PretrainConfig", "pack_for_tokenizer", "run_pretrain", "mask_tokens", "autotune",
+           "prepare_device", "model_flops_per_token", "MEASURED_PEAK_TFLOPS"]
+
+# Measured on this project's DGX Spark on 2026-09-22 (docs/RUNLOG.md): 90.1 TFLOPS
+# bf16 peak matrix multiply. Throughput is reported as a share of it so that
+# "the GPU is busy" is a number, not an impression.
+MEASURED_PEAK_TFLOPS = 90.1
 
 
 @dataclass
@@ -151,6 +157,59 @@ def mask_tokens(inputs, tokenizer, probability: float, generator=None):
     return inputs, labels
 
 
+def prepare_device(device) -> dict[str, Any]:
+    """Switch on what this accelerator can do, and report what was switched on.
+
+    On the GB10 (and any recent NVIDIA part) three settings decide whether the
+    matrix units are used at all, and all three are off by default in PyTorch:
+
+    * ``float32_matmul_precision("high")`` — lets fp32 matmuls run on the tensor
+      cores instead of the much slower fp32 path (bf16 autocast covers most of
+      the model, but not everything);
+    * ``cudnn.benchmark`` — picks the fastest kernel for this fixed shape once,
+      which is right when every step has the same shape, as here;
+    * TF32 for convolutions and matmuls.
+
+    Nothing here changes what is computed beyond fp32 matmul rounding; the
+    settings that WOULD change results (precision, seeds, batch order) are
+    config, not defaults.
+    """
+    import torch
+    applied: dict[str, Any] = {"device": str(device)}
+    if device.type != "cuda":
+        return applied | {"note": "CPU: no accelerator settings apply"}
+    torch.set_float32_matmul_precision("high")
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
+    free, total = torch.cuda.mem_get_info()
+    applied |= {"gpu": torch.cuda.get_device_name(0),
+                "float32_matmul_precision": "high", "tf32": True, "cudnn_benchmark": True,
+                "bf16_supported": torch.cuda.is_bf16_supported(),
+                "memory_free_gib": round(free / 2 ** 30, 1),
+                "memory_total_gib": round(total / 2 ** 30, 1),
+                "sdpa_flash": torch.backends.cuda.flash_sdp_enabled(),
+                "sdpa_mem_efficient": torch.backends.cuda.mem_efficient_sdp_enabled()}
+    logger.info("accelerator: %s, %.0f GiB free, bf16=%s, TF32 on, cuDNN autotune on",
+                applied["gpu"], applied["memory_free_gib"], applied["bf16_supported"])
+    return applied
+
+
+def model_flops_per_token(model, context: int) -> float:
+    """6 x parameters + attention, the arithmetic ``vpdl.slm.model`` already uses.
+
+    Lets a continued-pretraining run report achieved TFLOPS on the same scale as
+    the from-scratch runs (docs/RUNLOG.md, 2026-09-22: 30.7 TFLOPS with compile,
+    90.1 TFLOPS peak measured on this machine), so underuse is visible as a
+    number rather than a feeling.
+    """
+    config = model.config
+    layers = getattr(config, "num_hidden_layers", 0) or 0
+    width = getattr(config, "hidden_size", 0) or 0
+    parameters = sum(p.numel() for p in model.parameters())
+    return 6 * parameters + 12 * layers * width * context
+
+
 def _load_lm(spec: str, objective: str, seed: int):
     """(model, tokenizer, objective) for continued pretraining."""
     import torch
@@ -177,8 +236,76 @@ def _load_lm(spec: str, objective: str, seed: int):
     tokenizer = AutoTokenizer.from_pretrained(location)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = (AutoModelForMaskedLM if objective == "mlm" else AutoModelForCausalLM).from_pretrained(location)
+    loader = AutoModelForMaskedLM if objective == "mlm" else AutoModelForCausalLM
+    try:
+        # PyTorch's fused attention. Without it a 512-token BERT step runs the
+        # slow eager path and the GPU idles on memory traffic.
+        model = loader.from_pretrained(location, attn_implementation="sdpa")
+    except (ValueError, ImportError, TypeError) as error:
+        logger.warning("SDPA attention unavailable for %s (%s); falling back to eager.",
+                       location, error)
+        model = loader.from_pretrained(location)
     return model, tokenizer, objective
+
+
+def autotune(config: PretrainConfig, micro_batches: Sequence[int] = (),
+             try_compile: bool = True, steps: int = 6,
+             target_tokens_per_step: int | None = None) -> dict[str, Any]:
+    """Measure this machine, then say what to put in the config.
+
+    A default batch size chosen on a laptop wastes a 128 GiB unified-memory
+    machine, and a batch size chosen by guessing wastes a day finding out. This
+    runs a few short benchmarks — increasing micro-batch until it stops paying
+    or runs out of memory, with and without ``torch.compile`` — and returns the
+    table it measured plus the setting with the best tokens/s. It trains
+    nothing and writes no checkpoint.
+
+    ``target_tokens_per_step`` (optional) keeps the optimiser step size fixed
+    while the micro-batch grows, by adjusting gradient accumulation — so the
+    tuning changes speed, not what is computed.
+    """
+    import torch
+    from dataclasses import replace
+
+    if not micro_batches:
+        micro_batches = (8, 16, 32, 64, 128, 256)
+    rows: list[dict[str, Any]] = []
+    for compiled in ([False, True] if try_compile else [False]):
+        for micro in micro_batches:
+            accum = max(1, round((target_tokens_per_step or config.tokens_per_step)
+                                 / (micro * config.context))) if target_tokens_per_step else config.grad_accum
+            candidate = replace(config, micro_batch=micro, grad_accum=accum, compile=compiled)
+            try:
+                result = run_pretrain(candidate, benchmark_steps=steps)
+            except (RuntimeError, torch.cuda.OutOfMemoryError) as error:   # noqa: PERF203
+                message = str(error)
+                rows.append({"micro_batch": micro, "compile": compiled, "grad_accum": accum,
+                             "failed": message.split("\n")[0][:120]})
+                if "out of memory" in message.lower():
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    break                       # bigger batches will not fit either
+                continue
+            rows.append({k: result[k] for k in ("micro_batch", "grad_accum", "compile",
+                                                "tokens_per_s", "tflops",
+                                                "share_of_measured_peak", "tokens_per_step")})
+            logger.info("micro_batch %d compile=%s: %d tok/s, %.1f TFLOPS (%.0f%% of peak)",
+                        micro, compiled, result["tokens_per_s"], result["tflops"],
+                        100 * result["share_of_measured_peak"])
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+    usable = [r for r in rows if "tokens_per_s" in r]
+    best = max(usable, key=lambda r: r["tokens_per_s"]) if usable else None
+    report = {"measured": rows, "best": best, "peak_tflops_reference": MEASURED_PEAK_TFLOPS,
+              "backbone": config.backbone, "context": config.context, "steps_per_measurement": steps}
+    if best:
+        report["put_in_config"] = {"micro_batch": best["micro_batch"],
+                                   "grad_accum": best["grad_accum"], "compile": best["compile"]}
+        report["note"] = (f"{best['tokens_per_s']:,} tokens/s = {best['tflops']} TFLOPS, "
+                          f"{100 * best['share_of_measured_peak']:.0f}% of this machine's measured "
+                          f"bf16 peak. Under ~20% means something else is the bottleneck — check "
+                          f"the accelerator block for bf16 and SDPA.")
+    return report
 
 
 def run_pretrain(config: PretrainConfig, dry_run: bool = False,
@@ -196,6 +323,7 @@ def run_pretrain(config: PretrainConfig, dry_run: bool = False,
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cuda" and (problem := missing_python_headers()):
         raise RuntimeError(problem)
+    accelerator = prepare_device(device)
     model.to(device)
     autocast_dtype, needs_scaler = resolve_precision("auto", device)
     scaler = torch.amp.GradScaler(device.type) if needs_scaler else None
@@ -227,6 +355,7 @@ def run_pretrain(config: PretrainConfig, dry_run: bool = False,
             start = state["step"]
             logger.info("resumed from %s at step %d of %d", newest.name, start, config.steps)
 
+    per_token = model_flops_per_token(model, config.context)
     stepper = torch.compile(model) if config.compile else model
 
     def windows_to_batch(step: int, micro: int):
@@ -269,7 +398,8 @@ def run_pretrain(config: PretrainConfig, dry_run: bool = False,
                 "device": str(device), "precision": str(autocast_dtype), "loss": float(loss.detach()),
                 "finite_loss": bool(math.isfinite(float(loss.detach()))),
                 "input_shape": list(inputs.shape), "supervised_positions": supervised,
-                "peft": peft_summary, "data_meta": meta, "trained": False}
+                "peft": peft_summary, "data_meta": meta, "accelerator": accelerator,
+                "tokens_per_step": config.tokens_per_step, "trained": False}
 
     stop = {"requested": False}
 
@@ -308,6 +438,8 @@ def run_pretrain(config: PretrainConfig, dry_run: bool = False,
             "config": config.as_dict(), "objective": objective, "device": str(device),
             "gpu": torch.cuda.get_device_name(0) if device.type == "cuda" else None,
             "precision": str(autocast_dtype), "peft": peft_summary, "data_meta": meta,
+            "accelerator": accelerator, "flops_per_token": per_token,
+            "tokens_per_step": config.tokens_per_step,
             "torch": torch.__version__, "git": _git_state(),
             "parameters": sum(p.numel() for p in model.parameters()),
         }, indent=2, default=str))
@@ -349,18 +481,24 @@ def run_pretrain(config: PretrainConfig, dry_run: bool = False,
                 seconds = time.time() - began
                 timings.append(seconds)
                 done = step + 1
+                tokens_per_s = config.tokens_per_step / seconds
+                tflops = per_token * tokens_per_s / 1e12
                 last = {"step": done, "loss": round(total, 4), "lr": rate,
                         "grad_norm": round(float(norm), 3),
-                        "tokens_per_s": round(config.tokens_per_step / seconds),
+                        "tokens_per_s": round(tokens_per_s),
+                        "tflops": round(tflops, 1),
+                        "share_of_measured_peak": round(tflops / MEASURED_PEAK_TFLOPS, 3),
                         "hours_left": round((end - done) * seconds / 3600, 2)}
                 if done % config.eval_every == 0 or done == end:
                     last["val_loss"] = round(validate(), 4)
                 if done % config.log_every == 0 or "val_loss" in last or done == end:
                     log.write(json.dumps(last) + "\n")
                     log.flush()
-                    logger.info("step %d/%d loss %.4f%s %.0f tok/s", done, end, total,
+                    logger.info("step %d/%d loss %.4f%s  %.0f tok/s  %.1f TFLOPS (%.0f%% of peak)"
+                                "  %.1f h left", done, end, total,
                                 f" val {last['val_loss']:.4f}" if "val_loss" in last else "",
-                                last["tokens_per_s"])
+                                last["tokens_per_s"], last["tflops"],
+                                100 * last["share_of_measured_peak"], last["hours_left"])
                 if benchmark_steps:
                     continue
                 if (done % config.checkpoint_every == 0 or done == end or stop["requested"]
@@ -377,9 +515,17 @@ def run_pretrain(config: PretrainConfig, dry_run: bool = False,
     if benchmark_steps:
         steady = timings[2:] or timings
         seconds = sum(steady) / len(steady)
-        return {"tokens_per_s": round(config.tokens_per_step / seconds),
+        tokens_per_s = config.tokens_per_step / seconds
+        return {"tokens_per_s": round(tokens_per_s),
+                "tflops": round(per_token * tokens_per_s / 1e12, 1),
+                "share_of_measured_peak": round(per_token * tokens_per_s / 1e12
+                                                / MEASURED_PEAK_TFLOPS, 3),
                 "projected_hours": round(config.steps * seconds / 3600, 1),
-                "objective": objective, "steps_measured": len(timings)}
+                "micro_batch": config.micro_batch, "grad_accum": config.grad_accum,
+                "context": config.context, "compile": config.compile,
+                "tokens_per_step": config.tokens_per_step,
+                "objective": objective, "steps_measured": len(timings),
+                "accelerator": accelerator}
     final = out / "final"
     model.save_pretrained(final)
     tokenizer.save_pretrained(final)

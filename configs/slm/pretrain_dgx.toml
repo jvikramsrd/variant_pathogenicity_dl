@@ -1,6 +1,14 @@
 # Broad genomic continued pretraining on the DGX Spark.
-# Run: vpdl-slm pretrain --config configs/slm/pretrain_dgx.toml
-# First: --dry-run, then --benchmark 20 (both save nothing).
+#
+# Order: vpdl-slm pretrain --config ... --dry-run     (builds everything, trains nothing)
+#        vpdl-slm autotune --config ...               (measures micro_batch / compile HERE)
+#        put autotune's "put_in_config" values below
+#        vpdl-slm pretrain --config ...               (the real run, resumable)
+#
+# micro_batch below is a placeholder sized for a small card. The DGX Spark has
+# ~128 GiB of unified memory: autotune will almost certainly raise it, and the
+# log reports achieved TFLOPS against the 90.1 measured on this machine, so
+# under-use shows up as a number.
 # Status: NOT RUN - REQUIRES DGX SPARK.
 
 [pretrain]
@@ -10,8 +18,8 @@ token_dir = "data/slm_genomic/pretrain_tokens"
 out_dir = "runs/slm_genomic/pretrain"
 objective = "auto"          # mlm for an encoder, clm for a decoder
 context = 512
-micro_batch = 32
-grad_accum = 2
+micro_batch = 32            # <- replace with `vpdl-slm autotune` output
+grad_accum = 2              # <- autotune keeps tokens/step fixed while this changes
 total_steps = 20000         # set from `vpdl-slm sizing` and the measured corpus size
 lr = 5e-5
 warmup_steps = 500

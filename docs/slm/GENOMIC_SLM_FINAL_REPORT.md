@@ -47,7 +47,7 @@ extra and the `vpdl-slm` entry point), `.gitignore` (new artefact paths),
 labels, variants, clinvar_text, erepo, catalog, retrieval, teacher, baselines,
 interface, experiments, hardware, config, cli, smoke, `__main__`; plus `text/`,
 `build/`, `modeling/`, `evaluation/`), 4 test files
-(`tests/slm/test_genomic_*.py`, **159 tests**), 22 configs
+(`tests/slm/test_genomic_*.py`, **166 tests**), 22 configs
 (`configs/slm/*.toml`) and 14 documents (`docs/slm/LLM_CODEBASE_AUDIT.md`,
 `GENOMIC_SLM_*.md`, this report). About 10,700 lines of Python, roughly a third
 of it tests.
@@ -166,8 +166,8 @@ TFLOPS peak and 30.7 TFLOPS sustained on the from-scratch small model.
 
 ## 33–35. Tests run, dry-runs run, experiments NOT run
 
-**Tests:** `pytest tests/slm tests/kb tests/dl tests/regression` → **402
-passed, 3 skipped** (tests/slm alone: 181 — 22 existing, 159 new). The three
+**Tests:** `pytest tests/slm tests/kb tests/dl tests/regression` → **410
+passed, 2 skipped** (tests/slm alone: 188 — 22 existing, 166 new). The
 skips are CUDA-only.
 **Dry runs:** `vpdl-slm finetune --dry-run` (builds model, one forward and
 backward, checkpoint round-trip identical, no training), `vpdl-slm pretrain

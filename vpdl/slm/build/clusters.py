@@ -33,13 +33,14 @@ __all__ = ["document_clusters"]
 
 def document_clusters(documents: pd.DataFrame, near_threshold: float = 0.8,
                       template_threshold: float = 0.6, genes: Sequence[str] | None = None,
-                      num_perm: int = 128, seed: int = 1) -> pd.DataFrame:
+                      num_perm: int = 128, seed: int = 1, workers: int | None = 1) -> pd.DataFrame:
     frame = documents.loc[documents["text"].fillna("").str.len() > 0,
                           ["document_id", "text", "submitter", "gene"]].reset_index(drop=True)
     masked = frame["text"].map(lambda t: mask_conclusions(t).text)
     out = pd.DataFrame({"document_id": frame["document_id"]})
     out["exact_group"] = masked.map(exact_group)
-    near = cluster_documents(masked.tolist(), near_threshold, num_perm=num_perm, seed=seed)
+    near = cluster_documents(masked.tolist(), near_threshold, num_perm=num_perm, seed=seed,
+                             workers=workers)
     out["near_dup_cluster"] = [f"nd{label}" for label in near.labels]
     logger.info("near-duplicate clusters: %d over %d documents (largest %d)",
                 near.n_clusters, len(frame), near.largest)
@@ -51,7 +52,8 @@ def document_clusters(documents: pd.DataFrame, near_threshold: float = 0.8,
     for submitter, rows in frame.groupby("submitter").groups.items():
         rows = np.asarray(list(rows))
         texts = [template_text(masked.iloc[i], [own_gene[i], *(genes or [])]) for i in rows]
-        result = cluster_documents(texts, template_threshold, num_perm=num_perm, seed=seed)
+        result = cluster_documents(texts, template_threshold, num_perm=num_perm, seed=seed,
+                                   workers=workers)
         for i, label in zip(rows, result.labels):
             template[i] = f"tp:{submitter}:{rows[label]}"
     out["template_cluster"] = template

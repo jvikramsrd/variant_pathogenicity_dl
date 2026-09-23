@@ -55,6 +55,23 @@ token cache would never have hit.
 
 No number here is a genomics result: synthetic data, random weights.
 
+**Same day, later — making it use the DGX properly.** A read of the training
+paths found four ways the Spark would have been under-used: fused (SDPA)
+attention was not requested when loading the pretraining model; TF32 and cuDNN
+autotune were off (PyTorch's defaults) in both pretraining and fine-tuning;
+duplicate detection ran on one of the machine's 20 cores; and the pretraining
+batch size was a guess sized for a small card. Fixed: SDPA with an eager
+fallback; `prepare_device()` switches TF32/cuDNN on and reports what it did;
+`dedup --workers` (identical result for any worker count, tested); and
+`vpdl-slm autotune`, which measures micro-batch x `torch.compile` here and
+prints the setting to use, keeping tokens per optimiser step fixed. The
+pretraining log now reports achieved TFLOPS and its share of the 90.1 TFLOPS
+peak measured on this machine, so under-use is a number in the log.
+`finetune --seed/--batch-size/--lr/--epochs` override the config (three seeds
+without copying files). Tests: `tests/slm` 188 passed; repo-wide 410 passed,
+2 skipped. Nothing here has run on the GPU yet; the speed-up is for
+`autotune` to measure, not for this entry to claim.
+
 ---
 
 ## 2026-09-22 (DGX Spark) — small language model: training speed measured

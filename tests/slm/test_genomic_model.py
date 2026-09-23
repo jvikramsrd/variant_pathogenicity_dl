@@ -340,3 +340,64 @@ def test_memory_grows_with_the_model_and_the_batch():
     bigger_batch = estimate_memory_gib(110, 12, 768, 512, 32)
     assert small["total_gib"] < large["total_gib"]
     assert small["activations_gib"] < bigger_batch["activations_gib"]
+
+
+# -- using the machine ---------------------------------------------------------------------
+
+def test_the_accelerator_settings_are_applied_and_reported():
+    """The settings that decide whether the tensor cores are used at all."""
+    from vpdl.slm.modeling.continued import prepare_device
+    applied = prepare_device(torch.device("cpu"))
+    assert applied["device"] == "cpu" and "note" in applied     # nothing to switch on here
+    if torch.cuda.is_available():                               # on the DGX
+        applied = prepare_device(torch.device("cuda"))
+        assert applied["float32_matmul_precision"] == "high"
+        assert applied["cudnn_benchmark"] and applied["tf32"]
+        assert applied["memory_total_gib"] > 0
+
+
+def test_throughput_is_reported_against_this_machines_measured_peak(tmp_path):
+    from vpdl.slm.modeling.continued import MEASURED_PEAK_TFLOPS, run_pretrain
+    assert MEASURED_PEAK_TFLOPS == 90.1                          # docs/RUNLOG.md 2026-09-22
+    result = run_pretrain(_pretrain_config(tmp_path, total_steps=4), benchmark_steps=3)
+    assert result["tokens_per_s"] > 0 and result["tflops"] >= 0
+    assert 0 <= result["share_of_measured_peak"] <= 1
+    assert result["tokens_per_step"] == result["micro_batch"] * result["context"] * result["grad_accum"]
+    assert "accelerator" in result
+
+
+def test_flops_per_token_grows_with_the_model():
+    from transformers import BertConfig, BertForMaskedLM
+
+    from vpdl.slm.modeling.continued import model_flops_per_token
+    small = BertForMaskedLM(BertConfig(vocab_size=64, hidden_size=16, num_hidden_layers=1,
+                                       num_attention_heads=2, intermediate_size=32))
+    larger = BertForMaskedLM(BertConfig(vocab_size=64, hidden_size=32, num_hidden_layers=2,
+                                        num_attention_heads=2, intermediate_size=64))
+    assert model_flops_per_token(small, 128) < model_flops_per_token(larger, 128)
+
+
+def test_autotune_measures_sizes_and_recommends_one(tmp_path):
+    from vpdl.slm.modeling.continued import autotune
+    report = autotune(_pretrain_config(tmp_path), micro_batches=(1, 2), try_compile=False, steps=3)
+    assert len(report["measured"]) == 2
+    assert report["best"]["micro_batch"] in (1, 2)
+    assert set(report["put_in_config"]) == {"micro_batch", "grad_accum", "compile"}
+    assert not (tmp_path / "pretrain" / "checkpoints").exists()   # measures, trains nothing
+
+
+def test_autotune_keeps_the_optimiser_step_fixed_while_the_batch_grows(tmp_path):
+    from vpdl.slm.modeling.continued import autotune
+    report = autotune(_pretrain_config(tmp_path), micro_batches=(1, 2), try_compile=False, steps=3,
+                      target_tokens_per_step=128)
+    sizes = {row["tokens_per_step"] for row in report["measured"] if "tokens_per_step" in row}
+    assert sizes == {128}
+
+
+def test_a_starting_batch_size_is_suggested_from_free_memory():
+    from vpdl.slm.hardware import starting_micro_batch
+    small = starting_micro_batch(8.0)
+    large = starting_micro_batch(120.0)
+    assert large["micro_batch"] > small["micro_batch"]
+    assert "not a measurement" in large["note"]
+    assert starting_micro_batch(None)["micro_batch"] is None

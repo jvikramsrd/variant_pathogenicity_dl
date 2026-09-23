@@ -113,6 +113,10 @@ def run_smoke(out_dir: str | None = None, seed: int = 7, keep: bool = False) -> 
         steps["pretrain"] = {k: v for k, v in run_pretrain(pretrain_config).items()
                              if k in ("step", "loss", "val_loss", "final", "objective")}
 
+        # The smoke run's registry line goes in its own folder, never next to real runs.
+        import vpdl.slm.modeling.finetune as finetune_module
+        real_registry = finetune_module.REGISTRY
+        finetune_module.REGISTRY = root / "registry.jsonl"
         finetune_config = FinetuneConfig(
             run_name="smoke", out_dir=str(root / "finetune"),
             examples=str(examples_dir / "classify.parquet"),
@@ -124,7 +128,10 @@ def run_smoke(out_dir: str | None = None, seed: int = 7, keep: bool = False) -> 
         steps["finetune_dry_run"] = {k: v for k, v in run_finetune(finetune_config, dry_run=True).items()
                                      if k in ("finite_loss", "probs_shape", "embedding_dim",
                                               "checkpoint_roundtrip_identical", "precision")}
-        result = run_finetune(finetune_config)
+        try:
+            result = run_finetune(finetune_config)
+        finally:
+            finetune_module.REGISTRY = real_registry
         steps["finetune"] = {split_name: entry.get("five_class", {}).get("macro_f1")
                              for split_name, entry in result["metrics"].items()
                              if isinstance(entry, dict) and "five_class" in entry}

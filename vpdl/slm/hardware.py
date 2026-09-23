@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any
 
-__all__ = ["INTENDED_TARGET", "hardware_report", "is_intended_target"]
+__all__ = ["INTENDED_TARGET", "hardware_report", "is_intended_target", "starting_micro_batch"]
 
 INTENDED_TARGET = {
     "name": "NVIDIA DGX Spark (GB10 Grace-Blackwell)", "machine": "aarch64",
@@ -70,12 +70,38 @@ def _slm_checks(smoke: bool) -> dict[str, Any]:
     return checks
 
 
+def starting_micro_batch(memory_gib: float | None, context: int = 512,
+                         parameters_m: float = 110, layers: int = 12, width: int = 768) -> dict[str, Any]:
+    """A micro-batch to START a measurement from — not a substitute for measuring.
+
+    Fills ~60% of free accelerator memory using the same envelope as
+    ``vpdl-slm sizing`` (weights + optimiser states + activations). On the DGX
+    Spark the memory is unified and large, so the honest answer is usually "much
+    bigger than the default"; ``vpdl-slm autotune`` then measures which size is
+    actually fastest, because past some point the machine is bandwidth-bound and
+    a bigger batch buys nothing.
+    """
+    from vpdl.slm.modeling.sizing import estimate_memory_gib
+    if not memory_gib:
+        return {"micro_batch": None, "note": "no accelerator memory reported; measure with autotune"}
+    fixed = estimate_memory_gib(parameters_m, layers, width, context, micro_batch=0)["total_gib"]
+    per_sample = max(1e-6, estimate_memory_gib(parameters_m, layers, width, context, 1)["activations_gib"])
+    budget = 0.6 * float(memory_gib) - fixed
+    micro = int(max(1, budget // per_sample))
+    micro = min(512, 1 << (micro.bit_length() - 1))          # nearest power of two, capped
+    return {"micro_batch": micro, "assumed_model": f"{parameters_m:.0f}M, {layers}x{width}",
+            "context": context, "fixed_gib": fixed, "per_sample_gib": round(per_sample, 4),
+            "note": "a starting point for `vpdl-slm autotune`, not a measurement"}
+
+
 def hardware_report(smoke: bool = False) -> dict[str, Any]:
     from vpdl.dl.hardware import hardware_report as dl_report
     report = dl_report(smoke=smoke)
     report["checks"].update(_slm_checks(smoke))
     report["intended_target"] = INTENDED_TARGET
     report["running_on_intended_target"] = is_intended_target(report)
+    memory = report["checks"].get("memory_free_gib") or report["checks"].get("memory_total_gib")
+    report["suggested_start"] = starting_micro_batch(memory)
     if not report["running_on_intended_target"]:
         report.setdefault("recommendations", []).append(
             "NOT the intended target: this is a development machine. Pretraining, fine-tuning, "

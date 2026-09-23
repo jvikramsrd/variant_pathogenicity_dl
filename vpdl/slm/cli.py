@@ -12,6 +12,7 @@
     vpdl-slm leakage                 the fifteen-check audit (exit 3 on a critical finding)
     vpdl-slm pretrain-corpus         continued-pretraining text, evaluation held out of it
     vpdl-slm pretrain-pack           that corpus -> token files for one backbone
+    vpdl-slm autotune                measure the batch size and compile setting this GPU wants
     vpdl-slm pretrain                broad genomic continued pretraining (--dry-run, --benchmark)
     vpdl-slm finetune                supervised multi-task training (--dry-run)
     vpdl-slm baselines               majority / TF-IDF+LR / TF-IDF+SVM / structured-only
@@ -118,7 +119,8 @@ def cmd_dedup(args) -> int:
     from vpdl.slm.build.clusters import document_clusters
     from vpdl.slm.build.records import load_tables
     tables = load_tables(args.records, ["documents"])
-    clusters = document_clusters(tables["documents"], args.near, args.template)
+    clusters = document_clusters(tables["documents"], args.near, args.template,
+                                 workers=args.workers)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     clusters.to_parquet(args.out, index=False)
     print(json.dumps({"documents": int(len(clusters)),
@@ -266,6 +268,21 @@ def cmd_pretrain(args) -> int:
     return 0
 
 
+def cmd_autotune(args) -> int:
+    from vpdl.slm.config import config_problems, load_pretrain_config
+    from vpdl.slm.modeling.continued import autotune
+    config = load_pretrain_config(args.config)
+    problems = config_problems(config)
+    if problems:
+        for problem in problems:
+            print(f"config problem: {problem}", file=sys.stderr)
+        return 2
+    report = autotune(config, tuple(args.micro_batches or ()), try_compile=not args.no_compile,
+                      steps=args.steps, target_tokens_per_step=args.tokens_per_step)
+    _print(report, args.out)
+    return 0
+
+
 def cmd_finetune(args) -> int:
     from vpdl.slm.config import config_problems, load_finetune_config
     from vpdl.slm.modeling.finetune import run_finetune
@@ -274,6 +291,22 @@ def cmd_finetune(args) -> int:
         overrides["limit_rows"] = args.limit_rows
     if args.out_dir:
         overrides["out_dir"] = args.out_dir
+    if args.seed is not None:
+        overrides["seed"] = args.seed
+    if args.batch_size or args.lr or args.epochs:
+        from vpdl.slm.config import load_toml
+        train = dict(load_toml(args.config).get("finetune", {}).get("train", {}))
+        train |= {k: v for k, v in (("batch_size", args.batch_size), ("lr", args.lr),
+                                    ("epochs", args.epochs)) if v}
+        overrides["train"] = train
+    if args.seed is not None and not args.out_dir:
+        # Three seeds of one arm must not overwrite each other's run directory.
+        from vpdl.slm.config import load_toml
+        base = load_toml(args.config).get("finetune", {})
+        if base.get("out_dir"):
+            overrides["out_dir"] = f"{base['out_dir']}-s{args.seed}"
+        if base.get("run_name"):
+            overrides["run_name"] = f"{base['run_name']}-s{args.seed}"
     config = load_finetune_config(args.config, overrides)
     problems = config_problems(config)
     if problems:
@@ -461,6 +494,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--records", default="data/slm_genomic")
     p.add_argument("--near", type=float, default=0.8)
     p.add_argument("--template", type=float, default=0.6)
+    p.add_argument("--workers", type=int, default=None,
+                   help="processes for shingling/signing (default: every core)")
     p.set_defaults(out="data/slm_genomic/clusters.parquet")
 
     p = command("splits", cmd_splits, "one split scheme")
@@ -527,11 +562,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--benchmark", type=int, default=0, help="measure N steps and save nothing")
 
+    p = command("autotune", cmd_autotune, "measure the best batch size / compile setting here")
+    p.add_argument("--config", required=True)
+    p.add_argument("--micro-batches", nargs="*", type=int, default=None,
+                   help="sizes to try (default 8 16 32 64 128 256)")
+    p.add_argument("--tokens-per-step", type=int, default=None,
+                   help="keep the optimiser step this many tokens by adjusting accumulation")
+    p.add_argument("--steps", type=int, default=6)
+    p.add_argument("--no-compile", action="store_true", help="skip the torch.compile half")
+
     p = command("finetune", cmd_finetune, "supervised multi-task training")
     p.add_argument("--config", required=True)
     p.add_argument("--dry-run", action="store_true")
     p.add_argument("--limit-rows", type=int, default=None)
     p.add_argument("--out-dir", default=None)
+    p.add_argument("--seed", type=int, default=None,
+                   help="override the config's seed (run directory gets -s<seed>)")
+    p.add_argument("--batch-size", type=int, default=None, help="override train.batch_size")
+    p.add_argument("--lr", type=float, default=None, help="override train.lr")
+    p.add_argument("--epochs", type=int, default=None, help="override train.epochs")
 
     p = command("baselines", cmd_baselines, "majority / TF-IDF / structured-only baselines")
     p.add_argument("--examples", required=True)

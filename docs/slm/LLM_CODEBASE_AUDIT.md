@@ -158,7 +158,7 @@ policy blocking scikit-learn's `_loss` DLL.
 
 | Check | Result |
 |---|---|
-| `pytest tests/slm` (22 existing + 158 new) | **180 passed** |
+| `pytest tests/slm` (22 existing + 166 new) | **188 passed** |
 | `pytest tests/kb` | 47 passed (unchanged) |
 | `pytest tests/dl` | 107 passed (unchanged) |
 | `vpdl-slm smoke` — records → stats → clusters → split → roles → examples → leakage → pretraining corpus → packing → continued pretraining (2 steps) → fine-tuning (1 epoch) → baselines → export → explanation | **ok: true, 42 s** on CPU with synthetic data and random weights |

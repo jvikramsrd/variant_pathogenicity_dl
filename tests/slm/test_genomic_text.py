@@ -216,3 +216,13 @@ def test_tiers_follow_review_status_and_narrative_length():
 def test_omim_text_is_flagged_restricted_with_a_reason():
     assert restriction("OMIM") and "licence" in restriction("OMIM")
     assert restriction("Synthetic Lab Alpha") is None
+
+
+def test_clustering_across_processes_gives_the_same_answer_as_one():
+    """Workers must change the speed, not the result."""
+    texts = [f"the variant is absent from population databases and was seen in {i} families"
+             for i in range(40)] + ["an unrelated sentence about cardiac conduction"] * 3
+    one = cluster_documents(texts, 0.5, workers=1)
+    many = cluster_documents(texts, 0.5, workers=3)
+    assert one.labels.tolist() == many.labels.tolist()
+    assert one.n_clusters == many.n_clusters

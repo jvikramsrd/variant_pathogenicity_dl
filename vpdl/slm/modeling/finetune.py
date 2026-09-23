@@ -161,6 +161,10 @@ def run_finetune(config: FinetuneConfig, dry_run: bool = False) -> dict[str, Any
                                "split_ids": _split_digest(examples), "heads": heads.as_dict()})
     trainer = Trainer(model, train_config, seed=config.seed, run_name=config.run_name)
     device = trainer.device
+    # Tensor cores for fp32 matmuls, and one-off kernel selection for these fixed
+    # shapes. Off by default in PyTorch; the same call the pretraining loop makes.
+    from vpdl.slm.modeling.continued import prepare_device
+    accelerator = prepare_device(device)
     class_weight = _class_weights(tensors, train_rows, config.class_weights)
     if class_weight is not None:
         class_weight = class_weight.to(device)
@@ -192,12 +196,13 @@ def run_finetune(config: FinetuneConfig, dry_run: bool = False) -> dict[str, Any
     if dry_run:
         report = _dry_run(model, tensors, units, train_rows, device, batch_fn, loss_fn, trainer,
                           heads, peft_summary, config)
+        report["accelerator"] = accelerator
         report["seconds"] = round(time.time() - started, 2)
         return report
 
     result = trainer.fit(len(train_rows), batch_fn, loss_fn, score_fn if len(val_rows) else None)
     artefacts = _evaluate_and_save(model, tensors, units, trainer, config, examples, out, heads,
-                                   peft_summary, result, started)
+                                   peft_summary | {"accelerator": accelerator}, result, started)
     return artefacts
 
 

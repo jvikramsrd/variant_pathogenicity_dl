@@ -17,14 +17,16 @@ pip install -e ".[genomic-slm]"
 ```bash
 pytest tests/slm -q
 ```
-Expect **180 passed** (22 from the from-scratch pipeline, 158 from this branch).
+Expect **188 passed** (22 from the from-scratch pipeline, 166 from this branch).
 
 ```bash
 vpdl-slm hardware --smoke --out runs/slm_genomic/hardware.json
 ```
-Read two fields: `running_on_intended_target` (should be `true` here) and
-`checks.bf16`. If it is `false`, the report says why, and every later figure is
-a development-machine figure.
+Read three fields: `running_on_intended_target` (should be `true` here),
+`checks.bf16`, and `suggested_start.micro_batch` — a starting batch size
+computed from free memory, which `autotune` (Phase 7) then measures properly.
+If bf16 is false the report says why, and every later figure is a
+development-machine figure.
 
 ```bash
 vpdl-slm smoke
@@ -95,10 +97,12 @@ This is the answer to "is there enough clinical text?". Until it has run, the
 corpus is not described as sufficient anywhere.
 
 ```bash
-vpdl-slm dedup --records data/slm_genomic --out data/slm_genomic/clusters.parquet
+vpdl-slm dedup --records data/slm_genomic --out data/slm_genomic/clusters.parquet --workers 16
 ```
-Near-duplicate and laboratory-template clusters. Expect this to be the slowest
-non-training step; start with `--limit-documents`-built records to size it.
+Near-duplicate and laboratory-template clusters — the heaviest CPU step, and
+the one that uses the machine's cores. `--workers` defaults to every core;
+the result is identical whatever the number (each worker seeds its own
+permutations the same way, which `tests/slm` checks), so this is speed only.
 
 ## Phase 5 — splits, roles, examples, and the audit
 
@@ -168,11 +172,29 @@ vpdl-slm sizing --corpus-tokens <tokens from data_meta.json> \
 ```bash
 vpdl-slm pretrain --config configs/slm/pretrain_dgx.toml --dry-run
 ```
+→ check the `accelerator` block: `bf16_supported: true`,
+`float32_matmul_precision: "high"`, `cudnn_benchmark: true`, and the memory
+this machine actually has. Then measure the batch size rather than guessing it:
+
+```bash
+vpdl-slm autotune --config configs/slm/pretrain_dgx.toml --tokens-per-step 32768 --out runs/slm_genomic/autotune.json
+```
+→ it runs a few short benchmarks at increasing micro-batch, with and without
+`torch.compile`, stops when memory runs out, and prints `put_in_config`. Copy
+those three values into `configs/slm/pretrain_dgx.toml`. `--tokens-per-step`
+keeps the optimiser step the same size while the micro-batch grows, so tuning
+changes speed, not what is computed.
+
+Sanity check on the number it reports: the from-scratch small model reached
+30.7 TFLOPS on this machine against a measured 90.1 TFLOPS peak. If autotune's
+best is under ~20% of peak, something other than the GPU is the bottleneck —
+check `accelerator` in the dry run before spending days on the real run.
+
 ```bash
 vpdl-slm pretrain --config configs/slm/pretrain_dgx.toml --benchmark 20
 ```
-The benchmark prints tokens/s and projected hours and saves nothing. Set
-`total_steps` from it and from `sizing`, then:
+Confirms the chosen setting and projects the hours. Set `total_steps` from it
+and from `sizing`, then:
 
 ```bash
 tmux new -s slm-pretrain
@@ -207,6 +229,20 @@ vpdl-slm finetune --config configs/slm/exp010_genomic_pretrained.toml
 …through `exp020_final.toml`. Each writes `metrics.json`,
 `predictions.parquet`, `embeddings_<split>.npy`, a model file, and one line in
 `runs/slm_genomic/registry.jsonl`.
+
+Three seeds per arm, without copying configs (each gets its own run directory):
+
+```bash
+for s in 42 43 44; do vpdl-slm finetune --config configs/slm/exp010_genomic_pretrained.toml --seed $s; done
+```
+
+The configs ship with `batch_size = 16`, which is small for this machine.
+Raise it once you know what fits — `--batch-size` overrides the config without
+editing it:
+
+```bash
+vpdl-slm finetune --config configs/slm/exp010_genomic_pretrained.toml --batch-size 64
+```
 
 ## Phase 9 — evaluation, calibration, VUS
 
