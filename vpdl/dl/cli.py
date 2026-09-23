@@ -370,6 +370,35 @@ def cmd_genomic(args) -> int:
     return 0
 
 
+def _stored_entry(store, family: str, tag: str, identity: dict, recompute: bool):
+    """The stored entry with this exact identity, or None.
+
+    Same model version, sequences, dataset, settings: the numbers would be the
+    same, so it is reused rather than recomputed. ``--recompute`` still runs the
+    model, to check the stored numbers reproduce; it never overwrites them.
+    """
+    entry = store.find(family, tag, identity)
+    if entry is not None:
+        what = "recomputing to check it reproduces" if recompute else \
+            "reusing it (pass --recompute to check it reproduces)"
+        print(f"stored entry with identical inputs: {entry.path} — {what}", file=sys.stderr)
+    return entry
+
+
+def _reproduction(entry, ids: list[str], blocks: dict) -> dict:
+    """Largest difference per block between a recomputation and the stored entry."""
+    import numpy as np
+
+    if sorted(ids) != sorted(entry.variant_ids):
+        raise SystemExit(f"recomputation covers different variants than {entry.path}")
+    diff = {name: float(np.max(np.abs(np.asarray(array, np.float32)
+                                      - entry.lookup(name, ids)), initial=0.0))
+            for name, array in blocks.items()}
+    print(f"reproduction vs stored entry, max |difference| per block: "
+          f"{json.dumps({k: round(v, 6) for k, v in diff.items()})}")
+    return {"max_abs_diff": diff, "stored_generated": entry.meta.get("generation_date")}
+
+
 def cmd_embed(args) -> int:
     from vpdl.dl.feature_store import FeatureStore
     from vpdl.dl.homology import sequence_sha
@@ -391,14 +420,6 @@ def cmd_embed(args) -> int:
         adaptation = load_adapted_backbone(backbone, args.adapted_from)
     extractor = EmbeddingExtractor(backbone, args.policy, args.radius, args.batch_size,
                                    args.layer, args.chunk)
-    ids, blocks = [], {}
-    for accession, group in rows.groupby("uniprot_id"):
-        variants = list(zip(group["position"].astype(int), group["wt_aa"], group["mut_aa"]))
-        out = extractor.extract(sequences[accession], variants)
-        ids += list(variant_keys(group))
-        for name, array in out.items():
-            blocks.setdefault(name, []).append(array)
-    blocks = {name: np.concatenate(parts) for name, parts in blocks.items()}
     identity = {"model": backbone.spec.hf_id, "model_version": backbone.version,
                 "sequence_version": {acc: sequence_sha(s) for acc, s in sequences.items()},
                 "dataset_version": _dataset_version(args.data), "policy": args.policy,
@@ -406,9 +427,26 @@ def cmd_embed(args) -> int:
                 "pretrain_arm": args.arm, "adaptation": adaptation}
     family = "esm1b" if backbone.spec.name == "esm1b" else "esm2"
     tag = f"{backbone.spec.name}@{args.arm}" + (f"-{args.fold}" if args.fold else "")
-    entry = FeatureStore(args.store).write(
-        family, tag, identity, ids, blocks, dtype=args.dtype,
-        extra={"context": {acc: extractor.describe(len(s)) for acc, s in sequences.items()}})
+    store = FeatureStore(args.store)
+    entry = _stored_entry(store, family, tag, identity, args.recompute)
+    reused, reproduction = entry is not None and not args.recompute, None
+    if not reused:
+        ids, blocks = [], {}
+        for accession, group in rows.groupby("uniprot_id"):
+            variants = list(zip(group["position"].astype(int), group["wt_aa"], group["mut_aa"]))
+            out = extractor.extract(sequences[accession], variants)
+            ids += list(variant_keys(group))
+            for name, array in out.items():
+                blocks.setdefault(name, []).append(array)
+        blocks = {name: np.concatenate(parts) for name, parts in blocks.items()}
+        if entry is None:
+            entry = store.write(
+                family, tag, identity, ids, blocks, dtype=args.dtype,
+                extra={"context": {acc: extractor.describe(len(s))
+                                   for acc, s in sequences.items()}})
+        else:
+            reproduction = _reproduction(entry, ids, blocks)
+    ids = entry.variant_ids
     location = f"{family}/{tag}/{entry.meta['key']}"
     _register_fold(args.blocks_file, args.fold, location)
     _point_latest(args.store, f"{tag}-{args.policy}", location)
@@ -420,12 +458,14 @@ def cmd_embed(args) -> int:
            feature_version=location, model_version=backbone.version, started=started,
            artefacts={"entry": str(entry.path)},
            extra={"peak_gpu_memory_gib": _gpu_peak_gib(), "batch_size": args.batch_size,
-                  "n_variants": len(ids)})
+                  "n_variants": len(ids), "reused_entry": reused,
+                  "reproduction": reproduction})
     return 0
 
 
 def cmd_zeroshot(args) -> int:
     import numpy as np
+    import pandas as pd
 
     from vpdl.dl.feature_store import FeatureStore
     from vpdl.dl.homology import sequence_sha
@@ -442,20 +482,30 @@ def cmd_zeroshot(args) -> int:
     if args.adapted_from:
         from vpdl.dl.plm.finetune import load_adapted_backbone
         adaptation = load_adapted_backbone(backbone, args.adapted_from)
-    scores = zeroshot_frame(backbone, rows, sequences, args.method, args.policy,
-                            args.batch_size)
     identity = {"model": backbone.spec.hf_id, "model_version": backbone.version,
                 "sequence_version": {acc: sequence_sha(s) for acc, s in sequences.items()},
                 "dataset_version": _dataset_version(args.data), "method": args.method,
                 "policy": args.policy, "rows": args.rows, "pretrain_arm": args.arm,
                 "adaptation": adaptation}
     tag = f"{backbone.spec.name}@{args.arm}-{args.method}" + (f"-{args.fold}" if args.fold else "")
-    entry = FeatureStore(args.store).write(
-        "zeroshot", tag, identity, list(scores["variant_key"]),
-        {"pathogenicity": scores[["pathogenicity"]].to_numpy(np.float32),
-         "raw_llr": scores[["raw_llr"]].to_numpy(np.float32)}, dtype="float32")
+    store = FeatureStore(args.store)
+    entry = _stored_entry(store, "zeroshot", tag, identity, args.recompute)
+    reused, reproduction = entry is not None and not args.recompute, None
+    if not reused:
+        fresh = zeroshot_frame(backbone, rows, sequences, args.method, args.policy,
+                               args.batch_size)
+        blocks = {"pathogenicity": fresh[["pathogenicity"]].to_numpy(np.float32),
+                  "raw_llr": fresh[["raw_llr"]].to_numpy(np.float32)}
+        if entry is None:
+            entry = store.write("zeroshot", tag, identity, list(fresh["variant_key"]), blocks,
+                                dtype="float32")
+            fresh.to_csv(Path(entry.path) / "scores.csv", index=False)
+        else:
+            reproduction = _reproduction(entry, list(fresh["variant_key"]), blocks)
+    # The stored entry is the record: the table column always comes from it.
+    scores = pd.DataFrame({"variant_key": entry.variant_ids,
+                           "pathogenicity": entry.array("pathogenicity", mmap=False)[:, 0]})
     column = f"zeroshot_{backbone.spec.name}_{args.arm}_{args.method}"
-    scores.to_csv(Path(entry.path) / "scores.csv", index=False)
     if args.table_out:
         from vpdl.splits import variant_keys
         # Accumulate: a second zero-shot run adds its column to the same copy.
@@ -476,7 +526,8 @@ def cmd_zeroshot(args) -> int:
            feature_version=f"zeroshot/{tag}/{entry.meta['key']}",
            model_version=backbone.version, started=started,
            extra={"peak_gpu_memory_gib": _gpu_peak_gib(), "batch_size": args.batch_size,
-                  "n_variants": len(scores)})
+                  "n_variants": len(scores), "reused_entry": reused,
+                  "reproduction": reproduction})
     return 0
 
 
@@ -963,6 +1014,9 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--arm", default="P0", help="pretraining arm this backbone represents")
         p.add_argument("--adapted-from", default=None, dest="adapted_from",
                        help="pretraining output dir holding backbone_delta.pt")
+        p.add_argument("--recompute", action="store_true",
+                       help="rerun the model even if identical inputs are already stored, "
+                            "and report the difference (the stored entry is kept)")
         p.add_argument("--batch-size", type=_batch_size, default="auto", dest="batch_size",
                        help="sequences per forward pass; 'auto' sizes it from free GPU "
                             "memory and backs off on out-of-memory")

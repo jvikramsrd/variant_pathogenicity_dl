@@ -470,3 +470,71 @@ def test_parallel_cells_give_identical_results_to_sequential(tmp_path, cell_inpu
                (tmp_path / "runs" / "dl" / "registry.jsonl").read_text().splitlines()]
     assert len(records) == 4 and {r["parallel_jobs"] for r in records} == {1, 2}
     assert all("peak_gpu_memory_gib" in r for r in records)
+
+
+# -- re-running embed / zeroshot on identical inputs ---------------------------------------------
+
+@pytest.fixture
+def tiny_cli(monkeypatch, tmp_path, cell_inputs):
+    pytest.importorskip("transformers")
+    import vpdl.dl.plm.backbones as backbones
+    from vpdl.dl.cli import _write_sidecar
+    from vpdl.dl.plm.backbones import tiny_backbone
+
+    _, data, sequences = cell_inputs
+    _write_sidecar(data, sequences)                # the test sequences, not UniProt's
+    monkeypatch.setattr(backbones, "load_backbone", lambda *a, **k: tiny_backbone())
+    monkeypatch.chdir(tmp_path)                    # the run registry lands here
+
+
+def test_zeroshot_rerun_reuses_the_stored_entry_and_recompute_reports_reproduction(
+        tmp_path, cell_inputs, tiny_cli, monkeypatch, capsys):
+    import vpdl.dl.plm.zeroshot as zeroshot
+    from vpdl.dl.cli import main
+
+    _, data, _ = cell_inputs
+    command = ["zeroshot", "--data", str(data), "--policy", "centered",
+               "--store", str(tmp_path / "features"), "--table-out", str(tmp_path / "zs.csv")]
+    assert main(command) == 0
+    column = "zeroshot_tiny_rotary_P0_masked_marginal"
+    first = pd.read_csv(tmp_path / "zs.csv")[column]
+
+    real = zeroshot.zeroshot_frame
+    monkeypatch.setattr(zeroshot, "zeroshot_frame",
+                        lambda *a, **k: pytest.fail("identical inputs must not be recomputed"))
+    assert main(command) == 0                                  # used to raise FileExistsError
+    assert "reusing it" in capsys.readouterr().err
+    pd.testing.assert_series_equal(pd.read_csv(tmp_path / "zs.csv")[column], first)
+
+    monkeypatch.setattr(zeroshot, "zeroshot_frame", real)
+    assert main(command + ["--recompute"]) == 0
+    assert "max |difference| per block" in capsys.readouterr().out
+    records = [json.loads(line) for line in
+               (tmp_path / "runs" / "dl" / "registry.jsonl").read_text().splitlines()]
+    assert [r["reused_entry"] for r in records] == [False, True, False]
+    assert records[-1]["reproduction"]["max_abs_diff"]["pathogenicity"] < 1e-4
+    entries = list((tmp_path / "features" / "zeroshot").glob("*/*"))
+    assert len(entries) == 1 and not entries[0].name.startswith(".")   # no staging left behind
+
+
+def test_embed_rerun_reuses_the_stored_entry(tmp_path, cell_inputs, tiny_cli, capsys):
+    from vpdl.dl.cli import main
+
+    _, data, _ = cell_inputs
+    command = ["embed", "--data", str(data), "--policy", "centered",
+               "--store", str(tmp_path / "features")]
+    assert main(command) == 0
+    assert main(command) == 0
+    assert "reusing it" in capsys.readouterr().err
+    assert len(list((tmp_path / "features" / "esm2").glob("*/*"))) == 1
+
+
+def test_a_losing_writer_leaves_no_staging_directory(tmp_path):
+    from vpdl.dl.feature_store import FeatureStore
+
+    store = FeatureStore(tmp_path)
+    store.write("esm2", "t@P0", _identity(), ["a", "b"], {"x": np.zeros((2, 3))})
+    with pytest.raises(FileExistsError):
+        store.write("esm2", "t@P0", _identity(), ["a", "b"], {"x": np.zeros((2, 3))})
+    assert [p.name.startswith(".") for p in (tmp_path / "esm2" / "t@P0").iterdir()] == [False]
+    assert len(store.entries()) == 1

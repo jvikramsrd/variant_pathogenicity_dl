@@ -32,6 +32,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -109,6 +110,9 @@ class FeatureStore:
                                  f"{len(variant_ids)} variant ids")
         key = entry_key(identity)
         final = self.entry_dir(family, model_tag, key)
+        if final.exists():
+            raise FileExistsError(f"{final} exists — identical identity already stored; "
+                                  "load it instead of regenerating")
         staging = final.with_name(f".{key}.tmp-{os.getpid()}-{int(time.time())}")
         staging.mkdir(parents=True, exist_ok=False)
         shapes = {}
@@ -126,7 +130,8 @@ class FeatureStore:
                 "generation_date": datetime.now(timezone.utc).isoformat(),
                 "git": _git_state(), **dict(extra or {})}
         (staging / "meta.json").write_text(json.dumps(meta, indent=2, default=str))
-        if final.exists():
+        if final.exists():                    # another writer finished first
+            shutil.rmtree(staging, ignore_errors=True)
             raise FileExistsError(f"{final} exists — identical identity already stored; "
                                   "load it instead of regenerating")
         final.parent.mkdir(parents=True, exist_ok=True)
@@ -152,7 +157,8 @@ class FeatureStore:
 
     def entries(self, family: str | None = None) -> list[dict[str, Any]]:
         pattern = f"{family}/*/*/meta.json" if family else "*/*/*/meta.json"
-        return [json.loads(p.read_text()) for p in sorted(self.root.glob(pattern))]
+        return [json.loads(p.read_text()) for p in sorted(self.root.glob(pattern))
+                if not p.parent.name.startswith(".")]          # skip staging dirs
 
     def resolve(self, spec: str) -> tuple[FeatureEntry, str]:
         """``family/model_tag/key:block`` -> (entry, block). Used by embedding blocks."""
