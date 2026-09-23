@@ -1,0 +1,52 @@
+{
+  "device": {
+    "kind": "cuda",
+    "name": "NVIDIA GB10",
+    "machine": "aarch64",
+    "total_memory_gib": 121.7,
+    "compute_capability": [
+      12,
+      1
+    ],
+    "supports_bf16": true,
+    "unified_memory": true,
+    "torch_version": "2.14.0+cu130",
+    "gpu_name": "NVIDIA GB10",
+    "gpu_present": true,
+    "recommends_micro_batching": false
+  },
+  "host": {
+    "machine": "aarch64",
+    "system": "Linux",
+    "python": "3.12.3",
+    "cpus": 20,
+    "disk_free_gib": 3346.1
+  },
+  "checks": {
+    "torch": "2.14.0+cu130",
+    "cuda_build": "13.0",
+    "cuda_available": true,
+    "device_name": "NVIDIA GB10",
+    "capability": [
+      12,
+      1
+    ],
+    "memory_free_gib": 116.6,
+    "memory_total_gib": 121.7,
+    "bf16": true,
+    "sdpa_flash_enabled": true,
+    "sdpa_mem_efficient_enabled": true,
+    "tf32_matmul": false,
+    "fused_adamw": true,
+    "triton": true,
+    "python_headers": true,
+    "torch_compile_ready": true,
+    "transformers": "5.17.0",
+    "esm_sdpa": true,
+    "smoke_bf16_matmul": true,
+    "smoke_esm_forward": true
+  },
+  "recommendations": [
+    "unified memory: batch sizes are configuration, not survival settings \u2014 no batch-1 + accumulation + checkpointing needed for 650M probes; keep gradient checkpointing for 650M fine-tuning of long MSH6 windows."
+  ]
+}

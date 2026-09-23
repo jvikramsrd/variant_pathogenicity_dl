@@ -1,0 +1,1 @@
+gene,position,wt_aa,mut_aa,clinvar_label,clinvar_discordant,clinvar_eligible_vus,expert_label_clinvar,clinvar_star_rating,clinvar_review_status,clinvar_n_records,clinvar_variation_ids,chromosome,genomic_position,ref,alt,genome_build,transcript,hgvs_c,hgvs_inconsistent,multi_nucleotide,uniprot_id,flag_reason

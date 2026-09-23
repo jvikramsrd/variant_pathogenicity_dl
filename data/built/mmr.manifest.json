@@ -1,0 +1,70 @@
+{
+  "artefacts": {
+    "mmr.csv": {
+      "path": "data/built/mmr.csv",
+      "sha256": "0884e5dfcf633c41e884ee245d3179b96aaadcf6ba1faeb0addb73d06d9dead5",
+      "bytes": 5831457
+    }
+  },
+  "meta": {
+    "sources": [
+      "alphamissense",
+      "clinvar",
+      "gnomad",
+      "pg_dms"
+    ],
+    "rows_per_source": {
+      "clinvar": 5290,
+      "pg_dms": 16749,
+      "alphamissense": 74328,
+      "gnomad": 7043
+    },
+    "dropped_per_source": {
+      "clinvar": {
+        "invalid_residue": 0,
+        "invalid_position": 0,
+        "synonymous": 0,
+        "sequence_mismatch": 0
+      },
+      "pg_dms": {
+        "invalid_residue": 0,
+        "invalid_position": 0,
+        "synonymous": 0,
+        "sequence_mismatch": 0
+      },
+      "alphamissense": {
+        "invalid_residue": 0,
+        "invalid_position": 0,
+        "synonymous": 0,
+        "sequence_mismatch": 0
+      },
+      "gnomad": {
+        "invalid_residue": 0,
+        "invalid_position": 0,
+        "synonymous": 0,
+        "sequence_mismatch": 135
+      }
+    },
+    "label_counts": {
+      "benign": 14453,
+      "pathogenic": 2555,
+      "unlabelled": 57320
+    },
+    "orientation_checks": {
+      "clinvar": 0.9274936129444327,
+      "pg_dms": 0.8712455814134614
+    },
+    "conflicts_quarantined": 20,
+    "feature_columns": [
+      "feature_acmg_ba1",
+      "feature_acmg_bs1",
+      "feature_acmg_pm2",
+      "feature_alphamissense_score",
+      "feature_gnomad_log10_af",
+      "feature_gnomad_mis_z",
+      "feature_gnomad_observed",
+      "feature_gnomad_oe_mis",
+      "feature_gnomad_pli"
+    ]
+  }
+}

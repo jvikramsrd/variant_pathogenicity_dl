@@ -1,0 +1,175 @@
+{
+  "scheme": "logo_purged",
+  "n_critical": 0,
+  "findings": [
+    {
+      "check": "exact_duplicates",
+      "severity": "info",
+      "message": "no duplicate variant rows",
+      "count": 0,
+      "details": {
+        "examples": []
+      }
+    },
+    {
+      "check": "hgvs_duplicates",
+      "severity": "info",
+      "message": "every normalised HGVS p. maps to exactly one variant id",
+      "count": 0,
+      "details": {}
+    },
+    {
+      "check": "hgvs_duplicates",
+      "severity": "info",
+      "message": "47 protein changes are backed by several ClinVar records (resolved order-independently in the canonical table)",
+      "count": 47,
+      "details": {}
+    },
+    {
+      "check": "split_isolation",
+      "severity": "info",
+      "message": "no variant appears on both sides of any fold",
+      "count": 0,
+      "details": {}
+    },
+    {
+      "check": "split_isolation",
+      "severity": "info",
+      "message": "no (protein, residue) group straddles any fold",
+      "count": 0,
+      "details": {}
+    },
+    {
+      "check": "homology_straddle",
+      "severity": "info",
+      "message": "0 homology cluster(s) have aligned paralog residues on both sides",
+      "count": 0,
+      "details": {
+        "per_fold": {
+          "MLH1": 0,
+          "MSH2": 0,
+          "MSH6": 0,
+          "PMS2": 0
+        }
+      }
+    },
+    {
+      "check": "functional_overlap",
+      "severity": "info",
+      "message": "no functional-assay value is a feature",
+      "count": 0,
+      "details": {}
+    },
+    {
+      "check": "derived_feature_leakage",
+      "severity": "info",
+      "message": "gene-constant features removed before training (they encode gene identity): none",
+      "count": 0,
+      "details": {}
+    },
+    {
+      "check": "derived_feature_leakage",
+      "severity": "info",
+      "message": "no feature is derived from a training label source",
+      "count": 0,
+      "details": {}
+    },
+    {
+      "check": "derived_feature_leakage",
+      "severity": "warning",
+      "message": "['feature_alphamissense_score']: AlphaMissense thresholds were calibrated on ClinVar; it was trained on population frequency and structure, not ClinVar labels.",
+      "count": 1,
+      "details": {}
+    },
+    {
+      "check": "feature_leakage",
+      "severity": "info",
+      "message": "no feature agrees with the label at >= 0.95",
+      "count": 0,
+      "details": {}
+    },
+    {
+      "check": "protein_duplicates",
+      "severity": "info",
+      "message": "all protein sequences are distinct",
+      "count": 0,
+      "details": {}
+    },
+    {
+      "check": "sequence_similarity",
+      "severity": "info",
+      "message": "pairwise identity (identical / shorter length)",
+      "count": 6,
+      "details": {
+        "identity": {
+          "P40692-P43246": 0.008,
+          "P40692-P52701": 0.015,
+          "P40692-P54278": 0.259,
+          "P43246-P52701": 0.263,
+          "P43246-P54278": 0.03,
+          "P52701-P54278": 0.009
+        }
+      }
+    },
+    {
+      "check": "sequence_similarity",
+      "severity": "warning",
+      "message": "fold MLH1: training proteins >= 20% identical to the held-out protein: {'P40692-P54278': 0.259}; 0 test variants have a labelled training variant at the aligned paralog residue (0 with the same substitution)",
+      "count": 0,
+      "details": {
+        "fold": "MLH1",
+        "test_variants": 174,
+        "position_twins": 0,
+        "exact_twins": 0,
+        "near_identity": {
+          "P40692-P54278": 0.259
+        }
+      }
+    },
+    {
+      "check": "sequence_similarity",
+      "severity": "warning",
+      "message": "fold MSH2: training proteins >= 20% identical to the held-out protein: {'P43246-P52701': 0.263}; 0 test variants have a labelled training variant at the aligned paralog residue (0 with the same substitution)",
+      "count": 0,
+      "details": {
+        "fold": "MSH2",
+        "test_variants": 176,
+        "position_twins": 0,
+        "exact_twins": 0,
+        "near_identity": {
+          "P43246-P52701": 0.263
+        }
+      }
+    },
+    {
+      "check": "sequence_similarity",
+      "severity": "warning",
+      "message": "fold MSH6: training proteins >= 20% identical to the held-out protein: {'P43246-P52701': 0.263}; 0 test variants have a labelled training variant at the aligned paralog residue (0 with the same substitution)",
+      "count": 0,
+      "details": {
+        "fold": "MSH6",
+        "test_variants": 78,
+        "position_twins": 0,
+        "exact_twins": 0,
+        "near_identity": {
+          "P43246-P52701": 0.263
+        }
+      }
+    },
+    {
+      "check": "sequence_similarity",
+      "severity": "warning",
+      "message": "fold PMS2: training proteins >= 20% identical to the held-out protein: {'P40692-P54278': 0.259}; 0 test variants have a labelled training variant at the aligned paralog residue (0 with the same substitution)",
+      "count": 0,
+      "details": {
+        "fold": "PMS2",
+        "test_variants": 21,
+        "position_twins": 0,
+        "exact_twins": 0,
+        "near_identity": {
+          "P40692-P54278": 0.259
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "artefacts": {
+    "canonical_full.csv": {
+      "path": "data/built/canonical_full.csv",
+      "sha256": "6cea58dbb6c6e086cdc7433758a1f425f5f074f0fecc104cad0bd69ffeeb4e00",
+      "bytes": 31161649
+    }
+  },
+  "meta": {
+    "kind": "genomic",
+    "source_table": "data/built/canonical_struct.csv",
+    "transcripts": {
+      "MLH1": "ENST00000231790",
+      "MSH2": "ENST00000233146",
+      "MSH6": "ENST00000234420",
+      "PMS2": "ENST00000265849"
+    },
+    "pms2_homology_codons": [
+      382,
+      862
+    ],
+    "include_nucleotide": false
+  }
+}

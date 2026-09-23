@@ -1,0 +1,48 @@
+{
+  "artefacts": {
+    "canonical_struct.csv": {
+      "path": "data/built/canonical_struct.csv",
+      "sha256": "6eb224a61e845d005e50d4765e77dfc95b71a5e3d1c90e5fda437fd398f91d3a",
+      "bytes": 27904962
+    },
+    "canonical_struct.residues.csv": {
+      "path": "data/built/canonical_struct.residues.csv",
+      "sha256": "5f66013837bb4ea8c278c0f132f466465bf64841dd44068c9ccc8c4eb1f9f87b",
+      "bytes": 333630
+    }
+  },
+  "meta": {
+    "kind": "structure",
+    "source_table": "data/built/canonical.csv",
+    "structures": {
+      "P40692": {
+        "structure_id": "AF-P40692-F1-model_v6",
+        "source": "data/raw/alphafold/P40692.pdb",
+        "tool": "AlphaFold Monomer v2.0 pipeline",
+        "model_created": "2025-08-01T00:00:00Z",
+        "global_plddt": 77.31
+      },
+      "P43246": {
+        "structure_id": "AF-P43246-F1-model_v6",
+        "source": "data/raw/alphafold/P43246.pdb",
+        "tool": "AlphaFold Monomer v2.0 pipeline",
+        "model_created": "2025-08-01T00:00:00Z",
+        "global_plddt": 85.31
+      },
+      "P52701": {
+        "structure_id": "AF-P52701-F1-model_v6",
+        "source": "data/raw/alphafold/P52701.pdb",
+        "tool": "AlphaFold Monomer v2.0 pipeline",
+        "model_created": "2025-08-01T00:00:00Z",
+        "global_plddt": 77.06
+      },
+      "P54278": {
+        "structure_id": "AF-P54278-F1-model_v6",
+        "source": "data/raw/alphafold/P54278.pdb",
+        "tool": "AlphaFold Monomer v2.0 pipeline",
+        "model_created": "2025-08-01T00:00:00Z",
+        "global_plddt": 71.0
+      }
+    }
+  }
+}

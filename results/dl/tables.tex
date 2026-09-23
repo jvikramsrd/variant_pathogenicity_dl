@@ -1,0 +1,130 @@
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{llll}
+\toprule
+gene & rows & pathogenic & benign \\
+\midrule
+MLH1 & 14364 & 143 & 31 \\
+MSH2 & 17746 & 120 & 56 \\
+MSH6 & 25840 & 47 & 31 \\
+PMS2 & 16378 & 17 & 4 \\
+\bottomrule
+\end{tabular}
+\caption{Canonical dataset composition.}
+\label{tab:composition}
+\end{table}
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{llllllllll}
+\toprule
+arm & model & split & seeds & n & roc\_auc & mcc & pr\_auc & brier & ece \\
+\midrule
+train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & logo & 3 & 428 & 0.914 ± 0.027 & 0.602 ± 0.074 & 0.955 ± 0.011 & 0.166 ± 0.009 & 0.238 ± 0.016 \\
+train-clinvar\_\_drop-domains-genomic-structure & bilstm & logo & 3 & 428 & 0.963 ± 0.001 & 0.773 ± 0.042 & 0.978 ± 0.003 & 0.093 ± 0.009 & 0.134 ± 0.017 \\
+train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & logo & 3 & 428 & 0.965 ± 0.004 & 0.770 ± 0.028 & 0.978 ± 0.002 & 0.089 ± 0.004 & 0.122 ± 0.015 \\
+train-clinvar\_\_drop-domains-genomic-structure & cnn & logo & 3 & 428 & 0.912 ± 0.006 & 0.646 ± 0.067 & 0.946 ± 0.010 & 0.217 ± 0.027 & 0.283 ± 0.060 \\
+train-clinvar\_\_drop-domains-genomic-structure & gbm & logo & 3 & 428 & 0.948 ± 0.010 & 0.776 ± 0.051 & 0.962 ± 0.011 & 0.074 ± 0.004 & 0.080 ± 0.005 \\
+train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & logo & 3 & 428 & 0.959 ± 0.009 & 0.778 ± 0.030 & 0.974 ± 0.011 & 0.071 ± 0.002 & 0.087 ± 0.002 \\
+train-clinvar\_\_drop-domains-genomic-structure & mlp & logo & 3 & 428 & 0.962 ± 0.004 & 0.799 ± 0.006 & 0.978 ± 0.007 & 0.076 ± 0.014 & 0.107 ± 0.036 \\
+train-clinvar\_\_drop-domains-genomic-structure & transformer & logo & 3 & 428 & 0.910 ± 0.008 & 0.645 ± 0.043 & 0.948 ± 0.006 & 0.132 ± 0.004 & 0.141 ± 0.007 \\
+\bottomrule
+\end{tabular}
+\caption{Arms, mean over scoreable held-out genes.}
+\label{tab:arms}
+\end{table}
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lllllllllll}
+\toprule
+arm & model & split & gene & n & n\_positive & seeds & roc\_auc\_mean & roc\_auc\_std & mcc\_mean & mcc\_std \\
+\midrule
+train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & logo & MLH1 & 174 & 143 & 3 & 0.947 & 0.009 & 0.561 & 0.131 \\
+train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & logo & MSH2 & 176 & 120 & 3 & 0.903 & 0.052 & 0.656 & 0.102 \\
+train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & logo & MSH6 & 78 & 47 & 3 & 0.891 & 0.099 & 0.589 & 0.147 \\
+train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & logo & PMS2 & 21 & 17 & 3 & 0.853 & 0.102 & 0.343 & 0.393 \\
+train-clinvar\_\_drop-domains-genomic-structure & bilstm & logo & MLH1 & 174 & 143 & 3 & 0.976 & 0.007 & 0.799 & 0.072 \\
+train-clinvar\_\_drop-domains-genomic-structure & bilstm & logo & MSH2 & 176 & 120 & 3 & 0.958 & 0.007 & 0.679 & 0.063 \\
+train-clinvar\_\_drop-domains-genomic-structure & bilstm & logo & MSH6 & 78 & 47 & 3 & 0.955 & 0.007 & 0.840 & 0.027 \\
+train-clinvar\_\_drop-domains-genomic-structure & bilstm & logo & PMS2 & 21 & 17 & 3 & 0.961 & 0.009 & 0.552 & 0.118 \\
+train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & logo & MLH1 & 174 & 143 & 3 & 0.979 & 0.004 & 0.814 & 0.054 \\
+train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & logo & MSH2 & 176 & 120 & 3 & 0.955 & 0.004 & 0.636 & 0.044 \\
+train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & logo & MSH6 & 78 & 47 & 3 & 0.961 & 0.010 & 0.862 & 0.079 \\
+train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & logo & PMS2 & 21 & 17 & 3 & 0.961 & 0.009 & 0.638 & 0.223 \\
+train-clinvar\_\_drop-domains-genomic-structure & cnn & logo & MLH1 & 174 & 143 & 3 & 0.968 & 0.020 & 0.769 & 0.118 \\
+train-clinvar\_\_drop-domains-genomic-structure & cnn & logo & MSH2 & 176 & 120 & 3 & 0.881 & 0.033 & 0.545 & 0.174 \\
+train-clinvar\_\_drop-domains-genomic-structure & cnn & logo & MSH6 & 78 & 47 & 3 & 0.886 & 0.058 & 0.623 & 0.087 \\
+train-clinvar\_\_drop-domains-genomic-structure & cnn & logo & PMS2 & 21 & 17 & 3 & 0.941 & 0.078 & 0.487 & 0.121 \\
+train-clinvar\_\_drop-domains-genomic-structure & gbm & logo & MLH1 & 174 & 143 & 3 & 0.952 & 0.003 & 0.841 & 0.002 \\
+train-clinvar\_\_drop-domains-genomic-structure & gbm & logo & MSH2 & 176 & 120 & 3 & 0.912 & 0.031 & 0.672 & 0.034 \\
+train-clinvar\_\_drop-domains-genomic-structure & gbm & logo & MSH6 & 78 & 47 & 3 & 0.979 & 0.001 & 0.814 & 0.117 \\
+train-clinvar\_\_drop-domains-genomic-structure & gbm & logo & PMS2 & 21 & 17 & 3 & 1.000 & 0.000 & 0.668 & 0.086 \\
+train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & logo & MLH1 & 174 & 143 & 3 & 0.960 & 0.011 & 0.838 & 0.026 \\
+train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & logo & MSH2 & 176 & 120 & 3 & 0.939 & 0.021 & 0.677 & 0.024 \\
+train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & logo & MSH6 & 78 & 47 & 3 & 0.980 & 0.002 & 0.818 & 0.086 \\
+train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & logo & PMS2 & 21 & 17 & 3 & 1.000 & 0.000 & 0.597 & 0.155 \\
+train-clinvar\_\_drop-domains-genomic-structure & mlp & logo & MLH1 & 174 & 143 & 3 & 0.974 & 0.005 & 0.806 & 0.011 \\
+train-clinvar\_\_drop-domains-genomic-structure & mlp & logo & MSH2 & 176 & 120 & 3 & 0.950 & 0.008 & 0.714 & 0.010 \\
+train-clinvar\_\_drop-domains-genomic-structure & mlp & logo & MSH6 & 78 & 47 & 3 & 0.963 & 0.009 & 0.877 & 0.016 \\
+train-clinvar\_\_drop-domains-genomic-structure & mlp & logo & PMS2 & 21 & 17 & 3 & 0.941 & 0.015 & 0.717 & 0.086 \\
+train-clinvar\_\_drop-domains-genomic-structure & transformer & logo & MLH1 & 174 & 143 & 3 & 0.918 & 0.008 & 0.639 & 0.011 \\
+train-clinvar\_\_drop-domains-genomic-structure & transformer & logo & MSH2 & 176 & 120 & 3 & 0.889 & 0.037 & 0.568 & 0.009 \\
+train-clinvar\_\_drop-domains-genomic-structure & transformer & logo & MSH6 & 78 & 47 & 3 & 0.923 & 0.015 & 0.728 & 0.123 \\
+train-clinvar\_\_drop-domains-genomic-structure & transformer & logo & PMS2 & 21 & 17 & 3 & 0.907 & 0.022 & 0.529 & 0.094 \\
+\bottomrule
+\end{tabular}
+\caption{Per held-out gene.}
+\label{tab:pergene}
+\end{table}
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lllllllllllll}
+\toprule
+gene & arm & model & n & n\_benign & scoreable & seeds & auc & auc\_reference & delta & ci\_low & ci\_high & ci\_excludes\_zero \\
+\midrule
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & 428 & 118 & True & 3 & 0.914 & 0.962 & -0.049 & -0.069 & -0.030 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & bilstm & 428 & 118 & True & 3 & 0.963 & 0.962 & 0.001 & -0.012 & 0.012 & False \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & 428 & 118 & True & 3 & 0.965 & 0.962 & 0.003 & -0.010 & 0.014 & False \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & cnn & 428 & 118 & True & 3 & 0.912 & 0.962 & -0.051 & -0.075 & -0.028 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & gbm & 428 & 118 & True & 3 & 0.948 & 0.962 & -0.014 & -0.031 & 0.002 & False \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & 428 & 118 & True & 3 & 0.959 & 0.962 & -0.003 & -0.014 & 0.009 & False \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & transformer & 428 & 118 & True & 3 & 0.910 & 0.962 & -0.052 & -0.082 & -0.023 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & 174 & 31 & True & 3 & 0.947 & 0.974 & -0.027 & -0.050 & -0.006 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-structure & bilstm & 174 & 31 & True & 3 & 0.976 & 0.974 & 0.002 & -0.009 & 0.013 & False \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & 174 & 31 & True & 3 & 0.979 & 0.974 & 0.005 & -0.001 & 0.014 & False \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-structure & cnn & 174 & 31 & True & 3 & 0.968 & 0.974 & -0.006 & -0.029 & 0.013 & False \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-structure & gbm & 174 & 31 & True & 3 & 0.952 & 0.974 & -0.021 & -0.054 & -0.003 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & 174 & 31 & True & 3 & 0.960 & 0.974 & -0.014 & -0.035 & -0.002 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-structure & transformer & 174 & 31 & True & 3 & 0.918 & 0.974 & -0.056 & -0.109 & 0.000 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & 176 & 56 & True & 3 & 0.903 & 0.950 & -0.047 & -0.082 & -0.014 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-structure & bilstm & 176 & 56 & True & 3 & 0.958 & 0.950 & 0.008 & -0.005 & 0.025 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & 176 & 56 & True & 3 & 0.955 & 0.950 & 0.005 & -0.006 & 0.019 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-structure & cnn & 176 & 56 & True & 3 & 0.881 & 0.950 & -0.069 & -0.101 & -0.040 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-structure & gbm & 176 & 56 & True & 3 & 0.912 & 0.950 & -0.038 & -0.070 & -0.011 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & 176 & 56 & True & 3 & 0.939 & 0.950 & -0.011 & -0.025 & 0.000 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-structure & transformer & 176 & 56 & True & 3 & 0.889 & 0.950 & -0.061 & -0.104 & -0.019 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & 78 & 31 & True & 3 & 0.891 & 0.963 & -0.073 & -0.117 & -0.033 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & bilstm & 78 & 31 & True & 3 & 0.955 & 0.963 & -0.009 & -0.040 & 0.019 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & 78 & 31 & True & 3 & 0.961 & 0.963 & -0.003 & -0.038 & 0.028 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & cnn & 78 & 31 & True & 3 & 0.886 & 0.963 & -0.077 & -0.139 & -0.021 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & gbm & 78 & 31 & True & 3 & 0.979 & 0.963 & 0.016 & -0.002 & 0.048 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & 78 & 31 & True & 3 & 0.980 & 0.963 & 0.016 & -0.001 & 0.047 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & transformer & 78 & 31 & True & 3 & 0.923 & 0.963 & -0.040 & -0.099 & 0.013 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & 21 & 4 & False & 3 & 0.853 & 0.941 & -0.088 & -0.241 & 0.031 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-structure & bilstm & 21 & 4 & False & 3 & 0.961 & 0.941 & 0.020 & 0.000 & 0.074 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & 21 & 4 & False & 3 & 0.961 & 0.941 & 0.020 & 0.000 & 0.067 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-structure & cnn & 21 & 4 & False & 3 & 0.941 & 0.941 & 0.000 & -0.108 & 0.125 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-structure & gbm & 21 & 4 & False & 3 & 1.000 & 0.941 & 0.059 & 0.000 & 0.193 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & 21 & 4 & False & 3 & 1.000 & 0.941 & 0.059 & 0.000 & 0.193 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-structure & transformer & 21 & 4 & False & 3 & 0.907 & 0.941 & -0.034 & -0.200 & 0.124 & False \\
+\bottomrule
+\end{tabular}
+\caption{Paired difference: paired_main_train-clinvar__drop-domains-genomic-structure_mlp.}
+\label{tab:paired_main_train-clinvar__drop-domains-}
+\end{table}

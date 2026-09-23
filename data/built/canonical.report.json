@@ -1,0 +1,82 @@
+{
+  "rows": 74328,
+  "rows_per_gene": {
+    "MLH1": 14364,
+    "MSH2": 17746,
+    "MSH6": 25840,
+    "PMS2": 16378
+  },
+  "sources_supplied": {
+    "clinvar_records": true,
+    "expert_csv": false,
+    "pms2_confirmations": false,
+    "gnomad_records": true,
+    "structure": true,
+    "functional": true
+  },
+  "clinical_labels": {
+    "MLH1": {
+      "pathogenic": 143,
+      "benign": 31
+    },
+    "MSH2": {
+      "pathogenic": 120,
+      "benign": 56
+    },
+    "MSH6": {
+      "pathogenic": 47,
+      "benign": 31
+    },
+    "PMS2": {
+      "pathogenic": 17,
+      "benign": 4
+    }
+  },
+  "qc_flag_counts": {
+    "clinvar_discordant": 1,
+    "clinvar_vus_alongside_classification": 3,
+    "multi_nucleotide": 684,
+    "pms2_homology_unconfirmed": 9139,
+    "transcript_not_mane": 3
+  },
+  "withheld_labels": 1,
+  "label_changes_vs_assembled": 1,
+  "clinvar_records": 27729,
+  "clinvar_multi_record_changes": 687,
+  "clinvar_discordant_changes": 1,
+  "transcript_status": {
+    "absent": 61198,
+    "mane": 13127,
+    "mane_version_mismatch": 3
+  },
+  "flagged_records": 0,
+  "gnomad_first_allele_differs": 655,
+  "pms2": {
+    "rows": 16378,
+    "in_homology_region": 9139,
+    "confirmed": 0,
+    "codon_start": 382,
+    "codon_end": 862
+  },
+  "structure_coverage": {
+    "MLH1": 1.0,
+    "MSH2": 1.0,
+    "MSH6": 1.0,
+    "PMS2": 1.0
+  },
+  "functional_coverage": {
+    "pg_dms_continuous": 16749
+  },
+  "families": {
+    "P40692": "MutL",
+    "P43246": "MutS",
+    "P52701": "MutS",
+    "P54278": "MutL"
+  },
+  "sequence_versions": {
+    "P40692": "418090d8f3f5",
+    "P43246": "e27b898beec9",
+    "P52701": "30960d076a21",
+    "P54278": "152668d47d44"
+  }
+}

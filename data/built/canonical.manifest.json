@@ -1,0 +1,105 @@
+{
+  "artefacts": {
+    "canonical.csv": {
+      "path": "data/built/canonical.csv",
+      "sha256": "0ddadc62e819a5271c43d58c15cca4120f6afef4cd692c9220a29c163eb648c0",
+      "bytes": 22536452
+    },
+    "canonical.sequences.json": {
+      "path": "data/built/canonical.sequences.json",
+      "sha256": "381e9e4260224d1b4a5b1246fe006e7d47b526d26d45caeca2d9475d34ff90ca",
+      "bytes": 4174
+    },
+    "canonical.flagged.csv": {
+      "path": "data/built/canonical.flagged.csv",
+      "sha256": "0ff07926cfe3454b90f1cd972b65d7246c8436dfccabe8238722ae6b15ba8d14",
+      "bytes": 309
+    },
+    "canonical.report.json": {
+      "path": "data/built/canonical.report.json",
+      "sha256": "330b798ecb31437253e7ea922a1db0a685516a24029121fb3432a7fab4c361e9",
+      "bytes": 1669
+    },
+    "canonical.functional.csv": {
+      "path": "data/built/canonical.functional.csv",
+      "sha256": "6a679362c481885bd58e318951e9451f29aef5b404eb74b72354b3601637f256",
+      "bytes": 1131828
+    }
+  },
+  "meta": {
+    "kind": "canonical",
+    "schema": [
+      "variant_id",
+      "gene",
+      "chromosome",
+      "genomic_position",
+      "ref",
+      "alt",
+      "genome_build",
+      "transcript",
+      "transcript_status",
+      "hgvs_c",
+      "hgvs_p",
+      "protein_position",
+      "wt_residue",
+      "mutant_residue",
+      "clinical_label",
+      "label_confidence",
+      "clinvar_review_status",
+      "clinvar_star_rating",
+      "clinvar_n_records",
+      "clinvar_variation_ids",
+      "expert_label",
+      "expert_source",
+      "gnomad_af",
+      "gnomad_ac",
+      "gnomad_an",
+      "gnomad_observed",
+      "population_reliable",
+      "protein_accession",
+      "protein_sequence_sha256",
+      "structure_id",
+      "structure_available",
+      "functional_assay_available",
+      "cimra_value",
+      "cimra_strength",
+      "dms_score",
+      "mavedb_score",
+      "pms2_pseudogene_risk",
+      "orthogonal_confirmation",
+      "qc_status",
+      "qc_flags",
+      "exclusion_reason",
+      "protein_cluster",
+      "cluster_id",
+      "split_logo",
+      "split_family",
+      "split_random_debug",
+      "split_functional",
+      "split_assignment"
+    ],
+    "missing_value_policy": {
+      "labels": "NaN means no supervision. Never imputed, never defaulted.",
+      "gnomad": "Absent from gnomAD is evidence (PM2, AF floor) in feature columns; gnomad_af stays NaN and gnomad_observed = 0.",
+      "structure": "NaN features with structure_available = False; never imputed from neighbours.",
+      "functional": "NaN with functional_assay_available = False; never a feature.",
+      "genomic": "NaN when no ClinVar record exists (DMS/AlphaMissense-only rows).",
+      "features": "Median of the TRAINING fold (vpdl.features.build_feature_matrix), per fold."
+    },
+    "withholding_flags": {
+      "reference_mismatch": "reported wild-type residue differs from the UniProt sequence",
+      "clinvar_discordant": "ClinVar records for this protein change disagree (P/LP vs B/LB)",
+      "hgvs_inconsistent": "ClinVar c. and p. place the change in different codons",
+      "pms2_homology_unconfirmed": "PMS2CL homology region (exons 11-15) without orthogonal confirmation",
+      "expert_conflict": "expert-panel label contradicts the ClinVar aggregate"
+    },
+    "label_precedence": {
+      "clinvar": 1,
+      "pg_clinical": 2,
+      "mavedb": 3,
+      "pg_dms": 4
+    },
+    "assembled_table": "data/built/mmr.csv",
+    "assembled_sha256": "0884e5dfcf633c41e884ee245d3179b96aaadcf6ba1faeb0addb73d06d9dead5"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "artefacts": {
+    "cells.csv": {
+      "path": "results/dl/cells.csv",
+      "sha256": "3b175f5145898c6d40e82162fbf8d6507e525317b4355a2cdde2b81877113493",
+      "bytes": 59178
+    },
+    "arms.csv": {
+      "path": "results/dl/arms.csv",
+      "sha256": "e79da3323defd1a779f0132c96eb38a54db400ec4e3d56748567a8ef811bceea",
+      "bytes": 16400
+    },
+    "paired_main_train-clinvar__drop-domains-genomic-structure_mlp.csv": {
+      "path": "results/dl/paired_main_train-clinvar__drop-domains-genomic-structure_mlp.csv",
+      "sha256": "98d2fa992842d298d1a00a91556f3c692c08f913e3c0837a9c24d6fe60c11442",
+      "bytes": 4196
+    },
+    "paired_main_train-clinvar__drop-domains-genomic-structure_mlp.png": {
+      "path": "results/dl/paired_main_train-clinvar__drop-domains-genomic-structure_mlp.png",
+      "sha256": "ee27b07aa9b1a5a2138efb5caa2c1d24af2c6bab42bfe26642b2fca683de3f7d",
+      "bytes": 64870
+    },
+    "tables.md": {
+      "path": "results/dl/tables.md",
+      "sha256": "1924edf8696fcccb585da6b73d27e29b6e40325424800ac93df14b648c946f3c",
+      "bytes": 16271
+    },
+    "tables.tex": {
+      "path": "results/dl/tables.tex",
+      "sha256": "a0edfe7b0abf37b9a81bd3174e42c9ed3cec1e3c41525f8254f7cc329959c024",
+      "bytes": 11444
+    },
+    "checks.json": {
+      "path": "results/dl/checks.json",
+      "sha256": "f5b4fde8bcd8411e991226eb9cbded4825105d30380f4592ba14f34c29f1d186",
+      "bytes": 932
+    },
+    "environment.json": {
+      "path": "results/dl/environment.json",
+      "sha256": "b76064cd2a1d955a0532cbb4157746825c1b8435d24bfb92155e6685f2100866",
+      "bytes": 1932
+    }
+  },
+  "meta": {
+    "kind": "dl-results",
+    "runs_root": "runs/dl",
+    "citable": false,
+    "n_cells": 24
+  }
+}
