@@ -1,0 +1,41 @@
+# DGX Spark — as reported
+
+```
+Mon Sep 21 10:56:07 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.173.02             Driver Version: 580.173.02     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GB10                    On  |   0000000F:01:00.0 Off |                  N/A |
+| N/A   40C    P8              3W /  N/A  | Not Supported          |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+Linux spark-5472 6.17.0-1031-nvidia #31-Ubuntu SMP PREEMPT_DYNAMIC Fri Jul 24 22:03:06 UTC 2026 aarch64 aarch64 aarch64 GNU/Linux
+{
+  "kind": "cuda",
+  "name": "NVIDIA GB10",
+  "machine": "aarch64",
+  "total_memory_gib": 121.7,
+  "compute_capability": [
+    12,
+    1
+  ],
+  "supports_bf16": true,
+  "unified_memory": true,
+  "torch_version": "2.14.0+cu130",
+  "gpu_name": "NVIDIA GB10",
+  "gpu_present": true,
+  "recommends_micro_batching": false
+}
+```
