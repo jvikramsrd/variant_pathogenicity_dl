@@ -1,0 +1,42 @@
+# EXP-006 - BioClinicalBERT baseline
+# Clinical-note encoder, no genomic continued pretraining.
+# Run: vpdl-slm finetune --config configs/slm/exp006_bioclinicalbert.toml
+# Status: NOT RUN - REQUIRES DGX SPARK.
+
+[finetune]
+run_name = "exp006-bioclinicalbert"
+out_dir = "runs/slm_genomic/exp006-bioclinicalbert"
+examples = "data/slm_genomic/examples/classify_variant.parquet"
+records = "data/slm_genomic"
+backbone = "hf:emilyalsentzer/Bio_ClinicalBERT"
+max_length = 384
+tasks = ["classify"]
+features = []
+use_structured = false
+embedding_dim = 256
+seed = 42
+select_metric = "auto"
+calibration = "temperature"
+mc_samples = 20
+cache_dir = "data/slm_genomic/token_cache"
+
+[finetune.peft]
+kind = "lora"
+lora_rank = 8
+lora_targets = ["query", "value"]
+
+[finetune.loss]
+classify = 1.0
+
+
+[finetune.train]
+epochs = 6
+batch_size = 16
+grad_accum = 2
+lr = 2e-5
+weight_decay = 0.01
+warmup_frac = 0.06
+patience = 2
+precision = "auto"
+checkpoint_trainable_only = true
+resume = true

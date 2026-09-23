@@ -5,6 +5,58 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-09-23 (Windows dev PC, CPU) — broad genomic SLM branch built; nothing trained
+
+`vpdl-slm` (new; `vpdl` and the DL branch untouched). Audit first:
+`docs/slm/LLM_CODEBASE_AUDIT.md`. Everything expensive is **NOT RUN — REQUIRES
+DGX SPARK**; the runbook is `docs/slm/GENOMIC_SLM_DGX_RUNBOOK.md`.
+
+Measured here, on the ClinVar file already on this PC (`vpdl-slm inventory`,
+sha256 `7e5f0c79…`, 10 minutes):
+
+- **4,558,681 variants, 35,013 gene symbols, 22,111 distinct conditions** — but
+  **2,520,821 variants (55%) name no specific condition at all**, only "not
+  provided", "not specified" or a laboratory umbrella term.
+- Classes: VUS 2,372,680 · LB 1,098,869 · P 215,659 · B 214,051 · LP 126,098;
+  conflicting 166,121; paired terms 107,712.
+- Consequence: missense 55%, then synonymous 762k, intronic 499k, splice region
+  165k, frameshift 150k, nonsense 97k, splice site 96k, CNV 76k — the corpus is
+  **not** missense-only.
+- Expert-panel variants 22,390 (3 stars); practice guideline 63.
+- MMR (MLH1/MSH2/MSH6/PMS2): **31,725 variants = 0.70%** of ClinVar. MMR is a
+  downstream specialisation here, not the training domain.
+
+Three findings worth remembering:
+1. **The narratives were never downloaded.** ClinVar's free text lives in
+   `submission_summary.txt.gz` (`Description`), not in `variant_summary`. Every
+   earlier plan that said "ClinVar free-text summaries" was planning against a
+   file nobody had fetched. Readers are written and tested against synthetic
+   files in ClinVar's layout; the corpus itself is TBD.
+2. **ClinVar now carries VUS sub-tiers** (`VUS-high` 48, `VUS-mid` 42) — a
+   native ranking signal for the VUS task, now parsed and used as a check.
+3. **Umbrella and catch-all conditions cover most of ClinVar** ("Inborn genetic diseases" 362,633,
+   "Hereditary cancer-predisposing syndrome" 202,567, "Cardiovascular
+   phenotype" 93,976) would have made one "disease" of most of a lab's
+   submissions; they are excluded from disease grouping.
+
+Validation actually executed: `pytest tests/slm tests/kb tests/dl
+tests/regression` → **401 passed, 3 skipped** (tests/slm alone 180: 22 existing
++ 158 new). `vpdl-slm smoke` — records → stats → clusters → split → roles →
+examples → leakage → pretraining corpus → packing → continued pretraining (2
+steps) → fine-tuning (1 epoch) → baselines → export → explanation — **ok in
+42 s** on synthetic data with random weights. Both dry runs pass.
+
+Two bugs the tests caught in the new code, both in guards that would otherwise
+have failed silently: the tiny test tokenizer was trained (non-deterministic
+merge order) so the tokenizer-fingerprint guard fired on meaningless
+differences — it is now built from a fixed vocabulary; and the fingerprint
+included the tokenizer's padding state, which a first call mutates, so the
+token cache would never have hit.
+
+No number here is a genomics result: synthetic data, random weights.
+
+---
+
 ## 2026-09-22 (DGX Spark) — small language model: training speed measured
 
 Trial corpus: 5 PubMed baseline files + GeneReviews passages. `vpdl slm-train

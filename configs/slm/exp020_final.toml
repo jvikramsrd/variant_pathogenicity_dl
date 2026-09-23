@@ -1,0 +1,46 @@
+# EXP-020 - final SLM
+# The configuration the ablations support; fill in after EXP-009..019.
+# Run: vpdl-slm finetune --config configs/slm/exp020_final.toml
+# Status: NOT RUN - REQUIRES DGX SPARK.
+
+[finetune]
+run_name = "exp020-final"
+out_dir = "runs/slm_genomic/exp020-final"
+examples = "data/slm_genomic/examples/classify_variant.parquet"
+unit_examples = "data/slm_genomic/examples/evidence_type_variant.parquet"
+records = "data/slm_genomic"
+backbone = "hf:runs/slm_genomic/pretrain/final"
+max_length = 384
+tasks = ["classify", "evidence", "acmg"]
+features = ["consequence", "variant_type", "origin", "chromosome_class", "has_protein_change", "log10_af"]
+use_structured = true
+embedding_dim = 256
+seed = 42
+select_metric = "auto"
+calibration = "temperature"
+mc_samples = 20
+cache_dir = "data/slm_genomic/token_cache"
+
+[finetune.peft]
+kind = "lora"
+lora_rank = 8
+lora_targets = ["query", "value"]
+
+[finetune.loss]
+classify = 1.0
+types = 0.3
+polarity = 0.3
+acmg = 0.5
+ordinal = 0.2
+
+[finetune.train]
+epochs = 6
+batch_size = 16
+grad_accum = 2
+lr = 2e-5
+weight_decay = 0.01
+warmup_frac = 0.06
+patience = 2
+precision = "auto"
+checkpoint_trainable_only = true
+resume = true

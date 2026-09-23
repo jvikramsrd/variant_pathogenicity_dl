@@ -3,6 +3,18 @@
 Status: **steps 1–4 built, not yet run on the DGX** (2026-09-22). Code:
 `vpdl/slm/`; how to run: [RUNBOOK.md](RUNBOOK.md).
 
+> **This plan is one arm of a larger branch.** Since 2026-09-23 the LLM/SLM
+> branch also holds the *broad genomic SLM*: clinical-evidence records,
+> conclusion masking, ACMG handling, splits and a leakage audit, a multi-task
+> model over a biomedical backbone, calibration, VUS and grounded
+> explanations — `vpdl-slm`, documented in
+> [GENOMIC_SLM_ARCHITECTURE.md](GENOMIC_SLM_ARCHITECTURE.md) and
+> [GENOMIC_SLM_DGX_RUNBOOK.md](GENOMIC_SLM_DGX_RUNBOOK.md).
+> The model below — random weights, our own tokenizer — remains a first-class
+> arm of that work (`backbone = "slm:runs/slm/small/final"`), so "was starting
+> from biomedical weights worth it?" stays an experiment rather than an
+> assumption. Nothing in this plan or in `vpdl slm-*` was changed.
+
 Measured on the DGX (2026-09-22): peak **90.1 TFLOPS** BF16 (matrix multiply);
 training the small model reached **30.7 TFLOPS with `torch.compile`** (20.4
 without) — **~20 hours** for 2.5B tokens. Medium (~340M, 7B tokens): ~7 days

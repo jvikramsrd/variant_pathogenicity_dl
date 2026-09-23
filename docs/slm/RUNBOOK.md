@@ -2,6 +2,12 @@
 
 Plan and reasoning: [PLAN.md](PLAN.md). Code: `vpdl/slm/`. Tests: `tests/slm/`.
 
+> This runbook covers the **from-scratch pretraining** commands (`vpdl
+> slm-corpus / slm-tokenizer / slm-pack / slm-train`), unchanged. The broad
+> genomic SLM built on top of the same branch has its own commands
+> (`vpdl-slm`) and its own runbook:
+> [GENOMIC_SLM_DGX_RUNBOOK.md](GENOMIC_SLM_DGX_RUNBOOK.md).
+
 Always do the **trial run** (5 PubMed files, a few minutes) before the full
 run (all 1,334 files, days). The trial proves every stage works on real data;
 the full run then only repeats it at scale.
