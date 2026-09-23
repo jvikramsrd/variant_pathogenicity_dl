@@ -72,6 +72,14 @@ data/kb/
 
 # Small LM: corpus shards, token files, checkpoints. Regenerable; far too large for git.
 data/slm/
+# Genomic SLM (docs/slm/GENOMIC_SLM_*.md): record tables, examples, token caches,
+# pretraining corpus and checkpoints. All regenerable from data/raw + the manifest;
+# the small run records (metrics, registry, reports) are NOT ignored.
+data/slm_genomic/
+runs/slm_genomic/**/checkpoints/
+runs/slm_genomic/**/*.npy
+runs/slm_genomic/**/model/
+runs/slm_genomic/**/predictions.parquet
 runs/slm/**/checkpoints/
 runs/slm/**/milestones/
 runs/slm/**/final/
@@ -81,6 +89,9 @@ runs/slm/**/final/
 # predictions, registry.jsonl) stay small text and are not ignored.
 features/
 data/dl/
+# ... but the canonical build's QC evidence is small text and stays in git.
+!data/built/*.flagged.csv
+!data/built/*.functional.csv
 runs/dl/**/checkpoints/
 runs/dl/**/*.npy
 runs/dl/**/backbone_delta.pt

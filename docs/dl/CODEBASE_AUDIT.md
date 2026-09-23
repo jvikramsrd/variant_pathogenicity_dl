@@ -160,7 +160,7 @@ the three table columns above. All three are kept byte-compatible.
 
 | check | result |
 |---|---|
-| `tests/dl` (new; CPU, tiny random-weight models, synthetic data) | 107 passed |
+| `tests/dl` (new; CPU, tiny random-weight models, synthetic data) | 109 passed, 1 skipped (needs a GBM backend this PC blocks) |
 | `tests/regression` | 62 passed, 1 skipped (needs CUDA), 4 failed — the same four scikit-learn `_loss` DLL blocks as the baseline; no new failure |
 | `tests/kb`, `tests/slm` (LLM branch, run read-only as a compatibility check) | 47 passed, 22 passed |
 | `run_cell` leave-one-gene-out equivalence | predictions + valpreds byte-identical to the pre-change snapshot |

@@ -68,6 +68,7 @@ vpdl paired · dl/calibration · dl/functional · dl/failure · dl/interface
 | `dl/calibration.py` | ECE, Brier, slope/intercept, reliability, Platt/temperature/isotonic |
 | `dl/failure.py` | shortcut / overfitting / MSH6 / imbalance / calibration / pretraining-regression checks |
 | `dl/tracking.py` | run registry (`runs/dl/registry.jsonl`) |
+| `dl/report.py` | every run -> paper tables (CSV / Markdown / LaTeX), comparability checks, checksummed manifest |
 | `dl/interface.py` | the frozen output contract |
 | `dl/cli.py` | `vpdl-dl` (separate from `vpdl/cli.py`, which hosts the LLM commands) |
 

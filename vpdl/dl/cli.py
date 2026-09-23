@@ -17,6 +17,7 @@ branch's commands, which this work does not touch.
     functional   independent functional validation of held-out-gene scores
     failure      failure-analysis report
     arms         exact arm/model names in a runs directory (for vpdl paired)
+    results      every run -> paper tables (CSV/Markdown/LaTeX) + checks + manifest
     export       DL output records (frozen schema) for later integration
 
 Most options can come from a TOML file (``--config``); explicit flags win.
@@ -535,6 +536,7 @@ def cmd_train(args) -> int:
             model_kwargs=model_kwargs, split=args.split,
             embedding_blocks=tuple(args.embedding_blocks or ()), score_rows=args.score_rows,
             tag=tag)
+        _archive_superseded(args.out, config.slug)
         result = run_cell(table, config, feature_columns, args.data, args.out,
                           sequences=sequences, dl_context=context)
         summary = result.summary()
@@ -642,6 +644,60 @@ def cmd_failure(args) -> int:
     out = Path(args.runs) / f"failure_{args.cell}.md"
     out.write_text(text, encoding="utf-8")
     print(text)
+    return 0
+
+
+def _archive_superseded(out_dir, slug: str) -> Path | None:
+    """Move a cell's previous artefacts aside instead of overwriting them.
+
+    Results only exist once; a re-run at different code or data must not delete
+    the numbers a draft may already cite. The old files go to
+    ``<out>/superseded/<UTC timestamp>/`` and are ignored by `vpdl-dl results`.
+    """
+    import shutil
+    from datetime import datetime, timezone
+
+    out_dir = Path(out_dir)
+    existing = [p for prefix in ("summary_", "results_", "predictions_", "valpreds_", "scores_")
+                for p in out_dir.glob(f"{prefix}{slug}.*")]
+    if not (out_dir / f"summary_{slug}.json").exists():
+        return None
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    archive = out_dir / "superseded" / stamp
+    archive.mkdir(parents=True, exist_ok=True)
+    for path in existing:
+        shutil.move(str(path), str(archive / path.name))
+    print(f"previous run of {slug} moved to {archive}", file=sys.stderr)
+    return archive
+
+
+def cmd_results(args) -> int:
+    from vpdl.dl.report import write_paper_bundle
+
+    comparisons = None
+    if args.compare:
+        comparisons = []
+        for spec in args.compare:
+            try:
+                runs_dir, rest = spec.split("=", 1)
+                arm, model = rest.rsplit(":", 1)
+            except ValueError:
+                raise SystemExit(f"--compare expects DIR=ARM:MODEL, got {spec!r}")
+            comparisons.append(((runs_dir, arm, model), None))
+    bundle = write_paper_bundle(args.runs, args.out, comparisons=comparisons,
+                               canonical_report=args.canonical_report,
+                               leakage_dir=args.leakage, n_bootstrap=args.n_bootstrap,
+                               plots=not args.no_plots)
+    print(json.dumps({k: str(v) for k, v in bundle.files.items()}, indent=2))
+    checks = bundle.checks
+    print(f"\n{checks['n_cells']} cells, {checks['n_arms']} arms.", file=sys.stderr)
+    for note in checks["notes"]:
+        print(f"NOTE: {note}", file=sys.stderr)
+    for problem in checks["problems"]:
+        print(f"PROBLEM: {problem}", file=sys.stderr)
+    print(("READY TO CITE: no problems found." if checks["citable"] else
+           "NOT READY TO CITE: fix the problems above (they are in checks.json)."),
+          file=sys.stderr)
     return 0
 
 
@@ -858,6 +914,17 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--runs", required=True)
     p.add_argument("--cell", required=True, help="cell slug")
     p.add_argument("--paired", default=None, help="paired table vs the P0 arm (optional)")
+
+    p = command("results", cmd_results, "collect every run into paper-ready tables")
+    p.add_argument("--runs", default="runs/dl", help="root directory, searched recursively")
+    p.add_argument("--out", default="results/dl")
+    p.add_argument("--compare", nargs="*", default=[], metavar="DIR=ARM:MODEL",
+                   help="reference arm(s) for the paired tables; omit to infer them")
+    p.add_argument("--canonical-report", default="data/built/canonical.report.json",
+                   dest="canonical_report")
+    p.add_argument("--leakage", default="runs/dl/leakage")
+    p.add_argument("--n-bootstrap", type=int, default=10_000, dest="n_bootstrap")
+    p.add_argument("--no-plots", action="store_true", dest="no_plots")
 
     p = command("arms", cmd_arms, "list (arm, model) names in a runs directory")
     p.add_argument("--runs", required=True)

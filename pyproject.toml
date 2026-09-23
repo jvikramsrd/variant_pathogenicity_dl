@@ -20,6 +20,10 @@ dependencies = [
 gbm = ["xgboost>=2.0", "lightgbm>=4.1"]
 # Small language model from scratch (docs/slm/). torch is installed separately.
 slm = ["tokenizers>=0.20", "transformers>=4.46"]
+# The broad genomic SLM (vpdl-slm, docs/slm/GENOMIC_SLM_*.md): the same model
+# stack plus Arrow/Parquet for the record tables. scikit-learn (already a core
+# dependency) supplies the TF-IDF vectoriser for the baselines.
+genomic-slm = ["tokenizers>=0.20", "transformers>=4.46", "pyarrow>=14"]
 
 # Protein language model branch. torch is NOT pinned here on purpose --
 # see the platform note below.
@@ -28,13 +32,14 @@ plm = ["transformers>=4.40", "fair-esm>=2.0"]
 # installing it never upgrades the library under a running SLM job; the ESM
 # SDPA path falls back to eager attention where a version lacks it.
 # matplotlib only draws reliability diagrams.
-dl = ["transformers>=4.46", "matplotlib>=3.7"]
+dl = ["transformers>=4.46", "matplotlib>=3.7", "tabulate>=0.9"]
 
 dev = ["pytest>=8.0", "pytest-cov>=4.1"]
 
 [project.scripts]
 vpdl = "vpdl.cli:main"
 vpdl-dl = "vpdl.dl.cli:main"
+vpdl-slm = "vpdl.slm.cli:main"
 
 # ---------------------------------------------------------------------------
 # PyTorch is installed separately, per platform, and deliberately not listed as

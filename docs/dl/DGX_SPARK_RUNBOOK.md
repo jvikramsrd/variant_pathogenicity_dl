@@ -13,6 +13,44 @@ T=data/built/canonical_full.csv
 S="clinvar pg_dms alphamissense gnomad"
 ```
 
+## After every phase — save the results
+
+Results are the paper. Do this at the end of each session, before shutting
+anything down.
+
+1. Rebuild the paper tables from whatever has run so far:
+
+```bash
+vpdl-dl results --runs runs/dl --out results/dl
+```
+
+Check: it prints `READY TO CITE` or lists problems (fewer than three seeds,
+runs on different tables, uncommitted code). Problems are expected mid-way.
+
+2. Stage the results — path-scoped, never `git add -A`:
+
+```bash
+git add runs/dl results/dl data/built/*.json data/built/*.flagged.csv docs/dl docs/RUNLOG.md
+```
+
+3. Read the staged list before committing:
+
+```bash
+git status
+```
+
+Check: **no `deleted:` lines.** A grid push once staged 48 deletions of
+artefacts on this project; that is what this check exists for.
+
+4. Commit and push:
+
+```bash
+git commit -m "dl results: <phase> on <date>" && git push origin v2/rebuild
+```
+
+5. Add one `docs/RUNLOG.md` entry per session (newest at the top): the command,
+the outcome, the artefact paths, and what the numbers do **not** license.
+
 ---
 
 ## Phase 0 — ship the code (Windows PC)
@@ -79,7 +117,7 @@ Check: `bf16: true`, `smoke_bf16_matmul: true`, `smoke_esm_forward: true`; note 
 python -m pytest tests/dl tests/regression -q
 ```
 
-Check: all pass (107 DL tests; the regression suite also runs its GPU test here).
+Check: all pass (~110 DL tests; the regression suite also runs its GPU test here).
 
 ---
 
@@ -352,6 +390,47 @@ vpdl-dl export --runs runs/dl/fusion --cell <cell slug> --export-dir runs/dl/fus
 ```
 
 Check: `runs/dl/export/dl_outputs_<cell>.jsonl` + `.embeddings.npy` + `.schema.json`.
+
+---
+
+## Phase 11 — the paper bundle
+
+1. Collect everything, with the dataset composition and leakage reports folded in:
+
+```bash
+vpdl-dl results --runs runs/dl --out results/dl --canonical-report data/built/canonical.report.json --leakage runs/dl/leakage
+```
+
+2. Name the reference arms explicitly for the headline comparisons (the arm
+   strings come from `vpdl-dl arms`):
+
+```bash
+vpdl-dl results --runs runs/dl --out results/dl --compare "runs/dl/main=<existing arm>:mlp" "runs/dl/pretrain_eval=<P0 arm>:mlp"
+```
+
+3. Read the checks before writing a word:
+
+```bash
+cat results/dl/checks.json
+```
+
+What lands in `results/dl/`:
+
+| file | for the paper |
+|---|---|
+| `cells.csv` | every cell × held-out gene: all metrics with CIs, provenance keys |
+| `arms.csv` | mean ± SD over seeds per arm and gene, plus the scoreable mean |
+| `tables.md` / `tables.tex` | Tables 1–4 formatted (LaTeX is booktabs) |
+| `paired_*.csv` + `.png` | paired ΔAUC with CIs, and a forest plot |
+| `pretraining.csv` | P0–P4 per fold: corpus sizes, val MLM loss, perplexity |
+| `calibration.csv`, `functional.csv` | calibration per gene; independent assay validation |
+| `checks.json` | seed counts, table mismatches, dirty code, leakage criticals |
+| `environment.json` | library versions, platform, hardware, git commits |
+| `MANIFEST.json` | sha256 of every file above |
+
+Re-running a cell never overwrites the old numbers: `vpdl-dl train` moves the
+previous artefacts to `<out>/superseded/<timestamp>/`, and the bundle ignores
+that directory.
 
 ---
 

@@ -362,3 +362,86 @@ def test_per_fold_embeddings_refuse_a_backbone_that_saw_the_fold(tmp_path):
     with pytest.raises(LeakageError, match="held out"):
         context.embeddings(spec, ids, fold("MSH2"))
     assert "perfold{" in context.feature_version([spec])
+
+
+# -- results bundle for the paper ----------------------------------------------------------------
+
+def test_results_bundle_collects_tables_checks_and_manifest(tmp_path, cell_inputs):
+    pytest.importorskip("torch")
+    from vpdl.dl.report import write_paper_bundle
+    from vpdl.experiment import CellConfig, run_cell
+    from vpdl.provenance import verify_manifest
+
+    table, data, sequences = cell_inputs
+    runs = tmp_path / "runs" / "main"
+    features = ["feature_gnomad_log10_af", "feature_in_domain"]
+    for model, seeds in (("mlp", (42, 43, 44)), ("gbm", (42,))):
+        for seed in seeds:
+            config = CellConfig(sources=("clinvar",), model=model, seed=seed, n_bootstrap=20,
+                                model_kwargs={"epochs": 2} if model == "mlp" else {})
+            try:
+                run_cell(table, config, features, data, runs)
+            except ImportError:                       # this PC blocks sklearn's _loss
+                pytest.skip("no usable GBM backend here")
+
+    bundle = write_paper_bundle(tmp_path / "runs", tmp_path / "results", n_bootstrap=20,
+                                plots=False)
+    cells = pd.read_csv(bundle.files["cells"])
+    arms = pd.read_csv(bundle.files["arms"])
+    assert set(cells["model"]) == {"mlp", "gbm"}
+    assert {"roc_auc", "mcc", "brier", "ece", "dataset_sha256", "split_hash",
+            "roc_auc_ci_low"} <= set(cells.columns)
+    headline = arms[arms["gene"] == "mean:scoreable"]
+    assert len(headline) == 2 and headline["seeds"].max() == 3
+    # Three seeds of one arm give an SD; a single-seed arm reports none.
+    mlp = headline[headline["model"] == "mlp"].iloc[0]
+    assert np.isfinite(mlp["roc_auc_std"]) and mlp["roc_auc_mean"] > 0
+    assert not np.isfinite(headline[headline["model"] == "gbm"].iloc[0]["roc_auc_std"])
+    # The single-seed arm is flagged, and every file is checksummed.
+    problems = " ".join(bundle.checks["problems"])
+    assert "gbm" in problems and "1 seed" in problems and not bundle.checks["citable"]
+    verify_manifest(bundle.files["manifest"])
+    text = bundle.files["tables_md"].read_text(encoding="utf-8")
+    assert "Table 2" in text and "Table 3" in text
+    assert r"\begin{tabular}" in bundle.files["tables_tex"].read_text(encoding="utf-8")
+
+
+def test_results_refuses_to_pool_runs_from_different_tables(tmp_path, cell_inputs):
+    pytest.importorskip("torch")
+    from vpdl.dl.report import collect_cells, comparability_checks, paired_against
+    from vpdl.experiment import CellConfig, run_cell
+
+    table, data, sequences = cell_inputs
+    other = tmp_path / "other.csv"                    # same variants, different file/hash
+    table.assign(note="second build").to_csv(other, index=False)
+    for path, out in ((data, tmp_path / "runs" / "a"), (other, tmp_path / "runs" / "b")):
+        config = CellConfig(sources=("clinvar",), model="mlp", seed=42, n_bootstrap=20,
+                            model_kwargs={"epochs": 1})
+        run_cell(table, config, ["feature_in_domain"], path, out)
+
+    cells = collect_cells(tmp_path / "runs")
+    checks = comparability_checks(cells)
+    assert any("different tables" in p for p in checks["problems"])
+    with pytest.raises(ValueError, match="dataset"):
+        paired_against((str(tmp_path / "runs" / "a"), "train-clinvar", "mlp"),
+                       [str(tmp_path / "runs" / "b")], cells, n_bootstrap=20)
+
+
+def test_rerunning_a_cell_archives_the_previous_results(tmp_path, cell_inputs):
+    pytest.importorskip("torch")
+    from vpdl.dl.cli import _archive_superseded
+    from vpdl.experiment import CellConfig, run_cell
+
+    table, data, sequences = cell_inputs
+    runs = tmp_path / "runs"
+    config = CellConfig(sources=("clinvar",), model="mlp", seed=42, n_bootstrap=20,
+                        model_kwargs={"epochs": 1})
+    run_cell(table, config, ["feature_in_domain"], data, runs)
+    first = (runs / f"predictions_{config.slug}.csv").read_text()
+    archive = _archive_superseded(runs, config.slug)
+    assert archive and (archive / f"predictions_{config.slug}.csv").read_text() == first
+    assert not (runs / f"summary_{config.slug}.json").exists()
+    run_cell(table, config, ["feature_in_domain"], data, runs)
+    # The re-run is visible, the old numbers survive, and the bundle ignores them.
+    from vpdl.dl.report import collect_cells
+    assert collect_cells(runs)["cell"].nunique() == 1
