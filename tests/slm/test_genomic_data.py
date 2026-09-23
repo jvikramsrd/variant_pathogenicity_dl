@@ -6,6 +6,8 @@ The fixture is a small synthetic ClinVar release in ClinVar's own file layouts
 
 from __future__ import annotations
 
+import functools
+import gzip
 
 import pandas as pd
 import pytest
@@ -22,6 +24,7 @@ from vpdl.slm.build.synthetic import HOLDOUT_PMID, write_synthetic_clinvar
 from vpdl.slm.catalog import HOLDOUT_PUBLICATIONS, SOURCES, validate_catalog
 from vpdl.slm.clinvar_text import parse_conditions, parse_date, specific_condition
 from vpdl.slm.labels import normalize_classification
+from vpdl.slm.parallel import pmap, run_windowed
 from vpdl.slm.schema import TABLES, validate_table
 from vpdl.slm.text.acmg import task_policy
 from vpdl.slm.variants import DLJoin, consequence, parse_name
@@ -32,7 +35,7 @@ def built(tmp_path_factory):
     root = tmp_path_factory.mktemp("genomic")
     paths = write_synthetic_clinvar(root / "clinvar", variants_per_gene=8, seed=11)
     manifest = build_records(root / "records", paths["variant_summary"], paths["submission_summary"],
-                             paths["var_citations"])
+                             paths["var_citations"], workers=1)
     tables = load_tables(root / "records")
     return {"root": root, "paths": paths, "manifest": manifest, "tables": tables}
 
@@ -169,6 +172,76 @@ def test_statistics_measure_the_corpus(built):
     assert stats["documents_with_direct_conclusion"] > 0
     assert 0 <= stats["mmr_share"]["documents"] <= 1
     assert set(stats["breakdowns"]) >= {"gene", "disease", "variant_type", "laboratory", "year"}
+
+
+# -- every core, same answer ------------------------------------------------------------------
+
+def _assert_same_tables(left, right):
+    assert set(left) == set(right)
+    for name in left:
+        a, b = left[name].reset_index(drop=True), right[name].reset_index(drop=True)
+        assert list(a.columns) == list(b.columns) and a.shape == b.shape, name
+        for column in a.columns:
+            assert a[column].astype(str).tolist() == b[column].astype(str).tolist(), (name, column)
+
+
+def test_a_sharded_build_on_many_processes_writes_the_single_process_tables(built, tmp_path):
+    paths = built["paths"]
+    manifest = build_records(tmp_path / "records", paths["variant_summary"],
+                             paths["submission_summary"], paths["var_citations"], workers=2,
+                             variant_chunk_lines=17, submission_chunk_lines=13)
+    assert manifest["workers"] == 2
+    assert len(list((tmp_path / "records" / "documents.parquet").glob("part-*.parquet"))) > 1
+    assert manifest["counts"] == built["manifest"]["counts"]
+    _assert_same_tables(built["tables"], load_tables(tmp_path / "records"))
+
+
+def test_rows_of_one_variant_far_apart_in_the_file_still_give_one_record(built, tmp_path):
+    with gzip.open(built["paths"]["variant_summary"], "rt", encoding="utf-8") as handle:
+        header, *rows = handle.read().splitlines()
+    assembly = header.split("\t").index("Assembly")
+    first = [r for r in rows if r.split("\t")[assembly] == "GRCh37"]
+    shuffled = tmp_path / "variant_summary.txt.gz"
+    with gzip.open(shuffled, "wt", encoding="utf-8") as handle:     # every GRCh37 row first
+        handle.write("\n".join([header, *first, *[r for r in rows if r not in first]]) + "\n")
+    manifest = build_records(tmp_path / "records", shuffled, workers=1, variant_chunk_lines=5)
+    variants = load_tables(tmp_path / "records", ["variants"])["variants"]
+    assert variants["variation_id"].is_unique
+    assert set(variants["variation_id"]) == set(built["tables"]["variants"]["variation_id"])
+    assert manifest["reader_stats"]["variant_summary_non_adjacent_duplicate"] > 0
+
+
+def test_the_parallel_helpers_keep_input_order():
+    items = list(range(300))
+    assert pmap(str, items, workers=2, minimum=1) == [str(i) for i in items]
+    seen: list = []
+    assert run_windowed(str, iter(items), workers=2, window=3, on_result=seen.append) == len(items)
+    assert seen == [str(i) for i in items]
+    single: list = []
+    run_windowed(str, ["only"], workers=4, on_result=single.append)      # one chunk: no pool
+    assert single == ["only"]
+
+
+def test_masking_examples_and_the_leakage_scan_match_on_many_processes(built, frame, monkeypatch):
+    import vpdl.slm.build.clusters as clusters_module
+    import vpdl.slm.build.examples as examples_module
+    import vpdl.slm.build.leakage as leakage_module
+    split = make_split(frame, SplitConfig("variant"))
+    documents = built["tables"]["documents"]
+    serial_clusters = document_clusters(documents, workers=1)
+    serial = build_examples(built["tables"], split, "classify", HOLDOUT_PUBLICATIONS, workers=1)
+    serial.loc[0, "input_text"] += " Therefore, this variant is classified as pathogenic."
+    eager = functools.partial(pmap, minimum=1)          # force the pool even on tiny data
+    for module in (clusters_module, examples_module, leakage_module):
+        monkeypatch.setattr(module, "pmap", eager)
+    pd.testing.assert_frame_equal(serial_clusters, document_clusters(documents, workers=2))
+    parallel = build_examples(built["tables"], split, "classify", HOLDOUT_PUBLICATIONS, workers=2)
+    parallel.loc[0, "input_text"] += " Therefore, this variant is classified as pathogenic."
+    pd.testing.assert_frame_equal(serial, parallel)
+    reports = [run_audit(AuditInputs("variant", serial, built["tables"]["variants"], documents,
+                                     built["tables"]["citations"], workers=w)) for w in (1, 2)]
+    assert repr(reports[0].findings) == repr(reports[1].findings)
+    assert any(f.check == "conclusion_leakage" for f in reports[1].critical)
 
 
 # -- splits -------------------------------------------------------------------------------

@@ -307,47 +307,132 @@ def _rsid(value) -> str | None:
     return f"rs{text}" if text.isdigit() and text != "-1" else None
 
 
+def _submission_record(fields: list[str], get, stats: Counter) -> dict | None:
+    variation_id = _int(get(fields, "VariationID"))
+    if variation_id is None:
+        stats["submission_bad_variation_id"] += 1
+        return None
+    description = get(fields, "Description") or ""
+    if description.strip() == "-":
+        description = ""
+    reported_ids, reported_names = parse_reported_phenotypes(get(fields, "ReportedPhenotypeInfo"))
+    stats["submissions"] += 1
+    return {
+        "variation_id": variation_id,
+        "classification_raw": get(fields, "ClinicalSignificance") or "",
+        "date": parse_date(get(fields, "DateLastEvaluated")),
+        "text": description,
+        "submitted_phenotype": get(fields, "SubmittedPhenotypeInfo") or "",
+        "disease_ids": reported_ids,
+        "disease_names": reported_names,
+        "review_status": get(fields, "ReviewStatus") or "",
+        "collection_method": get(fields, "CollectionMethod") or "",
+        "origin_counts": get(fields, "OriginCounts") or "",
+        "submitter": get(fields, "Submitter") or "",
+        "scv": get(fields, "SCV") or "",
+        "submitted_gene": get(fields, "SubmittedGeneSymbol") or "",
+        "explanation_of_interpretation": get(fields, "ExplanationOfInterpretation") or "",
+    }
+
+
+def _getter(index: dict[str, int]):
+    def get(fields, column):
+        position = index.get(column)
+        return fields[position] if position is not None and position < len(fields) else None
+    return get
+
+
 def iter_submissions(path: Path | str, stats: Counter | None = None) -> Iterator[dict]:
     """One dict per SCV, the narrative (``Description``) exactly as published."""
     stats = stats if stats is not None else Counter()
     with _open_text(path) as handle:
         header, pending = _header(handle, "#VariationID")
         index = _require(header, SUBMISSION_COLUMNS, path)
-
-        def get(fields, column):
-            position = index.get(column)
-            return fields[position] if position is not None and position < len(fields) else None
-
+        get = _getter(index)
         for line in _chain([pending] if pending else [], handle):
             fields = line.rstrip("\r\n").split("\t")
             if len(fields) != len(header):
                 stats["submission_malformed_rows"] += 1
                 continue
-            variation_id = _int(get(fields, "VariationID"))
-            if variation_id is None:
-                stats["submission_bad_variation_id"] += 1
-                continue
-            description = get(fields, "Description") or ""
-            if description.strip() == "-":
-                description = ""
-            reported_ids, reported_names = parse_reported_phenotypes(get(fields, "ReportedPhenotypeInfo"))
-            stats["submissions"] += 1
-            yield {
-                "variation_id": variation_id,
-                "classification_raw": get(fields, "ClinicalSignificance") or "",
-                "date": parse_date(get(fields, "DateLastEvaluated")),
-                "text": description,
-                "submitted_phenotype": get(fields, "SubmittedPhenotypeInfo") or "",
-                "disease_ids": reported_ids,
-                "disease_names": reported_names,
-                "review_status": get(fields, "ReviewStatus") or "",
-                "collection_method": get(fields, "CollectionMethod") or "",
-                "origin_counts": get(fields, "OriginCounts") or "",
-                "submitter": get(fields, "Submitter") or "",
-                "scv": get(fields, "SCV") or "",
-                "submitted_gene": get(fields, "SubmittedGeneSymbol") or "",
-                "explanation_of_interpretation": get(fields, "ExplanationOfInterpretation") or "",
-            }
+            record = _submission_record(fields, get, stats)
+            if record is not None:
+                yield record
+
+
+# -- chunked reading, for the parallel build ------------------------------------------
+#
+# The streaming readers above parse one line at a time in one process. For the
+# full release (millions of submissions) the builder instead reads RAW lines in
+# chunks and hands each chunk to a worker process, which parses it with the
+# functions below — the same per-line code, so a chunked build and a streamed
+# one produce the same records.
+
+def iter_line_chunks(path: Path | str, first_column: str, required, chunk_lines: int,
+                     key_column: str | None = None) -> Iterator[tuple[list[str], list[str]]]:
+    """``(header, raw lines)`` chunks. With `key_column`, a chunk never splits a run of
+    equal keys — the two assembly rows of one ClinVar variant stay together."""
+    with _open_text(path) as handle:
+        header, pending = _header(handle, first_column)
+        index = _require(header, required, path)
+        key = index.get(key_column) if key_column else None
+        chunk: list[str] = []
+        last_key = None
+        for line in _chain([pending] if pending else [], handle):
+            current = None
+            if key is not None:
+                fields = line.split("\t", key + 1)
+                current = fields[key] if len(fields) > key else None
+            if len(chunk) >= chunk_lines and (key is None or current != last_key):
+                yield header, chunk
+                chunk = []
+            chunk.append(line)
+            last_key = current
+        if chunk:
+            yield header, chunk
+
+
+def parse_variant_lines(header: list[str], lines: list[str], genes: set[str] | None = None,
+                        prefer_assembly: str = "GRCh38", path: str = "") -> tuple[list[dict], Counter]:
+    """Variant records from raw ``variant_summary`` lines (one chunk), GRCh38 preferred."""
+    stats: Counter = Counter()
+    index = {name: position for position, name in enumerate(header)}
+    get = _getter(index)
+    records: dict[int, dict] = {}
+    for line in lines:
+        fields = line.rstrip("\r\n").split("\t")
+        if len(fields) != len(header):
+            stats["variant_summary_malformed_rows"] += 1
+            continue
+        try:
+            variation_id = int(get(fields, "VariationID"))
+        except (TypeError, ValueError):
+            stats["variant_summary_bad_variation_id"] += 1
+            continue
+        symbols = [s for s in re.split(r"[;|]", get(fields, "GeneSymbol") or "") if s and s != "-"]
+        if genes is not None and not (set(symbols) & genes):
+            continue
+        assembly = get(fields, "Assembly") or ""
+        if variation_id in records and assembly != prefer_assembly:
+            continue
+        records[variation_id] = _variant_record(fields, get, symbols, variation_id, path)
+    stats["variants"] += len(records)
+    return list(records.values()), stats
+
+
+def parse_submission_lines(header: list[str], lines: list[str]) -> tuple[list[dict], Counter]:
+    stats: Counter = Counter()
+    index = {name: position for position, name in enumerate(header)}
+    get = _getter(index)
+    out = []
+    for line in lines:
+        fields = line.rstrip("\r\n").split("\t")
+        if len(fields) != len(header):
+            stats["submission_malformed_rows"] += 1
+            continue
+        record = _submission_record(fields, get, stats)
+        if record is not None:
+            out.append(record)
+    return out, stats
 
 
 def iter_citations(path: Path | str, stats: Counter | None = None) -> Iterator[dict]:

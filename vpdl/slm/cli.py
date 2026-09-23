@@ -186,7 +186,7 @@ def cmd_examples(args) -> int:
     holdout = HOLDOUT_PUBLICATIONS if args.holdout_publications == "auto" else tuple(
         args.holdout_publications.split(",")) if args.holdout_publications else ()
     examples = build_examples(tables, split, args.task, holdout_publications=holdout,
-                              min_chars=args.min_chars)
+                              min_chars=args.min_chars, workers=args.workers)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     examples.to_parquet(args.out, index=False)
     summary = {"task": args.task, "out": args.out, "rows": int(len(examples)),
@@ -217,7 +217,8 @@ def cmd_leakage(args) -> int:
         features=tuple(args.features or ()), functional_variants=tuple(args.functional_variants or ()),
         holdout_publications=HOLDOUT_PUBLICATIONS, cutoff=args.cutoff, pretraining=pretraining,
         teacher=teacher, retrieval_documents=retrieval,
-        strict_literature=args.strict_literature, strict_functional=not args.no_strict_functional))
+        strict_literature=args.strict_literature, strict_functional=not args.no_strict_functional,
+        workers=args.workers))
     if args.out:
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)
         Path(args.out).write_text(report.to_markdown(), encoding="utf-8")
@@ -482,7 +483,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dl-canonical", default=None, help="the DL branch's canonical table, for joins")
     p.add_argument("--genes", nargs="*", default=None)
     p.add_argument("--limit-documents", type=int, default=None)
-    p.add_argument("--workers", type=int, default=1)
+    p.add_argument("--workers", type=int, default=None,
+                   help="worker processes (default: every core — 20 on the DGX Spark)")
     p.set_defaults(out="data/slm_genomic")
 
     p = command("stats", cmd_stats, "corpus quantification")
@@ -524,6 +526,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--task", default="classify")
     p.add_argument("--min-chars", type=int, default=20)
     p.add_argument("--holdout-publications", default="auto")
+    p.add_argument("--workers", type=int, default=None, help="processes (default: every core)")
     p.set_defaults(out="data/slm_genomic/examples/classify.parquet")
 
     p = command("leakage", cmd_leakage, "the fifteen-check leakage audit")
@@ -539,6 +542,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--retrieval", default=None, help="JSON list of document ids in the index")
     p.add_argument("--strict-literature", action="store_true")
     p.add_argument("--no-strict-functional", action="store_true")
+    p.add_argument("--workers", type=int, default=None, help="processes (default: every core)")
 
     p = command("pretrain-corpus", cmd_pretrain_corpus, "continued-pretraining text")
     p.add_argument("--kb", default=None, help="data/kb (knowledge-base passages)")

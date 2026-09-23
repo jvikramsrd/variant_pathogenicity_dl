@@ -63,17 +63,22 @@ def corpus_stats(tables: Mapping[str, pd.DataFrame], top: int = 30,
 
     flags = pd.DataFrame(index=documents["document_id"])
     if not units.empty:
-        u = units.copy()
-        u["types"] = u["evidence_types"]
-        per_doc = u.groupby("document_id").agg(
-            conclusion=("sentence_role", lambda r: bool((r == "conclusion").any())),
-            external=("sentence_role", lambda r: bool((r == "external_classification").any())),
-            codes=("acmg_codes", lambda c: any(len(x) for x in c)),
-            evidence_units=("sentence_role", lambda r: int((r == "evidence").sum())))
+        # Row-level flags, then one vectorised groupby: per-group Python lambdas
+        # take hours over the full corpus's millions of units.
+        role = units["sentence_role"]
+        rows = pd.DataFrame({"document_id": units["document_id"],
+                             "conclusion": role == "conclusion",
+                             "external": role == "external_classification",
+                             "codes": units["acmg_codes"].map(len) > 0,
+                             "evidence_units": (role == "evidence").astype(int)})
+        per_doc = rows.groupby("document_id").agg(
+            conclusion=("conclusion", "any"), external=("external", "any"),
+            codes=("codes", "any"), evidence_units=("evidence_units", "sum"))
+        types = units[["document_id", "evidence_types"]].explode("evidence_types")
         for kind in ("phenotype", "functional", "population", "segregation", "case", "computational",
                      "splicing", "de_novo", "allelic"):
-            per_doc[f"has_{kind}"] = u.groupby("document_id")["types"].apply(
-                lambda series, k=kind: any(k in t for t in series))
+            hits = types.loc[types["evidence_types"] == kind, "document_id"].unique()
+            per_doc[f"has_{kind}"] = per_doc.index.isin(hits)
         flags = per_doc
     documents = documents.merge(flags, left_on="document_id", right_index=True, how="left")
     with_text = documents[documents["has_text"]]

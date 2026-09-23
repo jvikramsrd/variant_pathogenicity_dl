@@ -23,6 +23,7 @@ from typing import Sequence
 import numpy as np
 import pandas as pd
 
+from vpdl.slm.parallel import pmap
 from vpdl.slm.text.conclusion import mask_conclusions
 from vpdl.slm.text.dedup import cluster_documents, exact_group, template_text
 
@@ -31,12 +32,16 @@ logger = logging.getLogger(__name__)
 __all__ = ["document_clusters"]
 
 
+def _masked_text(text: str) -> str:
+    return mask_conclusions(text).text
+
+
 def document_clusters(documents: pd.DataFrame, near_threshold: float = 0.8,
                       template_threshold: float = 0.6, genes: Sequence[str] | None = None,
                       num_perm: int = 128, seed: int = 1, workers: int | None = 1) -> pd.DataFrame:
     frame = documents.loc[documents["text"].fillna("").str.len() > 0,
                           ["document_id", "text", "submitter", "gene"]].reset_index(drop=True)
-    masked = frame["text"].map(lambda t: mask_conclusions(t).text)
+    masked = pd.Series(pmap(_masked_text, frame["text"].tolist(), workers), index=frame.index)
     out = pd.DataFrame({"document_id": frame["document_id"]})
     out["exact_group"] = masked.map(exact_group)
     near = cluster_documents(masked.tolist(), near_threshold, num_perm=num_perm, seed=seed,

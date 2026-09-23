@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 
 from vpdl.slm.labels import normalize_classification
+from vpdl.slm.parallel import pmap
 from vpdl.slm.schema import CLASSES, NEVER_INPUT, as_list
 from vpdl.slm.text.acmg import CODES, TaskPolicy, find_codes, mask_codes, task_policy
 from vpdl.slm.text.conclusion import classify_sentence
@@ -89,15 +90,21 @@ def model_input(text: str, policy: TaskPolicy, holdout: re.Pattern | None = None
                                       masked_codes, holdout_removed)
 
 
+def _input_worker(payload: tuple) -> tuple[str, InputStats]:
+    text, policy, holdout = payload
+    return model_input(text, policy, holdout)
+
+
 def _document_examples(tables: Mapping[str, pd.DataFrame], split: pd.DataFrame, policy: TaskPolicy,
-                       holdout: re.Pattern | None, min_chars: int) -> pd.DataFrame:
+                       holdout: re.Pattern | None, min_chars: int,
+                       workers: int | None = 1) -> pd.DataFrame:
     documents = tables["documents"]
     frame = documents.merge(split[["document_id", "split"]], on="document_id", how="inner")
     frame = frame.loc[~frame["restricted"].fillna(False).astype(bool)]
     frame = frame.loc[frame["label_category"].isin(["five_class", "pair"])]
+    inputs = pmap(_input_worker, [(text or "", policy, holdout) for text in frame["text"]], workers)
     rows = []
-    for record in frame.itertuples(index=False):
-        text, stats = model_input(record.text or "", policy, holdout)
+    for record, (text, stats) in zip(frame.itertuples(index=False), inputs):
         if len(text) < min_chars:
             continue
         rows.append({"example_id": record.document_id, "document_id": record.document_id,
@@ -118,8 +125,12 @@ def _document_examples(tables: Mapping[str, pd.DataFrame], split: pd.DataFrame, 
 
 def build_examples(tables: Mapping[str, pd.DataFrame], split: pd.DataFrame, task: str,
                    holdout_publications: Iterable[str] = (), min_chars: int = 20,
-                   features: Iterable[str] = ()) -> pd.DataFrame:
-    """Examples for `task` on `split`; refuses answer-describing features."""
+                   features: Iterable[str] = (), workers: int | None = 1) -> pd.DataFrame:
+    """Examples for `task` on `split`; refuses answer-describing features.
+
+    `workers` processes clean the narratives (None: every core); the result is
+    identical for any worker count.
+    """
     if task not in TASKS:
         raise ValueError(f"unknown task {task!r}; known {TASKS}")
     policy = task_policy(task)
@@ -130,20 +141,20 @@ def build_examples(tables: Mapping[str, pd.DataFrame], split: pd.DataFrame, task
     holdout = holdout_patterns(holdout_publications)
 
     if task == "classify":
-        examples = _document_examples(tables, split, policy, holdout, min_chars)
+        examples = _document_examples(tables, split, policy, holdout, min_chars, workers)
     elif task == "classify_from_codes":
         units = tables["evidence_units"]
         codes = units.groupby("document_id")["acmg_codes"].agg(
             lambda values: sorted({c for v in values for c in v}))
         codes = codes[codes.map(len) > 0]
-        base = _document_examples(tables, split, task_policy("classify"), holdout, 0)
+        base = _document_examples(tables, split, task_policy("classify"), holdout, 0, workers)
         base = base.loc[base["document_id"].isin(codes.index)].copy()
         base["input_text"] = base["document_id"].map(lambda d: " ".join(codes[d]))
         examples = base
     elif task == "acmg_codes":
-        base = _document_examples(tables, split, policy, holdout, min_chars)
+        base = _document_examples(tables, split, policy, holdout, min_chars, workers)
         units = tables["evidence_units"]
-        met = units.groupby("document_id")["acmg_codes"].agg(lambda v: sorted({c for x in v for c in x}))
+        met =units.groupby("document_id")["acmg_codes"].agg(lambda v: sorted({c for x in v for c in x}))
         not_met = units.groupby("document_id")["acmg_codes_not_met"].agg(
             lambda v: sorted({c for x in v for c in x}))
         gold = tables.get("acmg_labels")

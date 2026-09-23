@@ -42,6 +42,7 @@ from vpdl.slm.build.examples import holdout_patterns
 from vpdl.slm.build.features import FORBIDDEN
 from vpdl.slm.build.splits import variant_groups
 from vpdl.slm.clinvar_text import specific_condition
+from vpdl.slm.parallel import pmap
 from vpdl.slm.text.conclusion import classify_sentence, residual_assertions
 from vpdl.slm.text.sentences import split_sentences
 
@@ -74,6 +75,7 @@ class AuditInputs:
     strict_functional: bool = True
     residual_warning_rate: float = 0.05
     shortcut_warning_auc: float = 0.8
+    workers: int | None = 1                          # processes for the text scan (None: every core)
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -102,13 +104,17 @@ def _check_label(inputs: AuditInputs) -> LeakageFinding:
                           {"features": list(inputs.features)})
 
 
+def _scan_text(text: str) -> tuple[bool, bool]:
+    """(contains a conclusion sentence, contains an assertive class phrase)."""
+    return (any(classify_sentence(s.text) for s in split_sentences(text)),
+            bool(residual_assertions(text)))
+
+
 def _check_conclusions(inputs: AuditInputs) -> list[LeakageFinding]:
-    texts = inputs.examples["input_text"].fillna("")
-    residual_conclusions = 0
-    for text in texts:
-        if any(classify_sentence(s.text) for s in split_sentences(text)):
-            residual_conclusions += 1
-    assertive = texts.map(lambda t: bool(residual_assertions(t))).mean() if len(texts) else 0.0
+    texts = inputs.examples["input_text"].fillna("").tolist()
+    scanned = pmap(_scan_text, texts, inputs.workers)
+    residual_conclusions = sum(1 for conclusion, _ in scanned if conclusion)
+    assertive = (sum(1 for _, flagged in scanned if flagged) / len(texts)) if texts else 0.0
     findings = [LeakageFinding(
         "conclusion_leakage", "critical" if residual_conclusions else "info",
         f"{residual_conclusions} example input(s) still contain a conclusion sentence"

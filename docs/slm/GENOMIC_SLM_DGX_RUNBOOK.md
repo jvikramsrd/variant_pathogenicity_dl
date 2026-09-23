@@ -71,15 +71,24 @@ Optional but valuable:
   reclassification evaluation.
 * **PubMed baseline** — already covered by docs/slm/RUNBOOK.md §2.
 
-## Phase 3 — build the records (hours, one pass per file)
+## Phase 3 — build the records (one pass per file, on every core)
 
 ```bash
 vpdl-slm build-records --variant-summary data/raw/clinvar/variant_summary.txt.gz \
   --submission-summary data/raw/clinvar/submission_summary.txt.gz \
-  --citations data/raw/clinvar/var_citations.txt --workers 8 --out data/slm_genomic
+  --citations data/raw/clinvar/var_citations.txt --out data/slm_genomic
 ```
 Add `--erepo data/raw/clinvar/erepo.tsv` when you have it, and
 `--dl-canonical data/built/canonical_full.csv` to fill the DL join key.
+
+The build uses every CPU core by default (20 on the Spark; `--workers N` to
+cap it): the main process only cuts the files into chunks, and each worker
+parses its chunk and writes its own `part-NNNNN.parquet`, so every table is a
+directory of parts. `htop` should show ~20 busy processes, and the log prints
+progress every 30 s. The GPU stays idle here by design — this is text parsing;
+the GPU's turn is pretraining and fine-tuning. `dedup`, `examples` and
+`leakage` also use every core by default. The tables are identical for any
+worker count (tests/slm/test_genomic_data.py checks it).
 
 Try it small first: `--limit-documents 50000` finishes in minutes and produces
 the same tables in miniature.
