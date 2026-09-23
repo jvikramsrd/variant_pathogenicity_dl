@@ -104,6 +104,10 @@ def collect_cells(runs_root: Path | str) -> pd.DataFrame:
             "feature_version": provenance.get("feature_version"),
             "n_features": len(provenance.get("sources", [])) and None,
             "git_commit": git.get("commit"), "git_dirty": git.get("dirty"),
+            # Which files were uncommitted when the cell ran. With two branches
+            # in one repository, the answer is usually "the other branch's" —
+            # the report says so rather than leaving a bare flag.
+            "git_dirty_paths": ";".join(git.get("dirty_paths") or []),
             "leakage_warnings": (provenance.get("leakage") or {}).get("warnings"),
         }
         for row in results.to_dict("records"):
@@ -273,8 +277,18 @@ def comparability_checks(cells: pd.DataFrame, leakage_dir: Path | str | None = N
                             "they are not replicates")
     dirty = cells[cells["git_dirty"] == True]                                  # noqa: E712
     if len(dirty):
-        problems.append(f"{dirty['cell'].nunique()} cell(s) ran with uncommitted code: "
-                        f"{sorted(dirty['cell'].unique())[:5]}")
+        paths = sorted({p for row in dirty.get("git_dirty_paths", pd.Series(dtype=str))
+                        .dropna() for p in str(row).split(";") if p})
+        dl_paths = [p for p in paths if p.startswith(("vpdl/dl", "vpdl/models", "vpdl/sources",
+                                                      "vpdl/experiment", "vpdl/features",
+                                                      "vpdl/evaluate", "vpdl/analysis",
+                                                      "vpdl/splits", "vpdl/assemble",
+                                                      "vpdl/provenance"))]
+        where = (f"DL code was uncommitted: {dl_paths[:5]}" if dl_paths else
+                 f"only non-DL files were uncommitted ({paths[:5]}), so the DL code that ran "
+                 "IS the committed code")
+        (problems if dl_paths else notes).append(
+            f"{dirty['cell'].nunique()} cell(s) ran with an unclean working tree — {where}")
     skipped = cells[cells["genes_skipped"].astype(str).str.len() > 0]
     if len(skipped):
         notes.append(f"{skipped['cell'].nunique()} cell(s) skipped a fold (untrainable): "

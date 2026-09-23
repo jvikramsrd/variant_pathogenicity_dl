@@ -447,3 +447,26 @@ def test_rerunning_a_cell_archives_the_previous_results(tmp_path, cell_inputs):
     # The re-run is visible, the old numbers survive, and the bundle ignores them.
     from vpdl.dl.report import collect_cells
     assert collect_cells(runs)["cell"].nunique() == 1
+
+
+def test_parallel_cells_give_identical_results_to_sequential(tmp_path, cell_inputs, monkeypatch):
+    # --jobs changes wall-clock time only: same cells, same seeds, same files.
+    pytest.importorskip("torch")
+    from vpdl.dl.cli import main
+
+    table, data, sequences = cell_inputs
+    monkeypatch.chdir(tmp_path)                    # the run registry lands here
+    common = ["train", "--data", str(data), "--sources", "clinvar", "--model", "mlp",
+              "--modalities", "population", "--seeds", "42", "43", "--n-bootstrap", "20",
+              "--model-kwargs", '{"epochs": 2}', "--tag", "t"]
+    assert main(common + ["--jobs", "1", "--out", str(tmp_path / "serial")]) == 0
+    assert main(common + ["--jobs", "2", "--out", str(tmp_path / "parallel")]) == 0
+    serial = sorted((tmp_path / "serial").glob("predictions_*.csv"))
+    parallel = sorted((tmp_path / "parallel").glob("predictions_*.csv"))
+    assert [p.name for p in serial] == [p.name for p in parallel] and len(serial) == 2
+    for a, b in zip(serial, parallel):
+        pd.testing.assert_frame_equal(pd.read_csv(a), pd.read_csv(b))
+    records = [json.loads(line) for line in
+               (tmp_path / "runs" / "dl" / "registry.jsonl").read_text().splitlines()]
+    assert len(records) == 4 and {r["parallel_jobs"] for r in records} == {1, 2}
+    assert all("peak_gpu_memory_gib" in r for r in records)

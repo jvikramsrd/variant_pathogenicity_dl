@@ -51,6 +51,41 @@ git commit -m "dl results: <phase> on <date>" && git push origin v2/rebuild
 5. Add one `docs/RUNLOG.md` entry per session (newest at the top): the command,
 the outcome, the artefact paths, and what the numbers do **not** license.
 
+## Using the whole DGX
+
+The commands below are already set up to keep the box busy. What each kind of
+job does:
+
+| job | how it uses the DGX |
+|---|---|
+| `embed`, `zeroshot` | batch size is `auto`: sized from free GPU memory (up to 256 sequences), halved and retried if a batch runs out of memory. Reductions stay on the GPU; one copy back per 256 variants. |
+| `train` with small models (gbm, mlp, bilstm, sequence baselines, fusion, probes) | one cell cannot fill a GPU on ~450 variants, so `--jobs N` runs N cells side by side. Results are identical to `--jobs 1` (tested). |
+| `train --model plm_finetune` | one cell at a time (`--jobs 1`), batch 32, bf16, gradient checkpointing. |
+| `pretrain` | batch 32, bf16, `torch.compile` on (`configs/dl/pretrain_dgx.toml`). |
+
+`--jobs` guide (20 CPU cores, split evenly between the jobs):
+
+| cells | `--jobs` |
+|---|---|
+| several small models × 3 seeds | 6 |
+| one small model × 3 seeds | 3 |
+| `plm_finetune` | 1 |
+
+Watch it from a second terminal:
+
+```bash
+nvidia-smi dmon -s u
+```
+
+Expect: `sm` well above 50 during `embed`, `zeroshot`, `pretrain` and
+fine-tuning. It stays low for small `train` cells; that is normal, they are
+CPU-bound. The memory column can read `N/A` on the GB10 (memory is shared with
+the CPU). Each cell's real peak is saved as `peak_gpu_memory_gib` in
+`runs/dl/registry.jsonl`.
+
+If `slm-train` is running, `auto` sees less free memory and picks smaller
+batches by itself. Do not start `plm_finetune` or `pretrain` next to it.
+
 ---
 
 ## Phase 0 — ship the code (Windows PC)
@@ -185,14 +220,18 @@ vpdl-dl train --data $T --sources $S --model gbm --modalities population,externa
 
 ## Phase 4 — sequence baselines
 
+Four models × three seeds = 12 cells, six at a time:
+
 ```bash
-for m in aa_mlp cnn bilstm_attn transformer; do vpdl-dl train --data $T --sources $S --model $m --modalities population,external_priors --out runs/dl/main; done
+vpdl-dl train --data $T --sources $S --model aa_mlp cnn bilstm_attn transformer --modalities population,external_priors --jobs 6 --out runs/dl/main
 ```
+
+Check: the last line reads `12 cells done, 0 failed`.
 
 Sequence-only (no tabular features at all):
 
 ```bash
-for m in bilstm cnn transformer; do vpdl-dl train --data $T --sources $S --model $m --modalities none --out runs/dl/seqonly; done
+vpdl-dl train --data $T --sources $S --model bilstm cnn transformer --modalities none --jobs 6 --out runs/dl/seqonly
 ```
 
 List the exact arm names, then compare every model against the existing MLP:
@@ -254,19 +293,19 @@ Check: each prints `pointer: features/latest/<backbone>@P0-<policy>.txt`.
 2. Representations, ESM-2 (the existing backbone) — frozen-PLM probe, no tabular features.
 
 ```bash
-E2=$(cat features/latest/esm2_650m@P0-full.txt); for r in site.wt site.vt site.vt_minus_wt site.abs_diff site.wt_plus_vt site.concat4 local.concat4 global.concat4; do vpdl-dl train --data $T --sources $S --model mlp --modalities none --embedding-blocks "$E2:$r" --out runs/dl/probes; done
+E2=$(cat features/latest/esm2_650m@P0-full.txt); for r in site.wt site.vt site.vt_minus_wt site.abs_diff site.wt_plus_vt site.concat4 local.concat4 global.concat4; do vpdl-dl train --data $T --sources $S --model mlp --modalities none --embedding-blocks "$E2:$r" --jobs 3 --out runs/dl/probes; done
 ```
 
 3. ESM-1b versus ESM-2 at the best representation (replace `site.concat4` if step 2 says otherwise).
 
 ```bash
-E1=$(cat features/latest/esm1b@P0-hierarchical.txt); vpdl-dl train --data $T --sources $S --model mlp --modalities none --embedding-blocks "$E1:site.concat4" --out runs/dl/probes
+E1=$(cat features/latest/esm1b@P0-hierarchical.txt); vpdl-dl train --data $T --sources $S --model mlp --modalities none --embedding-blocks "$E1:site.concat4" --jobs 3 --out runs/dl/probes
 ```
 
 4. MSH6 context policies.
 
 ```bash
-for p in centered asymmetric hierarchical sliding; do vpdl-dl train --data $T --sources $S --model mlp --modalities none --embedding-blocks "$(cat features/latest/esm2_650m@P0-$p.txt):site.concat4" --out runs/dl/probes; done
+for p in centered asymmetric hierarchical sliding; do vpdl-dl train --data $T --sources $S --model mlp --modalities none --embedding-blocks "$(cat features/latest/esm2_650m@P0-$p.txt):site.concat4" --jobs 3 --out runs/dl/probes; done
 ```
 
 ---
@@ -276,21 +315,21 @@ for p in centered asymmetric hierarchical sliding; do vpdl-dl train --data $T --
 `E2` from Phase 6. Model A has no population features; Model B has them.
 
 ```bash
-vpdl-dl train --data $T --sources $S --model fusion --tag concat --modalities structure,genomic,annotation --embedding-blocks "$E2:site.concat4" --out runs/dl/fusion
+vpdl-dl train --data $T --sources $S --model fusion --tag concat --modalities structure,genomic,annotation --embedding-blocks "$E2:site.concat4" --jobs 3 --out runs/dl/fusion
 ```
 
 ```bash
-vpdl-dl train --data $T --sources $S --model fusion --tag concat --modalities population,structure,genomic,annotation --embedding-blocks "$E2:site.concat4" --out runs/dl/fusion
+vpdl-dl train --data $T --sources $S --model fusion --tag concat --modalities population,structure,genomic,annotation --embedding-blocks "$E2:site.concat4" --jobs 3 --out runs/dl/fusion
 ```
 
 Modality matrix (single modalities, pairs, all):
 
 ```bash
-for m in population structure genomic; do vpdl-dl train --data $T --sources $S --model fusion --tag concat --modalities $m --out runs/dl/fusion; done
+for m in population structure genomic; do vpdl-dl train --data $T --sources $S --model fusion --tag concat --modalities $m --jobs 3 --out runs/dl/fusion; done
 ```
 
 ```bash
-for m in none structure population genomic structure,population structure,population,genomic,annotation; do vpdl-dl train --data $T --sources $S --model fusion --tag concat --modalities $m --embedding-blocks "$E2:site.concat4" --out runs/dl/fusion; done
+for m in none structure population genomic structure,population structure,population,genomic,annotation; do vpdl-dl train --data $T --sources $S --model fusion --tag concat --modalities $m --embedding-blocks "$E2:site.concat4" --jobs 3 --out runs/dl/fusion; done
 ```
 
 Gated fusion, only after concat results exist:
@@ -304,8 +343,10 @@ vpdl-dl train --config configs/dl/fusion_dgx.toml --data $T --sources $S --model
 ## Phase 8 — PLM fine-tuning (most conservative first)
 
 ```bash
-for k in frozen lora adapters last_n; do vpdl-dl train --data $T --sources $S --model plm_finetune --modalities none --tag $k --model-kwargs "{\"backbone\": \"esm2_650m\", \"strategy\": {\"kind\": \"$k\"}, \"context\": \"centered\", \"epochs\": 10, \"batch_size\": 16}" --out runs/dl/finetune; done
+for k in frozen lora adapters last_n; do vpdl-dl train --data $T --sources $S --model plm_finetune --modalities none --tag $k --model-kwargs "{\"backbone\": \"esm2_650m\", \"strategy\": {\"kind\": \"$k\"}, \"context\": \"centered\", \"epochs\": 10, \"batch_size\": 32}" --jobs 1 --out runs/dl/finetune; done
 ```
+
+One cell at a time: each holds the 650M backbone on the GPU.
 
 Check: each cell logs `fine-tune strategy <k>: N / M parameters trainable`. Full
 fine-tuning is refused unless `"allow_full": true` is added — only with evidence
@@ -336,11 +377,11 @@ for g in MLH1 MSH2 MSH6 PMS2; do vpdl-dl pretrain --config configs/dl/pretrain_d
 3. Downstream: P0 and P1 under the identical protocol.
 
 ```bash
-vpdl-dl train --data $T --sources $S --model mlp --modalities none --embedding-blocks "$E2:site.concat4" --out runs/dl/pretrain_eval
+vpdl-dl train --data $T --sources $S --model mlp --modalities none --embedding-blocks "$E2:site.concat4" --jobs 3 --out runs/dl/pretrain_eval
 ```
 
 ```bash
-vpdl-dl train --data $T --sources $S --model mlp --modalities none --embedding-blocks "perfold=runs/dl/pretrain/P1_blocks.json:site.concat4" --out runs/dl/pretrain_eval
+vpdl-dl train --data $T --sources $S --model mlp --modalities none --embedding-blocks "perfold=runs/dl/pretrain/P1_blocks.json:site.concat4" --jobs 3 --out runs/dl/pretrain_eval
 ```
 
 ```bash
@@ -358,7 +399,7 @@ Then `vpdl paired --runs runs/dl/pretrain_eval --reference <the P0 arm> --refere
 1. Same models under the stricter splits.
 
 ```bash
-for s in family logo_purged; do vpdl-dl train --data $T --sources $S --model mlp --modalities population,external_priors --split $s --out runs/dl/splits; vpdl-dl train --data $T --sources $S --model mlp --modalities none --embedding-blocks "$E2:site.concat4" --split $s --out runs/dl/splits; done
+for s in family logo_purged; do vpdl-dl train --data $T --sources $S --model mlp --modalities population,external_priors --split $s --jobs 3 --out runs/dl/splits; vpdl-dl train --data $T --sources $S --model mlp --modalities none --embedding-blocks "$E2:site.concat4" --split $s --jobs 3 --out runs/dl/splits; done
 ```
 
 2. Calibration (fitted on inner-validation predictions only).

@@ -7,11 +7,13 @@ backbone = "esm2_650m"
 crop = 512              # residues per crop; MSH6-length homologs are cropped at random
 epochs = 20             # upper bound; early stopping on held-out corpus MLM loss
 patience = 3
-batch_size = 16         # micro-batch; unified memory makes this configuration, not survival
-grad_accum = 2          # effective batch 32 crops
+batch_size = 32         # one micro-batch of 32 crops keeps the GB10 busy; the
+grad_accum = 1          # effective batch (32) is unchanged from 16 x 2
 lr = 2e-4               # LoRA learning rate (the frozen base does not move)
 precision = "auto"      # bf16 on GB10
 compile = true          # 1.5x measured for the SLM on this box; identical losses there
 seed = 0
 # LoRA on attention and FFN projections; rank 16 ~ 0.6% of ESM-2 650M parameters.
+# Gradient checkpointing stays on (PretrainConfig default): P3/P4 run 4-5 passes
+# per step, and their activations without checkpointing would approach 100 GB.
 strategy = '{"kind": "lora", "lora_rank": 16, "lora_alpha": 32.0, "lora_targets": ["query", "key", "value", "dense"]}'

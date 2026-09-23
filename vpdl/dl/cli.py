@@ -87,6 +87,16 @@ def _track(kind, config, **kwargs):
     return record
 
 
+def _batch_size(value: str):
+    """``auto`` or a positive integer."""
+    if str(value).lower() == "auto":
+        return "auto"
+    if not str(value).isdigit() or int(value) < 1:
+        raise argparse.ArgumentTypeError(f"batch size must be 'auto' or a positive integer, "
+                                         f"got {value!r}")
+    return int(value)
+
+
 def _load_toml(path: str | None) -> dict[str, Any]:
     if not path:
         return {}
@@ -370,6 +380,7 @@ def cmd_embed(args) -> int:
     import numpy as np
 
     started = time.time()
+    _reset_gpu_peak()
     table = _table(args.data)
     sequences = _sequences(args)
     rows = _rows(table, args.rows)
@@ -407,7 +418,9 @@ def cmd_embed(args) -> int:
         print("  " + "  ".join(f"{location}:{level}.{p}" for p in PAIRINGS))
     _track("embed", identity | {"store": args.store}, dataset_path=args.data,
            feature_version=location, model_version=backbone.version, started=started,
-           artefacts={"entry": str(entry.path)})
+           artefacts={"entry": str(entry.path)},
+           extra={"peak_gpu_memory_gib": _gpu_peak_gib(), "batch_size": args.batch_size,
+                  "n_variants": len(ids)})
     return 0
 
 
@@ -420,6 +433,7 @@ def cmd_zeroshot(args) -> int:
     from vpdl.dl.plm.zeroshot import zeroshot_frame
 
     started = time.time()
+    _reset_gpu_peak()
     table = _table(args.data)
     sequences = _sequences(args)
     rows = _rows(table, args.rows)
@@ -460,7 +474,9 @@ def cmd_zeroshot(args) -> int:
     print(f"feature entry: zeroshot/{tag}/{entry.meta['key']}:pathogenicity")
     _track("zeroshot", identity, dataset_path=args.data,
            feature_version=f"zeroshot/{tag}/{entry.meta['key']}",
-           model_version=backbone.version, started=started)
+           model_version=backbone.version, started=started,
+           extra={"peak_gpu_memory_gib": _gpu_peak_gib(), "batch_size": args.batch_size,
+                  "n_variants": len(scores)})
     return 0
 
 
@@ -507,48 +523,164 @@ def cmd_pretrain(args) -> int:
     return 0
 
 
-def cmd_train(args) -> int:
-    from dataclasses import asdict
+def _reset_gpu_peak() -> None:
+    try:
+        import torch
+    except ImportError:
+        return
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
 
-    from vpdl.dl.runner import DLContext
-    from vpdl.experiment import CellConfig, run_cell
 
-    table = _table(args.data)
-    sequences = _sequences(args)
-    functional_keys = (frozenset(table.loc[table["functional_assay_available"].astype(bool),
-                                           "variant_id"])
-                       if "functional_assay_available" in table else frozenset())
-    context = DLContext(store_root=args.store, functional_keys=functional_keys,
-                        export_dir=args.export_dir, sequences=sequences)
-    feature_columns = [c for c in table.columns if c.startswith("feature_")]
+def _gpu_peak_gib() -> float | None:
+    """Peak GPU memory this process allocated since the last reset — the
+    registry records it, so "was the DGX used?" has an answer per run."""
+    try:
+        import torch
+    except ImportError:
+        return None
+    if not torch.cuda.is_available():
+        return None
+    return round(torch.cuda.max_memory_allocated() / 2 ** 30, 3)
+
+
+# One table per worker process, not one per cell: a pool worker runs many cells.
+_TABLE_CACHE: dict[str, Any] = {}
+
+
+def _worker_init(threads: int) -> None:
+    """Pool-worker setup: split the CPU cores between workers, before numpy,
+    torch or xgboost read the thread-count variables."""
+    import os
+
+    for variable in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+        os.environ[variable] = str(threads)
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(processName)-18s %(levelname)-7s | %(message)s",
+                        datefmt="%H:%M:%S")
+
+
+def _train_jobs(args) -> list[dict]:
+    """Every (model, seed) cell the command asked for, as picklable dicts."""
     model_kwargs = json.loads(args.model_kwargs) if args.model_kwargs else {}
     tag = args.tag or ""
     if model_kwargs and not tag:
         import hashlib
         tag = hashlib.sha256(json.dumps(model_kwargs, sort_keys=True).encode()).hexdigest()[:6]
-    for seed in args.seeds:
-        started = time.time()
-        config = CellConfig(
-            sources=tuple(args.sources), train_sources=tuple(args.train_sources),
-            eval_source=args.eval_source, model=args.model, seed=seed,
-            drop_groups=tuple(_drop_for(args.modalities, args.drop_groups)),
-            allow_proxy_leak=args.allow_proxy_leak, n_bootstrap=args.n_bootstrap,
-            model_kwargs=model_kwargs, split=args.split,
-            embedding_blocks=tuple(args.embedding_blocks or ()), score_rows=args.score_rows,
-            tag=tag)
-        _archive_superseded(args.out, config.slug)
-        result = run_cell(table, config, feature_columns, args.data, args.out,
-                          sequences=sequences, dl_context=context)
-        summary = result.summary()
-        _track("train", asdict(config), seed=seed, dataset_path=args.data,
-               feature_version=summary["provenance"].get("feature_version"),
-               model_version={"model": args.model, "tag": tag, "kwargs": model_kwargs},
-               metrics={k: summary[k] for k in ("mean_roc_auc_all", "mean_roc_auc_scoreable")}
-               | {"per_gene": {r["gene"]: {m: r[m] for m in ("roc_auc", "mcc", "pr_auc")}
-                               for r in result.per_gene}},
-               artefacts={"summary": str(Path(args.out) / f"summary_{config.slug}.json")},
-               started=started)
-        print(json.dumps(summary, indent=2, default=str))
+    shared = {"data": args.data, "sources": list(args.sources),
+              "train_sources": list(args.train_sources), "eval_source": args.eval_source,
+              "drop_groups": _drop_for(args.modalities, args.drop_groups),
+              "allow_proxy_leak": args.allow_proxy_leak, "n_bootstrap": args.n_bootstrap,
+              "model_kwargs": model_kwargs, "split": args.split,
+              "embedding_blocks": list(args.embedding_blocks or ()),
+              "score_rows": args.score_rows, "tag": tag, "out": args.out,
+              "store": args.store, "export_dir": args.export_dir,
+              "cache_dir": args.cache_dir, "sequences_from": args.sequences_from}
+    return [shared | {"model": model, "seed": seed}
+            for model in args.model for seed in args.seeds]
+
+
+def _run_train_cell(job: dict) -> dict:
+    """One cell, in this process or in a pool worker. Returns its summary."""
+    from dataclasses import asdict
+
+    from vpdl.dl.runner import DLContext
+    from vpdl.experiment import CellConfig, run_cell
+
+    threads = job.get("threads")
+    if threads:
+        try:
+            import torch
+            torch.set_num_threads(int(threads))
+        except ImportError:
+            pass
+    if job["data"] not in _TABLE_CACHE:
+        table = _table(job["data"])
+        sequences = _sequences(argparse.Namespace(data=job["data"],
+                                                  sequences_from=job["sequences_from"],
+                                                  cache_dir=job["cache_dir"]))
+        _TABLE_CACHE[job["data"]] = (table, sequences)
+    table, sequences = _TABLE_CACHE[job["data"]]
+    functional_keys = (frozenset(table.loc[table["functional_assay_available"].astype(bool),
+                                           "variant_id"])
+                       if "functional_assay_available" in table else frozenset())
+    context = DLContext(store_root=job["store"], functional_keys=functional_keys,
+                        export_dir=job["export_dir"], sequences=sequences)
+    feature_columns = [c for c in table.columns if c.startswith("feature_")]
+    started = time.time()
+    config = CellConfig(
+        sources=tuple(job["sources"]), train_sources=tuple(job["train_sources"]),
+        eval_source=job["eval_source"], model=job["model"], seed=job["seed"],
+        drop_groups=tuple(job["drop_groups"]), allow_proxy_leak=job["allow_proxy_leak"],
+        n_bootstrap=job["n_bootstrap"], model_kwargs=job["model_kwargs"],
+        split=job["split"], embedding_blocks=tuple(job["embedding_blocks"]),
+        score_rows=job["score_rows"], tag=job["tag"])
+    _archive_superseded(job["out"], config.slug)
+    _reset_gpu_peak()
+    result = run_cell(table, config, feature_columns, job["data"], job["out"],
+                      sequences=sequences, dl_context=context)
+    summary = result.summary()
+    _track("train", asdict(config), seed=job["seed"], dataset_path=job["data"],
+           feature_version=summary["provenance"].get("feature_version"),
+           model_version={"model": job["model"], "tag": job["tag"],
+                          "kwargs": job["model_kwargs"]},
+           metrics={k: summary[k] for k in ("mean_roc_auc_all", "mean_roc_auc_scoreable")}
+           | {"per_gene": {r["gene"]: {m: r[m] for m in ("roc_auc", "mcc", "pr_auc")}
+                           for r in result.per_gene}},
+           artefacts={"summary": str(Path(job["out"]) / f"summary_{config.slug}.json")},
+           started=started,
+           extra={"peak_gpu_memory_gib": _gpu_peak_gib(), "parallel_jobs": job.get("jobs", 1),
+                  "threads": threads})
+    return summary
+
+
+def cmd_train(args) -> int:
+    """Train every requested (model, seed) cell; ``--jobs N`` runs N at once.
+
+    Cells are independent — each seeds itself from (seed, held-out gene) and
+    writes its own files — so running them in parallel changes wall-clock time,
+    not results. Small models (a few hundred variants) cannot fill a GPU by
+    themselves; many of them side by side can use the whole DGX.
+    """
+    import os
+
+    jobs = _train_jobs(args)
+    workers = max(1, min(int(args.jobs), len(jobs)))
+    if "plm_finetune" in args.model and workers > 1:
+        logger.warning("%d parallel plm_finetune cells each hold a full backbone on the GPU; "
+                       "watch memory (nvidia-smi) — one at a time is the safe default.", workers)
+    if workers == 1:
+        for job in jobs:
+            summary = _run_train_cell(job)
+            print(json.dumps(summary, indent=2, default=str))
+        print(f"{len(jobs)} cells done, 0 failed")
+        return 0
+
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    threads = max(1, (os.cpu_count() or 2) // workers)
+    print(f"{len(jobs)} cells on {workers} workers x {threads} CPU threads", file=sys.stderr)
+    failures = []
+    with ProcessPoolExecutor(max_workers=workers,
+                             mp_context=multiprocessing.get_context("spawn"),
+                             initializer=_worker_init, initargs=(threads,)) as pool:
+        futures = {pool.submit(_run_train_cell, job | {"threads": threads, "jobs": workers}):
+                   job for job in jobs}
+        for future in as_completed(futures):
+            job = futures[future]
+            try:
+                summary = future.result()
+            except Exception as error:                               # noqa: BLE001
+                failures.append((job["model"], job["seed"], repr(error)))
+                print(f"FAILED {job['model']} seed {job['seed']}: {error}", file=sys.stderr)
+                continue
+            print(f"done  {summary['cell']}  mean scoreable ROC-AUC "
+                  f"{summary['mean_roc_auc_scoreable']:.4f}")
+    print(f"{len(jobs) - len(failures)} cells done, {len(failures)} failed")
+    if failures:
+        print(f"failed cells: {failures}", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -831,7 +963,9 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--arm", default="P0", help="pretraining arm this backbone represents")
         p.add_argument("--adapted-from", default=None, dest="adapted_from",
                        help="pretraining output dir holding backbone_delta.pt")
-        p.add_argument("--batch-size", type=int, default=8, dest="batch_size")
+        p.add_argument("--batch-size", type=_batch_size, default="auto", dest="batch_size",
+                       help="sequences per forward pass; 'auto' sizes it from free GPU "
+                            "memory and backs off on out-of-memory")
         p.add_argument("--store", default="features")
         p.add_argument("--fold", default=None, choices=list(GENES),
                        help="held-out gene this (strict-mode pretrained) backbone excludes")
@@ -842,7 +976,8 @@ def build_parser() -> argparse.ArgumentParser:
     plm_options(p)
     p.add_argument("--radius", type=int, default=3)
     p.add_argument("--layer", type=int, default=-1)
-    p.add_argument("--chunk", type=int, default=64)
+    p.add_argument("--chunk", type=int, default=256,
+                   help="variants reduced per GPU round trip")
     p.add_argument("--dtype", default="float16", choices=["float16", "float32"])
 
     p = command("zeroshot", cmd_zeroshot, "zero-shot PLM scores -> feature store")
@@ -884,9 +1019,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = command("train", cmd_train, "one DL cell through the shared protocol")
     split_options(p)
     p.add_argument("--sources", nargs="+", required=True, help="what --data was built from")
-    p.add_argument("--model", required=True,
+    p.add_argument("--model", required=True, nargs="+",
                    choices=["gbm", "mlp", "bilstm", "aa_mlp", "cnn", "bilstm_attn",
-                            "transformer", "fusion", "plm_finetune"])
+                            "transformer", "fusion", "plm_finetune"],
+                   help="one or more models; every model x seed is one cell")
+    p.add_argument("--jobs", type=int, default=1,
+                   help="cells to run at once (separate processes sharing the GPU and "
+                        "splitting the CPU cores); results do not depend on it")
     p.add_argument("--model-kwargs", default=None, dest="model_kwargs", help="JSON")
     p.add_argument("--tag", default=None, help="name for this model configuration")
     p.add_argument("--embedding-blocks", nargs="*", dest="embedding_blocks", default=[])

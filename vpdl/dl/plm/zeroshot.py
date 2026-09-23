@@ -37,7 +37,7 @@ _AA_INDEX = {aa: i for i, aa in enumerate(AA20)}
 
 def position_log_probs(backbone, sequence: str, positions: Iterable[int],
                        method: str = "masked_marginal", policy: str = "full",
-                       batch_size: int = 16) -> dict[int, np.ndarray]:
+                       batch_size="auto") -> dict[int, np.ndarray]:
     """``{position (1-based): log-probs [20]}`` for each requested position.
 
     For chains longer than the window the context follows `policy`
@@ -83,7 +83,7 @@ def score_variants(log_probs: dict[int, np.ndarray],
 
 def zeroshot_frame(backbone, table: pd.DataFrame, sequences: dict[str, str],
                    method: str = "masked_marginal", policy: str = "full",
-                   batch_size: int = 16) -> pd.DataFrame:
+                   batch_size="auto") -> pd.DataFrame:
     """Score every row of `table` (``uniprot_id, position, wt_aa, mut_aa``).
 
     Returns ``variant_key, raw_llr, pathogenicity`` where ``pathogenicity`` is

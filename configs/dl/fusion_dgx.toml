@@ -4,12 +4,17 @@
 #               --modalities population,structure,genomic \
 #               --embedding-blocks "esm2/esm2_650m@P0/<key>:site.concat4"
 # The <key> is printed by `vpdl-dl embed`.
+#
+# A fusion head on a few hundred variants cannot fill the GPU by itself, so the
+# three seeds run side by side (jobs = 3): three processes sharing the GPU and
+# the 20 CPU cores. Results are identical to running them one after another.
 
 split = "logo"
 train_sources = ["clinvar"]
 eval_source = "clinvar"
 seeds = [42, 43, 44]
 n_bootstrap = 10000
+jobs = 3
 score_rows = "functional"          # also score held-out-gene assay variants (validation only)
 export_dir = "runs/dl/fusion/export"
 out = "runs/dl/fusion"

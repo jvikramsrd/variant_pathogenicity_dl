@@ -2,6 +2,11 @@
 # Used as:  vpdl-dl train --config configs/dl/finetune_lora_dgx.toml --data data/built/canonical_full.csv \
 #               --sources clinvar pg_dms alphamissense gnomad --model plm_finetune --tag lora-r8
 # model_kwargs is passed to vpdl.dl.plm.finetune.PLMFinetuneClassifier.
+#
+# One cell at a time (jobs = 1): each holds a 650M backbone with activations for
+# two ~1,022-token passes per example. Batch 32 with gradient checkpointing uses
+# roughly 20-30 GB, which leaves room for other work on the shared pool; raise
+# jobs only after `nvidia-smi` shows the first cell's peak.
 
 split = "logo"
 train_sources = ["clinvar"]
@@ -9,13 +14,14 @@ eval_source = "clinvar"
 modalities = "none"                  # PLM + nothing tabular; add "population" for Model B
 seeds = [42, 43, 44]
 n_bootstrap = 10000
+jobs = 1
 out = "runs/dl/finetune"
 model_kwargs = '''{
   "backbone": "esm2_650m",
   "strategy": {"kind": "lora", "lora_rank": 8, "lora_alpha": 16.0, "lora_targets": ["query", "value"]},
   "context": "centered",
   "epochs": 10, "patience": 3,
-  "batch_size": 16, "grad_accum": 1,
+  "batch_size": 32, "grad_accum": 1,
   "lr_backbone": 1e-4, "lr_head": 3e-4,
   "precision": "auto", "gradient_checkpointing": true,
   "wt_marginal_residual": true

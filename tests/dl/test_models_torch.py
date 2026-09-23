@@ -361,3 +361,65 @@ def test_strict_corpus_excludes_the_held_out_gene_and_its_orthologs(tmp_path):
                           mode="strict", holdout="P40692", val_fraction=0.0)
     kept = set(read_fasta(tmp_path / "c" / "train.fasta"))
     assert kept == {"other"} and report.n_excluded_homologs == 2      # the gene + ortholog
+
+
+# -- DGX utilisation: batch sizing, OOM backoff, GPU-side reductions ----------------------------
+
+def test_batch_size_resolution_is_explicit_on_cpu_and_passes_integers_through():
+    from vpdl.dl.plm.forward import resolve_batch_size
+
+    backbone = _tiny()
+    assert resolve_batch_size("auto", backbone, 1000) == 8          # CPU: no memory probe
+    assert resolve_batch_size(37, backbone, 1000) == 37
+
+
+def test_out_of_memory_halves_the_batch_and_gives_identical_results(monkeypatch):
+    import vpdl.dl.plm.forward as forward
+
+    backbone = _tiny()
+    rng = np.random.default_rng(5)
+    sequences = ["".join(rng.choice(list("ACDEFGHIKLMNPQRSTVWY"), n)) for n in (20, 31, 25, 40, 18)]
+    reference = forward.hidden_states(backbone, sequences, batch_size=1)
+    real = forward._encoder_output
+
+    def fails_above_two(bb, ids, attention, layer):
+        if ids.shape[0] > 2:                      # a card that only fits two sequences
+            raise torch.cuda.OutOfMemoryError("CUDA out of memory (simulated)")
+        return real(bb, ids, attention, layer)
+
+    monkeypatch.setattr(forward, "_encoder_output", fails_above_two)
+    backed_off = forward.hidden_states(backbone, sequences, batch_size=64)
+    for a, b in zip(reference, backed_off):
+        np.testing.assert_allclose(a, b, atol=1e-5)
+    log_probs = forward.site_log_probs(backbone, sequences, [3] * 5, masked=True, batch_size=64)
+    assert log_probs.shape == (5, 20) and np.isfinite(log_probs).all()
+
+
+def test_non_memory_errors_are_not_swallowed(monkeypatch):
+    import vpdl.dl.plm.forward as forward
+
+    backbone = _tiny()
+    monkeypatch.setattr(forward, "_encoder_output",
+                        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("shape mismatch")))
+    with pytest.raises(RuntimeError, match="shape mismatch"):
+        forward.hidden_states(backbone, ["MKTAYIAKQR"], batch_size=4)
+
+
+def test_device_side_reductions_match_a_manual_computation():
+    from vpdl.dl.plm.embed import EmbeddingExtractor
+    from vpdl.dl.plm.forward import hidden_states
+
+    backbone = _tiny()
+    rng = np.random.default_rng(9)
+    sequence = "".join(rng.choice(list("ACDEFGHIKLMNPQRSTVWY"), 50))
+    wt = sequence[19]
+    mut = "A" if wt != "A" else "C"
+    blocks = EmbeddingExtractor(backbone, "full", local_radius=3).extract(
+        sequence, [(20, wt, mut)])
+    mutated = sequence[:19] + mut + sequence[20:]
+    h_wt, h_vt = hidden_states(backbone, [sequence, mutated], batch_size=1)
+    np.testing.assert_allclose(blocks["site_wt"][0], h_wt[19], atol=1e-5)
+    np.testing.assert_allclose(blocks["site_vt"][0], h_vt[19], atol=1e-5)
+    np.testing.assert_allclose(blocks["local_vt"][0], h_vt[16:23].mean(0), atol=1e-5)
+    np.testing.assert_allclose(blocks["global_wt"][0], h_wt.mean(0), atol=1e-5)
+    np.testing.assert_allclose(blocks["global_vt"][0], h_vt.mean(0), atol=1e-5)

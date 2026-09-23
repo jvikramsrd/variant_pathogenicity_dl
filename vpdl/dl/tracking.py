@@ -76,8 +76,22 @@ def run_record(kind: str, config: Mapping[str, Any], seed: int | None = None,
 
 
 def append_registry(record: Mapping[str, Any], registry: Path | str = REGISTRY) -> Path:
+    """Append one record. Locked on POSIX, because `vpdl-dl train --jobs N`
+    has N processes finishing cells at once and a record (hardware block
+    included) is longer than the size the OS guarantees to append atomically."""
     registry = Path(registry)
     registry.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(record, default=str) + "\n"
     with open(registry, "a", encoding="utf-8") as handle:
-        handle.write(json.dumps(record, default=str) + "\n")
+        try:
+            import fcntl
+        except ImportError:                         # Windows: single-process use
+            handle.write(line)
+            return registry
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            handle.write(line)
+            handle.flush()
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
     return registry
