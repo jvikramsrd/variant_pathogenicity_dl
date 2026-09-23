@@ -2,13 +2,18 @@
   "artefacts": {
     "cells.csv": {
       "path": "results/dl/cells.csv",
-      "sha256": "3b175f5145898c6d40e82162fbf8d6507e525317b4355a2cdde2b81877113493",
-      "bytes": 59178
+      "sha256": "ba15b941db2633c4403245a1a8f586e6c122981328cf55af45254b278cef0d63",
+      "bytes": 60202
     },
     "arms.csv": {
       "path": "results/dl/arms.csv",
       "sha256": "e79da3323defd1a779f0132c96eb38a54db400ec4e3d56748567a8ef811bceea",
       "bytes": 16400
+    },
+    "paired_runs.csv": {
+      "path": "results/dl/paired_runs.csv",
+      "sha256": "3f66c283649d3843dfba661222fa825b94399ef7dccf6eb342b564e3ded93d51",
+      "bytes": 3846
     },
     "paired_main_train-clinvar__drop-domains-genomic-structure_mlp.csv": {
       "path": "results/dl/paired_main_train-clinvar__drop-domains-genomic-structure_mlp.csv",
@@ -32,19 +37,19 @@
     },
     "checks.json": {
       "path": "results/dl/checks.json",
-      "sha256": "f5b4fde8bcd8411e991226eb9cbded4825105d30380f4592ba14f34c29f1d186",
-      "bytes": 932
+      "sha256": "03be7a5fc976b5a866cd747549982febf1a51d01c08ca86ac2920f80914e4113",
+      "bytes": 720
     },
     "environment.json": {
       "path": "results/dl/environment.json",
-      "sha256": "b76064cd2a1d955a0532cbb4157746825c1b8435d24bfb92155e6685f2100866",
+      "sha256": "6a9945728ee4b5d3d2197a00d7fba7ca8eedb1681ba60ebff167c5adbfae34a1",
       "bytes": 1932
     }
   },
   "meta": {
     "kind": "dl-results",
     "runs_root": "runs/dl",
-    "citable": false,
+    "citable": true,
     "n_cells": 24
   }
 }

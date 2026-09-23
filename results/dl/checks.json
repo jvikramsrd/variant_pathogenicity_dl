@@ -1,8 +1,7 @@
 {
-  "problems": [
-    "12 cell(s) ran with uncommitted code: ['train-clinvar__drop-domains-genomic-structure__bilstm__seed42', 'train-clinvar__drop-domains-genomic-structure__bilstm__seed43', 'train-clinvar__drop-domains-genomic-structure__bilstm__seed44', 'train-clinvar__drop-domains-genomic-structure__gbm-es50__seed42', 'train-clinvar__drop-domains-genomic-structure__gbm-es50__seed43']"
-  ],
+  "problems": [],
   "notes": [
+    "12 cell(s) ran with an unclean working tree \u2014 only non-DL files were uncommitted (['docs/v2/HARDWARE.md']), so the DL code that ran IS the committed code",
     "1 gene(s) below n=50 are reported but excluded from headline means: ['PMS2']"
   ],
   "leakage": {
@@ -28,5 +27,5 @@
   "dataset_sha256": [
     "6cea58dbb6c6e086cdc7433758a1f425f5f074f0fecc104cad0bd69ffeeb4e00"
   ],
-  "citable": false
+  "citable": true
 }
