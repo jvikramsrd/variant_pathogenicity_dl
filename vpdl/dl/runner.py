@@ -32,7 +32,22 @@ from vpdl.splits import variant_keys
 logger = logging.getLogger(__name__)
 
 __all__ = ["MODALITY_OF_GROUP", "EMBEDDING_MODALITY", "DLContext", "Augmenter",
-           "score_extra_rows", "modality_of_column"]
+           "score_extra_rows", "modality_of_column", "release_gpu_memory"]
+
+
+def release_gpu_memory() -> None:
+    """Hand a fold's GPU memory back between folds. No-op without CUDA.
+
+    On the DGX Spark the accelerator pool is shared with the CPU and with
+    whatever else is running (the SLM branch trains on the same box), so a
+    650M-parameter fold should not keep its allocation until the process ends.
+    """
+    try:
+        import torch
+    except ImportError:
+        return
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 # Feature group -> fusion modality. `prior_scores` (AlphaMissense) is another
 # model's output, not a DL modality: it is kept apart so the population

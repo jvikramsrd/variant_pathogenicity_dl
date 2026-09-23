@@ -508,6 +508,11 @@ def run_cell(
                 table, fold, config, model, matrix, augment, score, functional_keys,
                 dl_context, out_dir, test_frame, X_test))
 
+        # The next fold builds a new model; give this one's device memory back.
+        from vpdl.dl.runner import release_gpu_memory
+        del model
+        release_gpu_memory()
+
     predictions_frame = (pd.concat(predictions, ignore_index=True)
                          if predictions else pd.DataFrame())
     val_frame = (pd.concat(val_predictions, ignore_index=True)

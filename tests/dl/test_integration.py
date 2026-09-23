@@ -61,12 +61,14 @@ def test_real_alphafold_model_parses_against_uniprot_when_cached():
     """Smoke test on the locally cached MSH2 model (no computation beyond parsing)."""
     from vpdl.dl.structure import parse_pdb
 
-    pdb = ROOT / "data/mmr/raw/alphafold/P43246.pdb"
-    meta = ROOT / "data/mmr/raw/alphafold/P43246_metadata.json"
-    if not pdb.exists():
+    from vpdl.dl.structure import _metadata
+
+    candidates = [ROOT / "data/mmr/raw/alphafold", ROOT / "data/raw/alphafold"]
+    found = next((d for d in candidates if (d / "P43246.pdb").exists()), None)
+    if found is None:
         pytest.skip("MSH2 AlphaFold model not cached here")
-    residues = parse_pdb(pdb)
-    sequence = json.loads(meta.read_text())["uniprotSequence"]
+    residues = parse_pdb(found / "P43246.pdb")
+    sequence = _metadata(found / "P43246_metadata.json")["uniprotSequence"]
     assert "".join(r.aa for r in residues) == sequence and len(sequence) == 934
 
 

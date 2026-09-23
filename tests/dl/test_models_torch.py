@@ -259,8 +259,12 @@ def _fit(config, epochs_limit=None, seed=7):
     X, y = _toy_problem()
     model = nn.Sequential(nn.Linear(5, 8), nn.ReLU(), nn.Dropout(0.3), nn.Linear(8, 1))
     trainer = Trainer(model, config, seed=seed, run_name="toy")
+    # batch_fn must put the batch on the trainer's device — the model is already
+    # there. Every real model does this; the helper did not, and passed only on
+    # a CPU-only machine (DGX run 2026-09-23).
+    device = trainer.device
     loss = lambda m, b: nn.functional.binary_cross_entropy_with_logits(m(b[0]).squeeze(-1), b[1])
-    result = trainer.fit(64, lambda i: (X[i], y[i]), loss)
+    result = trainer.fit(64, lambda i: (X[i].to(device), y[i].to(device)), loss)
     return model, result
 
 

@@ -210,11 +210,16 @@ class FusionClassifier:
         between modality subsets is exactly the uncertainty worth reporting.
         """
         torch = self._torch
-        generator_state = torch.get_rng_state()
-        torch.manual_seed(derive_seed(self.seed, "mc-dropout"))
+        from vpdl.dl.trainer import _rng_state, _set_rng_state
+
+        # Save BOTH RNGs: dropout draws from the CUDA generator on a GPU, so
+        # restoring only the CPU state would leave the run irreproducible and
+        # perturb whatever trains next.
+        state = _rng_state()
+        torch.manual_seed(derive_seed(self.seed, "mc-dropout"))      # seeds CPU + CUDA
         draws = np.stack([self._predict(X, stochastic=True)
                           for _ in range(samples or self.mc_samples)])
-        torch.set_rng_state(generator_state)
+        _set_rng_state(state)
         self.net.eval()
         return draws.mean(axis=0), draws.std(axis=0)
 

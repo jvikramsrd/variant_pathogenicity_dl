@@ -20,7 +20,10 @@ What it owns, so no model re-implements it:
   SIGTERM / Ctrl-C save before exiting.
 
 It does not own data loading. Callers pass ``batch_fn(indices) -> batch`` so
-data can be pre-tensorised, memory-mapped, or tokenised on the fly.
+data can be pre-tensorised, memory-mapped, or tokenised on the fly. **The batch
+must already be on ``trainer.device``** — the model is moved there at
+construction, and moving batches automatically would hide the transfer cost of
+a data pipeline that should be fixed instead.
 """
 
 from __future__ import annotations
@@ -310,6 +313,8 @@ class Trainer:
     def fit(self, n_train: int, batch_fn: Callable[[np.ndarray], Any],
             loss_fn: Callable[[Any, Any], Any],
             score_fn: Callable[[Any], float] | None = None) -> FitResult:
+        """Train for `config.epochs`. `batch_fn(indices)` returns a batch on
+        ``self.device``; `loss_fn(model, batch)` returns a scalar loss."""
         torch = self.torch
         config = self.config
         micro = max(1, config.batch_size)
