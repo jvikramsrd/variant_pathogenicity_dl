@@ -3,8 +3,10 @@
 Built from the sources the project already has readers for: PubMed abstracts
 (``vpdl.slm.pubmed``, retractions dropped) and the knowledge-base passages
 (GeneReviews and whatever else ``vpdl kb-build`` indexed), reusing
-``vpdl.slm.corpus.iter_documents`` unchanged, plus — only if asked — ClinVar
-narratives of TRAINING variants with their conclusions masked.
+``vpdl.slm.corpus.iter_documents`` unchanged; the wider free text of
+``vpdl.slm.textsources`` (PMC full text, MedlinePlus Genetics, Orphanet, MONDO,
+UniProt) when named; plus — only if asked — ClinVar narratives of TRAINING
+variants with their conclusions masked.
 
 What makes this corpus different from the one ``vpdl slm-corpus`` builds is
 what it leaves out. A pretraining corpus is built once and reused by every
@@ -69,7 +71,11 @@ def build_pretrain_corpus(out_dir: Path | str, kb_dir: Path | str | None = None,
                           include_narratives: bool = False,
                           training_documents: Iterable[str] | None = None,
                           limit_files: int | None = None, workers: int | None = None,
-                          shard_documents: int = 500_000) -> dict[str, Any]:
+                          shard_documents: int = 500_000,
+                          text_sources: Mapping[str, Path | str | None] | None = None) -> dict[str, Any]:
+    """`text_sources` adds the readers of vpdl.slm.textsources — ``{"medlineplus": file,
+    "orphanet": file, "mondo": file, "uniprot_text": file, "pmc": directory}`` — under the
+    same exclusions: a PMC article whose PMID is cited for an evaluation variant is dropped."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     for old in out.glob("*.jsonl"):
@@ -113,6 +119,16 @@ def build_pretrain_corpus(out_dir: Path | str, kb_dir: Path | str | None = None,
                     stats["documents_excluded_by_id"] += 1
                     continue
                 emit(document)
+        if text_sources:
+            from vpdl.slm.textsources import iter_text_sources
+            for document in iter_text_sources(text_sources, stats):
+                if document.get("pmid") and str(document["pmid"]) in excluded_pmids:
+                    stats[f"{document['source']}_excluded_cited_by_evaluation_variants"] += 1
+                    continue
+                if str(document["id"]) in excluded_documents:
+                    stats["documents_excluded_by_id"] += 1
+                    continue
+                emit(document)
         if include_narratives:
             if records_dir is None:
                 raise ValueError("include_narratives needs records_dir")
@@ -130,6 +146,7 @@ def build_pretrain_corpus(out_dir: Path | str, kb_dir: Path | str | None = None,
         "pubmed_dir": str(pubmed_dir) if pubmed_dir else None,
         "kb_dir": str(kb_dir) if kb_dir else None,
         "records_dir": str(records_dir) if records_dir else None,
+        "text_sources": {k: str(v) for k, v in (text_sources or {}).items() if v},
         "include_narratives": include_narratives,
         "exclusions": {"pmids": len(excluded_pmids), "documents": len(excluded_documents),
                        "strict_literature": bool(excluded_pmids)},

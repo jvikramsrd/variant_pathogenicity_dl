@@ -170,6 +170,10 @@ Add `--include-narratives --split data/slm_genomic/splits/variant.parquet` only
 if you want training-role narratives (conclusion-masked) in the corpus; it is
 off by default.
 
+For the wider corpus — PubMed Central full text, MedlinePlus Genetics, Orphanet,
+MONDO, UniProt — download them and add their flags as in
+[TEXT_SOURCES.md](TEXT_SOURCES.md).
+
 ```bash
 vpdl-slm pretrain-pack --corpus data/slm_genomic/pretrain_corpus \
   --backbone pubmedbert --out data/slm_genomic/pretrain_tokens

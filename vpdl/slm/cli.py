@@ -11,6 +11,8 @@
     vpdl-slm examples                task examples under the task's leakage policy
     vpdl-slm leakage                 the fifteen-check audit (exit 3 on a critical finding)
     vpdl-slm pretrain-corpus         continued-pretraining text, evaluation held out of it
+    vpdl-slm text-sources            read PMC / MedlinePlus / Orphanet / MONDO / UniProt text, report
+    vpdl-slm pmc-download            PubMed Central full text (licence-filtered), resumable
     vpdl-slm pretrain-pack           that corpus -> token files for one backbone
     vpdl-slm autotune                measure the batch size and compile setting this GPU wants
     vpdl-slm pretrain                broad genomic continued pretraining (--dry-run, --benchmark)
@@ -248,8 +250,56 @@ def cmd_pretrain_corpus(args) -> int:
     summary = build_pretrain_corpus(args.out, args.kb, args.pubmed, args.records, exclusions,
                                     include_narratives=args.include_narratives,
                                     training_documents=training_documents,
-                                    limit_files=args.limit_files, workers=args.workers)
+                                    limit_files=args.limit_files, workers=args.workers,
+                                    text_sources=_text_source_paths(args))
     _print(summary)
+    return 0
+
+
+def _text_source_paths(args) -> dict[str, str]:
+    return {name: value for name, value in (
+        ("medlineplus", args.medlineplus), ("orphanet", args.orphanet), ("mondo", args.mondo),
+        ("uniprot_text", args.uniprot_text), ("pmc", args.pmc)) if value}
+
+
+def cmd_text_sources(args) -> int:
+    """Read each named source and report what it yields — before a corpus build relies on it."""
+    from collections import Counter
+    from itertools import islice
+
+    from vpdl.slm.textsources import iter_text_sources
+    paths = _text_source_paths(args)
+    if not paths:
+        print("name at least one of --medlineplus --orphanet --mondo --uniprot-text --pmc",
+              file=sys.stderr)
+        return 2
+    report: dict[str, Any] = {}
+    for name, path in paths.items():
+        stats: Counter = Counter()
+        documents = list(islice(iter_text_sources({name: path}, stats), args.limit))
+        report[name] = {"path": path, "documents_read": len(documents),
+                        "characters": sum(len(d["text"]) for d in documents),
+                        "decisions": dict(stats), "limit": args.limit,
+                        "examples": [{"id": d["id"], "licence": d.get("licence"),
+                                      "text": d["text"][:300]} for d in documents[:args.examples]]}
+    _print(report, args.out)
+    return 0
+
+
+def cmd_pmc_download(args) -> int:
+    from vpdl.slm.pmc import DEFAULT_TOPIC, LICENCE_FILTER, Http, _esearch, download
+    query = args.query or f"{DEFAULT_TOPIC} AND {LICENCE_FILTER}"
+    if args.count_only:
+        count = int(_esearch(Http(), query, 0)["count"])
+        _print({"query": query, "articles": count,
+                "note": "about 50-150 kB of XML each; gzipped on disk"})
+        return 0
+    manifest = download(args.dir, query, workers=args.workers, limit=args.limit,
+                        refresh_ids=args.refresh_ids)
+    _print(manifest)
+    errors = sum(v for k, v in manifest["status"].items() if k.startswith("error:"))
+    if errors:
+        print(f"{errors} article(s) failed; re-run the same command to retry them", file=sys.stderr)
     return 0
 
 
@@ -474,6 +524,15 @@ def cmd_smoke(args) -> int:
 
 # -- parser --------------------------------------------------------------------------
 
+def _text_source_options(p) -> None:
+    p.add_argument("--medlineplus", default=None, help="ghr-summaries.xml")
+    p.add_argument("--orphanet", default=None, help="Orphadata en_product1.xml")
+    p.add_argument("--mondo", default=None, help="mondo.obo")
+    p.add_argument("--uniprot-text", default=None, dest="uniprot_text",
+                   help="UniProt TSV (accession, gene, protein name, function, disease)")
+    p.add_argument("--pmc", default=None, help="directory filled by `vpdl-slm pmc-download`")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="vpdl-slm", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -579,7 +638,24 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--include-narratives", action="store_true")
     p.add_argument("--limit-files", type=int, default=None)
     p.add_argument("--workers", type=int, default=None)
+    _text_source_options(p)
     p.set_defaults(out="data/slm_genomic/pretrain_corpus")
+
+    p = command("text-sources", cmd_text_sources, "read the wider text sources and report what they yield")
+    _text_source_options(p)
+    p.add_argument("--limit", type=int, default=None, help="documents per source (default: all)")
+    p.add_argument("--examples", type=int, default=2)
+
+    p = command("pmc-download", cmd_pmc_download,
+                "PubMed Central full text (licence-filtered) from the PMC AWS bucket; resumable")
+    p.add_argument("--dir", default="data/raw/pmc")
+    p.add_argument("--query", default=None, help="PMC search; default: medical-genetics topic "
+                                                   "AND CC0/CC BY/CC BY-SA AND open access")
+    p.add_argument("--workers", type=int, default=16)
+    p.add_argument("--limit", type=int, default=None, help="first N articles only (a trial)")
+    p.add_argument("--count-only", action="store_true", dest="count_only")
+    p.add_argument("--refresh-ids", action="store_true", dest="refresh_ids",
+                   help="search again instead of reusing <dir>/ids.txt")
 
     p = command("pretrain-pack", cmd_pretrain_pack, "corpus -> token files for one backbone")
     p.add_argument("--corpus", default="data/slm_genomic/pretrain_corpus")
