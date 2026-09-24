@@ -403,6 +403,18 @@ def _kb_build(args, load_genereviews, LocalOllama, KnowledgeIndex, build_variant
         print(f"passages: {len(chunks)} -> {kb / 'chunks.jsonl'}"
               + ("" if args.no_embed else f"; embeddings: {args.embed_model}"))
         did_something = True
+    if getattr(args, "pubmed", None):
+        from vpdl.kb.pubmed_index import build_pubmed_index
+        if not Path(args.pubmed).exists():
+            print(f"ERROR: {args.pubmed} not found.", file=sys.stderr)
+            return 2
+        summary = build_pubmed_index(args.pubmed, kb / "pubmed.sqlite", workers=args.pubmed_workers,
+                                     limit_files=args.pubmed_limit_files,
+                                     genetics_only=args.pubmed_genetics_only)
+        print(f"PubMed: {summary['abstracts']:,} abstracts from {summary['files']} files -> "
+              f"{kb / 'pubmed.sqlite'} ({summary['minutes']} min; "
+              f"{len(summary['unreadable_files'])} unreadable file(s))")
+        did_something = True
     if args.clinvar:
         if not Path(args.clinvar).exists():
             print(f"ERROR: {args.clinvar} not found.", file=sys.stderr)
@@ -412,7 +424,7 @@ def _kb_build(args, load_genereviews, LocalOllama, KnowledgeIndex, build_variant
         print(f"ClinVar lookup: {rows} records -> {kb / 'clinvar.sqlite'}")
         did_something = True
     if not did_something:
-        print("Nothing to build: pass --genereviews and/or --clinvar.", file=sys.stderr)
+        print("Nothing to build: pass --genereviews, --pubmed and/or --clinvar.", file=sys.stderr)
         return 2
     return 0
 
@@ -422,6 +434,11 @@ def _open_kb(args: argparse.Namespace):
     from vpdl.kb.variants import EvidenceTable, VariantDB
 
     index = KnowledgeIndex.load(args.kb)
+    pubmed_path = Path(args.kb) / "pubmed.sqlite"
+    if pubmed_path.exists() and not getattr(args, "no_pubmed", False):
+        # PubMed abstracts are searched beside GeneReviews and merged by rank (vpdl.kb.pubmed_index).
+        from vpdl.kb.pubmed_index import CombinedIndex, PubMedIndex
+        index = CombinedIndex(index, PubMedIndex(pubmed_path))
     variant_path = Path(args.kb) / "clinvar.sqlite"
     variant_db = VariantDB(variant_path) if variant_path.exists() else None
     evidence = None
@@ -640,6 +657,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     kb_build.add_argument("--embed-model", default="bge-m3", dest="embed_model")
     kb_build.add_argument("--no-embed", action="store_true", dest="no_embed",
                           help="exact-word search only (no Ollama needed)")
+    kb_build.add_argument("--pubmed", default=None,
+                          help="folder of pubmed*.xml.gz -> <kb>/pubmed.sqlite (exact-word index)")
+    kb_build.add_argument("--pubmed-workers", type=int, default=None, dest="pubmed_workers")
+    kb_build.add_argument("--pubmed-limit-files", type=int, default=None, dest="pubmed_limit_files",
+                          help="first N files only (a trial build)")
+    kb_build.add_argument("--pubmed-genetics-only", action="store_true", dest="pubmed_genetics_only",
+                          help="index only abstracts that mention genes/variants/inheritance")
     kb_build.add_argument("--clinvar", default=None, help="variant_summary.txt.gz")
     kb_build.add_argument("--genes", nargs="+", default=["MLH1", "MSH2", "MSH6", "PMS2", "EPCAM"],
                           help="genes for the ClinVar lookup; 'all' for every gene")
@@ -658,6 +682,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     kb_ask.add_argument("--evidence", default="data/built/mmr.csv",
                         help="vpdl table with AlphaMissense/gnomAD values (optional)")
     kb_ask.add_argument("--show-retrieved", action="store_true", dest="show_retrieved")
+    kb_ask.add_argument("--no-pubmed", action="store_true", dest="no_pubmed",
+                        help="search GeneReviews only, even if <kb>/pubmed.sqlite exists")
     kb_ask.add_argument("--allow-cpu", action="store_true", dest="allow_cpu",
                         help="run even if Ollama puts the model on the CPU "
                              "(default: stop, so a slow CPU run is never silent)")
@@ -669,6 +695,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     kb_eval.add_argument("--models", nargs="+", default=["medgemma:27b", "qwen3:32b"])
     kb_eval.add_argument("--k", type=int, default=6)
     kb_eval.add_argument("--out", default="runs/kb")
+    kb_eval.add_argument("--no-pubmed", action="store_true", dest="no_pubmed",
+                         help="search GeneReviews only (to compare with and without PubMed)")
     kb_eval.add_argument("--allow-cpu", action="store_true", dest="allow_cpu",
                         help="run even if Ollama puts the model on the CPU "
                              "(default: stop, so a slow CPU run is never silent)")

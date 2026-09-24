@@ -57,6 +57,49 @@ own sections, embeds every passage with `bge-m3`, and builds the ClinVar
 lookup table for the Lynch genes (`--genes all` for every gene). Output goes to
 `data/kb/` (not committed: GeneReviews text is not ours to republish).
 
+### 4b. Add PubMed abstracts (optional; large)
+
+The PubMed baseline already downloaded for the language model (`data/raw/pubmed/`,
+~1,334 files, ~52 GB compressed) can be searched too. It goes into its own on-disk
+index, `data/kb/pubmed.sqlite`: exact-word search (SQLite FTS5, BM25), with no
+embeddings — for ~36 million abstracts those would take days to compute and ~150 GB to
+store. At question time GeneReviews and PubMed are searched separately and merged by
+rank, so the passages given to the model come from both.
+
+Check the disk first. The full index is large (my estimate: 60–100 GB; not measured):
+
+```bash
+df -h ~/variant_pathogenicity_dl/data && du -sh ~/variant_pathogenicity_dl/data/raw/pubmed
+```
+
+Trial on 5 files (minutes):
+```bash
+vpdl kb-build --pubmed data/raw/pubmed --pubmed-limit-files 5
+```
+Then the full build (hours; uses every core; the old index is replaced only when the
+new one is complete):
+```bash
+vpdl kb-build --pubmed data/raw/pubmed
+```
+If the disk is short, index only abstracts that mention genes, variants or inheritance
+(`--pubmed-genetics-only`); it is several times smaller.
+
+Retractions, retraction notices and expressions of concern are left out, as in the
+language-model corpus. Each PubMed passage is shown word for word with its PMID, a link
+and a credit line (the abstract's copyright stays with its publisher).
+
+**Measure before trusting it.** PubMed is primary literature: single studies,
+sometimes contradicting each other or the guidelines, where GeneReviews is curated.
+Run the evaluation both ways and compare:
+```bash
+vpdl kb-eval --no-pubmed --out runs/kb/no_pubmed
+```
+```bash
+vpdl kb-eval --out runs/kb/with_pubmed
+```
+The 37 questions are a development set (see below), so a difference is a signal, not a
+result. `vpdl kb-ask --no-pubmed ...` answers from GeneReviews alone.
+
 ## 5. Ask
 
 ```bash

@@ -70,6 +70,7 @@ model's summary is clearly separated from the quoted source text.
 |---|---|---|---|
 | **GeneReviews** | ~900 expert-written clinical genetics chapters, incl. Lynch syndrome (NBK1211, 41 sections) | Non-commercial research only. Each copy/excerpt must credit genereviews.org and "© 1993-2026 University of Washington", with a link. **No modifications.** Excerpts in lab reports and clinic notes explicitly permitted. | 1 |
 | **Our ClinVar table** | 74,328 MMR variants with ClinVar labels, AlphaMissense, gnomAD | Built from public sources; see `vpdl` source licences | 1 |
+| **PubMed abstracts** | ~36M abstracts from NLM's baseline; separate on-disk exact-word index (`vpdl/kb/pubmed_index.py`), merged with GeneReviews by rank | NLM terms: acknowledge NLM; abstract copyright stays with the publisher — shown word for word with PMID, link and credit line, research use | 1 (added 2026-09-24) |
 | Open-access papers (PubMed Central OA) | Research literature | Per-article licence (CC BY, CC BY-NC, ...) — recorded per document | 1 (later) |
 | **Your textbooks** | Owned PDFs | Copyrighted — private internal use only, never shown outside | 2 |
 | **Patient records** | Clinical data | Personal health information — see Phase 3 | 3 |
