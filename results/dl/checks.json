@@ -1,7 +1,8 @@
 {
   "problems": [],
   "notes": [
-    "12 cell(s) ran with an unclean working tree \u2014 only non-DL files were uncommitted (['docs/v2/HARDWARE.md']), so the DL code that ran IS the committed code",
+    "195 cell(s) ran with an unclean working tree \u2014 only non-DL files were uncommitted (['docs/v2/HARDWARE.md', 'runs/dl/registry.jsonl']), so the DL code that ran IS the committed code",
+    "21 cell(s) skipped a fold (untrainable): ['MSH2']",
     "1 gene(s) below n=50 are reported but excluded from headline means: ['PMS2']"
   ],
   "leakage": {
@@ -22,8 +23,8 @@
       "warnings": 6
     }
   },
-  "n_cells": 24,
-  "n_arms": 8,
+  "n_cells": 207,
+  "n_arms": 69,
   "dataset_sha256": [
     "6cea58dbb6c6e086cdc7433758a1f425f5f074f0fecc104cad0bd69ffeeb4e00"
   ],

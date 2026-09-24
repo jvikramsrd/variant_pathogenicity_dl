@@ -1,0 +1,75 @@
+{
+  "cell": "train-clinvar__drop-domains-genomic-gnomad-structure__mlp__seed43",
+  "arm": "train-clinvar__drop-domains-genomic-gnomad-structure",
+  "sources": [
+    "clinvar",
+    "pg_dms",
+    "alphamissense",
+    "gnomad"
+  ],
+  "train_sources": [
+    "clinvar"
+  ],
+  "train_caps": {},
+  "eval_source": "clinvar",
+  "model": "mlp",
+  "seed": 43,
+  "drop_groups": [
+    "domains",
+    "genomic",
+    "gnomad",
+    "structure"
+  ],
+  "split": "logo",
+  "embedding_blocks": [],
+  "tag": "",
+  "genes_evaluated": [
+    "MLH1",
+    "MSH2",
+    "MSH6",
+    "PMS2"
+  ],
+  "genes_skipped": {},
+  "mean_roc_auc_all": 0.9270140502747132,
+  "mean_roc_auc_scoreable": 0.9173912827192253,
+  "runtime_s": 8.6,
+  "provenance": {
+    "dataset_sha256": "6cea58dbb6c6e086cdc7433758a1f425f5f074f0fecc104cad0bd69ffeeb4e00",
+    "feature_schema": "5398a54e22d126d6",
+    "split_hash": "ca223262a755c87e",
+    "sources": [
+      "alphamissense",
+      "clinvar",
+      "gnomad",
+      "pg_dms"
+    ],
+    "git": {
+      "commit": "d025634cb51025aaf7c16061b27dfa3cb05182ab",
+      "dirty": true,
+      "dirty_paths": [
+        "runs/dl/registry.jsonl"
+      ]
+    },
+    "versions": {
+      "numpy": "2.5.3",
+      "pandas": "3.0.6",
+      "scikit-learn": "1.9.1",
+      "torch": "2.14.0+cu130",
+      "xgboost": "3.4.1",
+      "lightgbm": "4.7.0"
+    },
+    "platform": {
+      "machine": "aarch64",
+      "system": "Linux",
+      "python": "3.12.3"
+    },
+    "feature_schema_columns": "5398a54e22d126d6",
+    "split_scheme": "logo",
+    "embedding_blocks": [],
+    "feature_version": null,
+    "leakage": {
+      "critical": 0,
+      "warnings": 2
+    }
+  }
+}

@@ -1,6 +1,9 @@
 {
-  "generated_utc": "2026-09-23T09:14:18.132282+00:00",
+  "generated_utc": "2026-09-24T09:05:38.579470+00:00",
   "git_commits": [
+    "098f09480cf88104e03dfa6a896b4c19b6457310",
+    "8656f2700d096496d3d11b1d39b297a878276222",
+    "d025634cb51025aaf7c16061b27dfa3cb05182ab",
     "e500d7277428703f9abdae4a6aca9f2246211813",
     "eed35c5d65062b97f86cc38d55db35e1f949c855"
   ],
@@ -71,5 +74,5 @@
       "unified memory: batch sizes are configuration, not survival settings \u2014 no batch-1 + accumulation + checkpointing needed for 650M probes; keep gradient checkpointing for 650M fine-tuning of long MSH6 windows."
     ]
   },
-  "registry_runs": 32
+  "registry_runs": 266
 }

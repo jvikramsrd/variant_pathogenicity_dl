@@ -22,6 +22,49 @@ PMS2 & 16378 & 17 & 4 \\
 \toprule
 arm & model & split & seeds & n & roc\_auc & mcc & pr\_auc & brier & ece \\
 \midrule
+train-clinvar & aa\_mlp & logo & 3 & 428 & 0.912 ± 0.021 & 0.558 ± 0.043 & 0.959 ± 0.007 & 0.162 ± 0.028 & 0.209 ± 0.041 \\
+train-clinvar & bilstm & logo & 3 & 428 & 0.951 ± 0.009 & 0.573 ± 0.067 & 0.973 ± 0.003 & 0.135 ± 0.031 & 0.187 ± 0.040 \\
+train-clinvar & bilstm\_attn & logo & 3 & 428 & 0.952 ± 0.014 & 0.614 ± 0.129 & 0.973 ± 0.007 & 0.133 ± 0.001 & 0.192 ± 0.012 \\
+train-clinvar & cnn & logo & 3 & 428 & 0.925 ± 0.005 & 0.545 ± 0.106 & 0.957 ± 0.003 & 0.191 ± 0.072 & 0.232 ± 0.102 \\
+train-clinvar & gbm & logo & 3 & 428 & 0.950 ± 0.013 & 0.743 ± 0.023 & 0.968 ± 0.013 & 0.071 ± 0.005 & 0.079 ± 0.003 \\
+train-clinvar & mlp & logo & 3 & 428 & 0.955 ± 0.008 & 0.687 ± 0.151 & 0.973 ± 0.008 & 0.084 ± 0.023 & 0.110 ± 0.055 \\
+train-clinvar & transformer & logo & 3 & 428 & 0.895 ± 0.008 & 0.505 ± 0.090 & 0.949 ± 0.002 & 0.168 ± 0.022 & 0.196 ± 0.024 \\
+train-clinvar+pg\_dms & aa\_mlp & logo & 3 & 428 & 0.919 ± 0.005 & 0.439 ± 0.034 & 0.967 ± 0.001 & 0.199 ± 0.018 & 0.244 ± 0.024 \\
+train-clinvar+pg\_dms & bilstm & logo & 3 & 428 & 0.944 ± 0.006 & 0.465 ± 0.032 & 0.975 ± 0.001 & 0.152 ± 0.004 & 0.204 ± 0.004 \\
+train-clinvar+pg\_dms & bilstm\_attn & logo & 3 & 428 & 0.947 ± 0.006 & 0.463 ± 0.081 & 0.976 ± 0.005 & 0.170 ± 0.022 & 0.235 ± 0.028 \\
+train-clinvar+pg\_dms & cnn & logo & 3 & 428 & 0.916 ± 0.014 & 0.410 ± 0.029 & 0.957 ± 0.007 & 0.175 ± 0.019 & 0.209 ± 0.026 \\
+train-clinvar+pg\_dms & gbm & logo & 3 & 428 & 0.925 ± 0.006 & 0.507 ± 0.048 & 0.960 ± 0.008 & 0.255 ± 0.004 & 0.328 ± 0.007 \\
+train-clinvar+pg\_dms & mlp & logo & 3 & 428 & 0.940 ± 0.014 & 0.437 ± 0.036 & 0.971 ± 0.010 & 0.154 ± 0.014 & 0.216 ± 0.028 \\
+train-clinvar+pg\_dms & transformer & logo & 3 & 428 & 0.924 ± 0.006 & 0.428 ± 0.058 & 0.965 ± 0.005 & 0.199 ± 0.002 & 0.252 ± 0.003 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & aa\_mlp & logo & 3 & 428 & 0.778 ± 0.019 & 0.359 ± 0.063 & 0.890 ± 0.019 & 0.204 ± 0.002 & 0.187 ± 0.038 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm & logo & 3 & 428 & 0.766 ± 0.035 & 0.282 ± 0.018 & 0.881 ± 0.018 & 0.205 ± 0.015 & 0.185 ± 0.014 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm\_attn & logo & 3 & 428 & 0.781 ± 0.009 & 0.375 ± 0.034 & 0.890 ± 0.014 & 0.212 ± 0.009 & 0.206 ± 0.006 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & cnn & logo & 3 & 428 & 0.713 ± 0.012 & 0.264 ± 0.059 & 0.845 ± 0.008 & 0.235 ± 0.012 & 0.237 ± 0.031 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & gbm & logo & 3 & 428 & 0.763 ± 0.010 & 0.392 ± 0.054 & 0.856 ± 0.008 & 0.182 ± 0.010 & 0.162 ± 0.006 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & mlp & logo & 3 & 428 & 0.810 ± 0.026 & 0.396 ± 0.120 & 0.898 ± 0.025 & 0.182 ± 0.007 & 0.181 ± 0.013 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & transformer & logo & 3 & 428 & 0.773 ± 0.023 & 0.365 ± 0.055 & 0.888 ± 0.009 & 0.208 ± 0.038 & 0.196 ± 0.037 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & aa\_mlp & logo & 3 & 428 & 0.564 ± 0.032 & 0.103 ± 0.029 & 0.754 ± 0.021 & 0.333 ± 0.023 & 0.325 ± 0.002 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm & logo & 3 & 428 & 0.608 ± 0.038 & 0.095 ± 0.088 & 0.797 ± 0.016 & 0.300 ± 0.019 & 0.312 ± 0.032 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm & logo & 3 & 428 & 0.608 ± 0.038 & 0.095 ± 0.088 & 0.797 ± 0.016 & 0.300 ± 0.019 & 0.312 ± 0.032 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm\_attn & logo & 3 & 428 & 0.663 ± 0.029 & 0.180 ± 0.013 & 0.830 ± 0.014 & 0.263 ± 0.030 & 0.240 ± 0.032 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & cnn & logo & 3 & 428 & 0.512 ± 0.044 & 0.018 ± 0.073 & 0.719 ± 0.022 & 0.374 ± 0.045 & 0.372 ± 0.051 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & cnn & logo & 3 & 428 & 0.512 ± 0.044 & 0.018 ± 0.073 & 0.719 ± 0.022 & 0.374 ± 0.045 & 0.372 ± 0.051 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & transformer & logo & 3 & 428 & 0.713 ± 0.007 & 0.220 ± 0.059 & 0.854 ± 0.001 & 0.262 ± 0.028 & 0.254 ± 0.042 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & transformer & logo & 3 & 428 & 0.713 ± 0.007 & 0.220 ± 0.059 & 0.854 ± 0.001 & 0.262 ± 0.028 & 0.254 ± 0.042 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & aa\_mlp & logo & 3 & 428 & 0.802 ± 0.019 & 0.394 ± 0.014 & 0.904 ± 0.012 & 0.206 ± 0.010 & 0.204 ± 0.026 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm & logo & 3 & 428 & 0.896 ± 0.005 & 0.609 ± 0.049 & 0.952 ± 0.002 & 0.129 ± 0.003 & 0.140 ± 0.020 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm\_attn & logo & 3 & 428 & 0.909 ± 0.008 & 0.572 ± 0.036 & 0.960 ± 0.004 & 0.119 ± 0.003 & 0.126 ± 0.008 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & cnn & logo & 3 & 428 & 0.720 ± 0.020 & 0.270 ± 0.026 & 0.843 ± 0.031 & 0.244 ± 0.020 & 0.241 ± 0.036 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & gbm & logo & 3 & 428 & 0.875 ± 0.003 & 0.546 ± 0.032 & 0.932 ± 0.015 & 0.121 ± 0.002 & 0.108 ± 0.005 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & mlp & logo & 3 & 428 & 0.917 ± 0.000 & 0.623 ± 0.021 & 0.958 ± 0.000 & 0.110 ± 0.006 & 0.121 ± 0.020 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & transformer & logo & 3 & 428 & 0.756 ± 0.020 & 0.306 ± 0.065 & 0.882 ± 0.014 & 0.231 ± 0.024 & 0.214 ± 0.029 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & aa\_mlp & logo & 3 & 428 & 0.880 ± 0.006 & 0.538 ± 0.052 & 0.930 ± 0.008 & 0.163 ± 0.008 & 0.192 ± 0.006 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm & logo & 3 & 428 & 0.909 ± 0.002 & 0.656 ± 0.058 & 0.928 ± 0.009 & 0.136 ± 0.015 & 0.166 ± 0.025 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm\_attn & logo & 3 & 428 & 0.918 ± 0.007 & 0.683 ± 0.049 & 0.939 ± 0.012 & 0.129 ± 0.022 & 0.168 ± 0.054 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & cnn & logo & 3 & 428 & 0.858 ± 0.034 & 0.515 ± 0.144 & 0.902 ± 0.023 & 0.225 ± 0.022 & 0.277 ± 0.025 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & gbm & logo & 3 & 428 & 0.844 ± 0.025 & 0.655 ± 0.031 & 0.888 ± 0.014 & 0.110 ± 0.003 & 0.104 ± 0.005 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & mlp & logo & 3 & 428 & 0.918 ± 0.004 & 0.686 ± 0.047 & 0.947 ± 0.001 & 0.126 ± 0.019 & 0.158 ± 0.009 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & transformer & logo & 3 & 428 & 0.864 ± 0.003 & 0.486 ± 0.032 & 0.925 ± 0.006 & 0.148 ± 0.009 & 0.139 ± 0.015 \\
 train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & logo & 3 & 428 & 0.914 ± 0.027 & 0.602 ± 0.074 & 0.955 ± 0.011 & 0.166 ± 0.009 & 0.238 ± 0.016 \\
 train-clinvar\_\_drop-domains-genomic-structure & bilstm & logo & 3 & 428 & 0.963 ± 0.001 & 0.773 ± 0.042 & 0.978 ± 0.003 & 0.093 ± 0.009 & 0.134 ± 0.017 \\
 train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & logo & 3 & 428 & 0.965 ± 0.004 & 0.770 ± 0.028 & 0.978 ± 0.002 & 0.089 ± 0.004 & 0.122 ± 0.015 \\
@@ -30,6 +73,27 @@ train-clinvar\_\_drop-domains-genomic-structure & gbm & logo & 3 & 428 & 0.948 �
 train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & logo & 3 & 428 & 0.959 ± 0.009 & 0.778 ± 0.030 & 0.974 ± 0.011 & 0.071 ± 0.002 & 0.087 ± 0.002 \\
 train-clinvar\_\_drop-domains-genomic-structure & mlp & logo & 3 & 428 & 0.962 ± 0.004 & 0.799 ± 0.006 & 0.978 ± 0.007 & 0.076 ± 0.014 & 0.107 ± 0.036 \\
 train-clinvar\_\_drop-domains-genomic-structure & transformer & logo & 3 & 428 & 0.910 ± 0.008 & 0.645 ± 0.043 & 0.948 ± 0.006 & 0.132 ± 0.004 & 0.141 ± 0.007 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & aa\_mlp & logo & 3 & 428 & 0.533 ± 0.018 & 0.018 ± 0.038 & 0.733 ± 0.007 & 0.307 ± 0.015 & 0.314 ± 0.006 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm & logo & 3 & 428 & 0.481 ± 0.029 & 0.067 ± 0.075 & 0.734 ± 0.005 & 0.331 ± 0.025 & 0.317 ± 0.057 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm\_attn & logo & 3 & 428 & 0.608 ± 0.017 & 0.150 ± 0.044 & 0.799 ± 0.011 & 0.349 ± 0.019 & 0.342 ± 0.017 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & cnn & logo & 3 & 428 & 0.535 ± 0.052 & 0.020 ± 0.048 & 0.754 ± 0.030 & 0.370 ± 0.020 & 0.390 ± 0.020 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & gbm & logo & 3 & 428 & 0.388 ± 0.011 & -0.094 ± 0.090 & 0.652 ± 0.010 & 0.352 ± 0.005 & 0.364 ± 0.019 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & mlp & logo & 3 & 428 & 0.414 ± 0.011 & -0.032 ± 0.093 & 0.711 ± 0.006 & 0.299 ± 0.013 & 0.299 ± 0.030 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & transformer & logo & 3 & 428 & 0.671 ± 0.013 & 0.189 ± 0.027 & 0.839 ± 0.010 & 0.281 ± 0.011 & 0.257 ± 0.018 \\
+train-clinvar\_expert & aa\_mlp & logo & 3 & 428 & 0.904 ± 0.013 & 0.543 ± 0.076 & 0.953 ± 0.010 & 0.165 ± 0.023 & 0.219 ± 0.025 \\
+train-clinvar\_expert & bilstm & logo & 3 & 428 & 0.941 ± 0.007 & 0.614 ± 0.025 & 0.964 ± 0.010 & 0.131 ± 0.005 & 0.194 ± 0.028 \\
+train-clinvar\_expert & bilstm\_attn & logo & 3 & 428 & 0.934 ± 0.024 & 0.656 ± 0.092 & 0.968 ± 0.006 & 0.156 ± 0.015 & 0.236 ± 0.014 \\
+train-clinvar\_expert & cnn & logo & 3 & 428 & 0.889 ± 0.026 & 0.492 ± 0.034 & 0.941 ± 0.021 & 0.209 ± 0.024 & 0.263 ± 0.042 \\
+train-clinvar\_expert & gbm & logo & 3 & 428 & 0.944 ± 0.004 & 0.786 ± 0.017 & 0.955 ± 0.006 & 0.064 ± 0.002 & 0.064 ± 0.010 \\
+train-clinvar\_expert & mlp & logo & 3 & 428 & 0.949 ± 0.005 & 0.680 ± 0.048 & 0.974 ± 0.003 & 0.110 ± 0.017 & 0.178 ± 0.047 \\
+train-clinvar\_expert & transformer & logo & 3 & 428 & 0.828 ± 0.025 & 0.442 ± 0.061 & 0.920 ± 0.008 & 0.188 ± 0.007 & 0.198 ± 0.011 \\
+train-pg\_dms & aa\_mlp & logo & 3 & 252 & 0.907 ± 0.030 & 0.397 ± 0.181 & 0.970 ± 0.008 & 0.231 ± 0.050 & 0.305 ± 0.043 \\
+train-pg\_dms & bilstm & logo & 3 & 252 & 0.932 ± 0.010 & 0.393 ± 0.110 & 0.974 ± 0.003 & 0.182 ± 0.023 & 0.263 ± 0.040 \\
+train-pg\_dms & bilstm\_attn & logo & 3 & 252 & 0.917 ± 0.030 & 0.480 ± 0.055 & 0.972 ± 0.009 & 0.210 ± 0.038 & 0.291 ± 0.052 \\
+train-pg\_dms & cnn & logo & 3 & 252 & 0.893 ± 0.005 & 0.369 ± 0.021 & 0.964 ± 0.002 & 0.184 ± 0.013 & 0.244 ± 0.008 \\
+train-pg\_dms & gbm & logo & 3 & 252 & 0.939 ± 0.003 & 0.427 ± 0.050 & 0.979 ± 0.001 & 0.360 ± 0.004 & 0.461 ± 0.003 \\
+train-pg\_dms & mlp & logo & 3 & 252 & 0.923 ± 0.010 & 0.288 ± 0.007 & 0.970 ± 0.005 & 0.224 ± 0.013 & 0.310 ± 0.011 \\
+train-pg\_dms & transformer & logo & 3 & 252 & 0.897 ± 0.013 & 0.443 ± 0.096 & 0.964 ± 0.004 & 0.239 ± 0.016 & 0.317 ± 0.016 \\
 \bottomrule
 \end{tabular}
 \caption{Arms, mean over scoreable held-out genes.}
@@ -43,6 +107,243 @@ train-clinvar\_\_drop-domains-genomic-structure & transformer & logo & 3 & 428 &
 \toprule
 arm & model & split & gene & n & n\_positive & seeds & roc\_auc\_mean & roc\_auc\_std & mcc\_mean & mcc\_std \\
 \midrule
+train-clinvar & aa\_mlp & logo & MLH1 & 174 & 143 & 3 & 0.922 & 0.041 & 0.623 & 0.098 \\
+train-clinvar & aa\_mlp & logo & MSH2 & 176 & 120 & 3 & 0.899 & 0.030 & 0.509 & 0.066 \\
+train-clinvar & aa\_mlp & logo & MSH6 & 78 & 47 & 3 & 0.916 & 0.007 & 0.540 & 0.181 \\
+train-clinvar & aa\_mlp & logo & PMS2 & 21 & 17 & 3 & 0.726 & 0.100 & 0.191 & 0.069 \\
+train-clinvar & bilstm & logo & MLH1 & 174 & 143 & 3 & 0.963 & 0.027 & 0.552 & 0.068 \\
+train-clinvar & bilstm & logo & MSH2 & 176 & 120 & 3 & 0.938 & 0.010 & 0.652 & 0.015 \\
+train-clinvar & bilstm & logo & MSH6 & 78 & 47 & 3 & 0.953 & 0.003 & 0.515 & 0.151 \\
+train-clinvar & bilstm & logo & PMS2 & 21 & 17 & 3 & 0.971 & 0.029 & 0.507 & 0.145 \\
+train-clinvar & bilstm\_attn & logo & MLH1 & 174 & 143 & 3 & 0.949 & 0.028 & 0.637 & 0.140 \\
+train-clinvar & bilstm\_attn & logo & MSH2 & 176 & 120 & 3 & 0.955 & 0.009 & 0.649 & 0.129 \\
+train-clinvar & bilstm\_attn & logo & MSH6 & 78 & 47 & 3 & 0.954 & 0.006 & 0.557 & 0.136 \\
+train-clinvar & bilstm\_attn & logo & PMS2 & 21 & 17 & 3 & 0.971 & 0.039 & 0.648 & 0.107 \\
+train-clinvar & cnn & logo & MLH1 & 174 & 143 & 3 & 0.938 & 0.004 & 0.507 & 0.064 \\
+train-clinvar & cnn & logo & MSH2 & 176 & 120 & 3 & 0.912 & 0.023 & 0.527 & 0.116 \\
+train-clinvar & cnn & logo & MSH6 & 78 & 47 & 3 & 0.925 & 0.022 & 0.602 & 0.176 \\
+train-clinvar & cnn & logo & PMS2 & 21 & 17 & 3 & 0.740 & 0.110 & 0.299 & 0.109 \\
+train-clinvar & gbm & logo & MLH1 & 174 & 143 & 3 & 0.963 & 0.011 & 0.741 & 0.099 \\
+train-clinvar & gbm & logo & MSH2 & 176 & 120 & 3 & 0.897 & 0.030 & 0.676 & 0.103 \\
+train-clinvar & gbm & logo & MSH6 & 78 & 47 & 3 & 0.989 & 0.003 & 0.812 & 0.047 \\
+train-clinvar & gbm & logo & PMS2 & 21 & 17 & 3 & 0.990 & 0.017 & 0.622 & 0.063 \\
+train-clinvar & mlp & logo & MLH1 & 174 & 143 & 3 & 0.963 & 0.020 & 0.665 & 0.178 \\
+train-clinvar & mlp & logo & MSH2 & 176 & 120 & 3 & 0.945 & 0.020 & 0.786 & 0.026 \\
+train-clinvar & mlp & logo & MSH6 & 78 & 47 & 3 & 0.957 & 0.011 & 0.610 & 0.309 \\
+train-clinvar & mlp & logo & PMS2 & 21 & 17 & 3 & 0.946 & 0.037 & 0.599 & 0.034 \\
+train-clinvar & transformer & logo & MLH1 & 174 & 143 & 3 & 0.874 & 0.041 & 0.478 & 0.119 \\
+train-clinvar & transformer & logo & MSH2 & 176 & 120 & 3 & 0.890 & 0.020 & 0.548 & 0.203 \\
+train-clinvar & transformer & logo & MSH6 & 78 & 47 & 3 & 0.921 & 0.003 & 0.488 & 0.118 \\
+train-clinvar & transformer & logo & PMS2 & 21 & 17 & 3 & 0.716 & 0.093 & 0.227 & 0.203 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & aa\_mlp & logo & MLH1 & 174 & 143 & 3 & 0.784 & 0.024 & 0.376 & 0.054 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & aa\_mlp & logo & MSH2 & 176 & 120 & 3 & 0.825 & 0.021 & 0.372 & 0.151 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & aa\_mlp & logo & MSH6 & 78 & 47 & 3 & 0.725 & 0.065 & 0.328 & 0.146 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & aa\_mlp & logo & PMS2 & 21 & 17 & 3 & 0.451 & 0.043 & 0.089 & 0.114 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm & logo & MLH1 & 174 & 143 & 3 & 0.750 & 0.029 & 0.275 & 0.088 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm & logo & MSH2 & 176 & 120 & 3 & 0.744 & 0.079 & 0.254 & 0.053 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm & logo & MSH6 & 78 & 47 & 3 & 0.806 & 0.026 & 0.319 & 0.014 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm & logo & PMS2 & 21 & 17 & 3 & 0.637 & 0.081 & 0.104 & 0.103 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm\_attn & logo & MLH1 & 174 & 143 & 3 & 0.770 & 0.005 & 0.346 & 0.080 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm\_attn & logo & MSH2 & 176 & 120 & 3 & 0.741 & 0.013 & 0.291 & 0.016 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm\_attn & logo & MSH6 & 78 & 47 & 3 & 0.833 & 0.019 & 0.487 & 0.132 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm\_attn & logo & PMS2 & 21 & 17 & 3 & 0.667 & 0.022 & 0.039 & 0.027 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & cnn & logo & MLH1 & 174 & 143 & 3 & 0.738 & 0.009 & 0.251 & 0.084 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & cnn & logo & MSH2 & 176 & 120 & 3 & 0.650 & 0.061 & 0.162 & 0.088 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & cnn & logo & MSH6 & 78 & 47 & 3 & 0.750 & 0.047 & 0.378 & 0.133 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & cnn & logo & PMS2 & 21 & 17 & 3 & 0.505 & 0.163 & -0.006 & 0.306 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & gbm & logo & MLH1 & 174 & 143 & 3 & 0.728 & 0.004 & 0.269 & 0.080 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & gbm & logo & MSH2 & 176 & 120 & 3 & 0.713 & 0.009 & 0.369 & 0.034 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & gbm & logo & MSH6 & 78 & 47 & 3 & 0.847 & 0.021 & 0.538 & 0.077 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & gbm & logo & PMS2 & 21 & 17 & 3 & 0.726 & 0.045 & 0.365 & 0.133 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & mlp & logo & MLH1 & 174 & 143 & 3 & 0.765 & 0.010 & 0.272 & 0.050 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & mlp & logo & MSH2 & 176 & 120 & 3 & 0.812 & 0.029 & 0.515 & 0.050 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & mlp & logo & MSH6 & 78 & 47 & 3 & 0.852 & 0.054 & 0.402 & 0.348 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & mlp & logo & PMS2 & 21 & 17 & 3 & 0.583 & 0.061 & 0.461 & 0.227 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & transformer & logo & MLH1 & 174 & 143 & 3 & 0.743 & 0.011 & 0.295 & 0.077 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & transformer & logo & MSH2 & 176 & 120 & 3 & 0.782 & 0.038 & 0.403 & 0.073 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & transformer & logo & MSH6 & 78 & 47 & 3 & 0.793 & 0.029 & 0.396 & 0.035 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & transformer & logo & PMS2 & 21 & 17 & 3 & 0.554 & 0.081 & 0.018 & 0.054 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & aa\_mlp & logo & MLH1 & 174 & 143 & 3 & 0.582 & 0.049 & 0.082 & 0.087 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & aa\_mlp & logo & MSH2 & 176 & 120 & 3 & 0.597 & 0.052 & 0.132 & 0.159 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & aa\_mlp & logo & MSH6 & 78 & 47 & 3 & 0.513 & 0.036 & 0.095 & 0.073 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & aa\_mlp & logo & PMS2 & 21 & 17 & 3 & 0.554 & 0.098 & 0.149 & 0.163 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm & logo & MLH1 & 174 & 143 & 3 & 0.587 & 0.051 & 0.041 & 0.036 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm & logo & MSH2 & 176 & 120 & 3 & 0.584 & 0.039 & 0.058 & 0.092 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm & logo & MSH6 & 78 & 47 & 3 & 0.654 & 0.055 & 0.186 & 0.148 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm & logo & PMS2 & 21 & 17 & 3 & 0.348 & 0.066 & -0.112 & 0.006 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm\_attn & logo & MLH1 & 174 & 143 & 3 & 0.661 & 0.017 & 0.177 & 0.043 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm\_attn & logo & MSH2 & 176 & 120 & 3 & 0.646 & 0.014 & 0.164 & 0.091 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm\_attn & logo & MSH6 & 78 & 47 & 3 & 0.682 & 0.079 & 0.201 & 0.120 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm\_attn & logo & PMS2 & 21 & 17 & 3 & 0.441 & 0.029 & -0.122 & 0.226 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & cnn & logo & MLH1 & 174 & 143 & 3 & 0.543 & 0.083 & 0.055 & 0.106 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & cnn & logo & MSH2 & 176 & 120 & 3 & 0.472 & 0.035 & -0.063 & 0.082 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & cnn & logo & MSH6 & 78 & 47 & 3 & 0.519 & 0.025 & 0.062 & 0.060 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & cnn & logo & PMS2 & 21 & 17 & 3 & 0.779 & 0.170 & 0.371 & 0.130 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & transformer & logo & MLH1 & 174 & 143 & 3 & 0.683 & 0.013 & 0.174 & 0.057 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & transformer & logo & MSH2 & 176 & 120 & 3 & 0.730 & 0.028 & 0.215 & 0.130 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & transformer & logo & MSH6 & 78 & 47 & 3 & 0.726 & 0.009 & 0.271 & 0.040 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & transformer & logo & PMS2 & 21 & 17 & 3 & 0.471 & 0.051 & -0.115 & 0.070 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & aa\_mlp & logo & MLH1 & 174 & 143 & 3 & 0.810 & 0.026 & 0.340 & 0.026 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & aa\_mlp & logo & MSH2 & 176 & 120 & 3 & 0.778 & 0.059 & 0.357 & 0.053 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & aa\_mlp & logo & MSH6 & 78 & 47 & 3 & 0.817 & 0.040 & 0.485 & 0.050 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & aa\_mlp & logo & PMS2 & 21 & 17 & 3 & 0.686 & 0.047 & 0.170 & 0.098 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm & logo & MLH1 & 174 & 143 & 3 & 0.898 & 0.003 & 0.570 & 0.044 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm & logo & MSH2 & 176 & 120 & 3 & 0.860 & 0.019 & 0.468 & 0.064 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm & logo & MSH6 & 78 & 47 & 3 & 0.931 & 0.015 & 0.789 & 0.053 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm & logo & PMS2 & 21 & 17 & 3 & 0.691 & 0.044 & 0.509 & 0.000 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm\_attn & logo & MLH1 & 174 & 143 & 3 & 0.902 & 0.022 & 0.563 & 0.048 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm\_attn & logo & MSH2 & 176 & 120 & 3 & 0.886 & 0.011 & 0.505 & 0.125 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm\_attn & logo & MSH6 & 78 & 47 & 3 & 0.939 & 0.015 & 0.647 & 0.084 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm\_attn & logo & PMS2 & 21 & 17 & 3 & 0.853 & 0.096 & 0.509 & 0.000 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & cnn & logo & MLH1 & 174 & 143 & 3 & 0.799 & 0.033 & 0.340 & 0.075 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & cnn & logo & MSH2 & 176 & 120 & 3 & 0.652 & 0.111 & 0.227 & 0.073 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & cnn & logo & MSH6 & 78 & 47 & 3 & 0.709 & 0.032 & 0.242 & 0.056 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & cnn & logo & PMS2 & 21 & 17 & 3 & 0.809 & 0.162 & 0.389 & 0.347 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & gbm & logo & MLH1 & 174 & 143 & 3 & 0.855 & 0.020 & 0.458 & 0.057 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & gbm & logo & MSH2 & 176 & 120 & 3 & 0.840 & 0.029 & 0.454 & 0.163 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & gbm & logo & MSH6 & 78 & 47 & 3 & 0.931 & 0.013 & 0.726 & 0.011 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & gbm & logo & PMS2 & 21 & 17 & 3 & 0.892 & 0.047 & 0.448 & 0.025 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & mlp & logo & MLH1 & 174 & 143 & 3 & 0.906 & 0.000 & 0.539 & 0.091 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & mlp & logo & MSH2 & 176 & 120 & 3 & 0.877 & 0.000 & 0.514 & 0.133 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & mlp & logo & MSH6 & 78 & 47 & 3 & 0.969 & 0.000 & 0.815 & 0.017 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & mlp & logo & PMS2 & 21 & 17 & 3 & 0.956 & 0.000 & 0.448 & 0.025 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & transformer & logo & MLH1 & 174 & 143 & 3 & 0.717 & 0.017 & 0.218 & 0.009 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & transformer & logo & MSH2 & 176 & 120 & 3 & 0.753 & 0.045 & 0.306 & 0.111 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & transformer & logo & MSH6 & 78 & 47 & 3 & 0.798 & 0.022 & 0.393 & 0.096 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-structure & transformer & logo & PMS2 & 21 & 17 & 3 & 0.559 & 0.103 & -0.026 & 0.286 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & aa\_mlp & logo & MLH1 & 174 & 143 & 3 & 0.924 & 0.019 & 0.561 & 0.031 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & aa\_mlp & logo & MSH2 & 176 & 120 & 3 & 0.867 & 0.063 & 0.502 & 0.135 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & aa\_mlp & logo & MSH6 & 78 & 47 & 3 & 0.848 & 0.038 & 0.551 & 0.040 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & aa\_mlp & logo & PMS2 & 21 & 17 & 3 & 0.897 & 0.039 & 0.463 & 0.148 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm & logo & MLH1 & 174 & 143 & 3 & 0.938 & 0.013 & 0.723 & 0.085 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm & logo & MSH2 & 176 & 120 & 3 & 0.890 & 0.012 & 0.542 & 0.056 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm & logo & MSH6 & 78 & 47 & 3 & 0.898 & 0.017 & 0.703 & 0.048 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm & logo & PMS2 & 21 & 17 & 3 & 0.877 & 0.052 & 0.559 & 0.060 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm\_attn & logo & MLH1 & 174 & 143 & 3 & 0.943 & 0.010 & 0.744 & 0.082 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm\_attn & logo & MSH2 & 176 & 120 & 3 & 0.899 & 0.022 & 0.581 & 0.043 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm\_attn & logo & MSH6 & 78 & 47 & 3 & 0.913 & 0.016 & 0.724 & 0.040 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm\_attn & logo & PMS2 & 21 & 17 & 3 & 0.931 & 0.022 & 0.604 & 0.089 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & cnn & logo & MLH1 & 174 & 143 & 3 & 0.912 & 0.031 & 0.579 & 0.172 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & cnn & logo & MSH2 & 176 & 120 & 3 & 0.822 & 0.035 & 0.450 & 0.089 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & cnn & logo & MSH6 & 78 & 47 & 3 & 0.842 & 0.078 & 0.517 & 0.211 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & cnn & logo & PMS2 & 21 & 17 & 3 & 0.814 & 0.133 & 0.343 & 0.367 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & gbm & logo & MLH1 & 174 & 143 & 3 & 0.919 & 0.002 & 0.803 & 0.065 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & gbm & logo & MSH2 & 176 & 120 & 3 & 0.681 & 0.077 & 0.568 & 0.031 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & gbm & logo & MSH6 & 78 & 47 & 3 & 0.932 & 0.004 & 0.596 & 0.022 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & gbm & logo & PMS2 & 21 & 17 & 3 & 0.936 & 0.011 & 0.503 & 0.070 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & mlp & logo & MLH1 & 174 & 143 & 3 & 0.915 & 0.010 & 0.776 & 0.083 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & mlp & logo & MSH2 & 176 & 120 & 3 & 0.913 & 0.000 & 0.565 & 0.004 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & mlp & logo & MSH6 & 78 & 47 & 3 & 0.927 & 0.002 & 0.716 & 0.060 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & mlp & logo & PMS2 & 21 & 17 & 3 & 0.882 & 0.029 & 0.562 & 0.055 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & transformer & logo & MLH1 & 174 & 143 & 3 & 0.865 & 0.020 & 0.462 & 0.089 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & transformer & logo & MSH2 & 176 & 120 & 3 & 0.841 & 0.034 & 0.393 & 0.034 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & transformer & logo & MSH6 & 78 & 47 & 3 & 0.888 & 0.017 & 0.604 & 0.026 \\
+train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & transformer & logo & PMS2 & 21 & 17 & 3 & 0.828 & 0.052 & 0.332 & 0.044 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & aa\_mlp & logo & MLH1 & 174 & 143 & 3 & 0.540 & 0.054 & 0.001 & 0.047 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & aa\_mlp & logo & MSH2 & 176 & 120 & 3 & 0.563 & 0.048 & 0.170 & 0.135 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & aa\_mlp & logo & MSH6 & 78 & 47 & 3 & 0.497 & 0.073 & -0.117 & 0.039 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & aa\_mlp & logo & PMS2 & 21 & 17 & 3 & 0.363 & 0.031 & 0.184 & 0.062 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm & logo & MLH1 & 174 & 143 & 3 & 0.383 & 0.080 & -0.104 & 0.152 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm & logo & MSH2 & 176 & 120 & 3 & 0.528 & 0.054 & 0.130 & 0.051 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm & logo & MSH6 & 78 & 47 & 3 & 0.533 & 0.047 & 0.174 & 0.034 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm & logo & PMS2 & 21 & 17 & 3 & 0.436 & 0.059 & -0.164 & 0.235 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm\_attn & logo & MLH1 & 174 & 143 & 3 & 0.564 & 0.077 & 0.126 & 0.040 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm\_attn & logo & MSH2 & 176 & 120 & 3 & 0.643 & 0.069 & 0.178 & 0.154 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm\_attn & logo & MSH6 & 78 & 47 & 3 & 0.618 & 0.034 & 0.145 & 0.065 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm\_attn & logo & PMS2 & 21 & 17 & 3 & 0.559 & 0.088 & 0.033 & 0.220 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & cnn & logo & MLH1 & 174 & 143 & 3 & 0.440 & 0.070 & -0.089 & 0.054 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & cnn & logo & MSH2 & 176 & 120 & 3 & 0.521 & 0.052 & 0.001 & 0.086 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & cnn & logo & MSH6 & 78 & 47 & 3 & 0.645 & 0.136 & 0.147 & 0.156 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & cnn & logo & PMS2 & 21 & 17 & 3 & 0.618 & 0.311 & 0.096 & 0.452 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & gbm & logo & MLH1 & 174 & 143 & 3 & 0.381 & 0.008 & -0.102 & 0.063 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & gbm & logo & MSH2 & 176 & 120 & 3 & 0.399 & 0.041 & -0.157 & 0.063 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & gbm & logo & MSH6 & 78 & 47 & 3 & 0.384 & 0.054 & -0.023 & 0.145 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & gbm & logo & PMS2 & 21 & 17 & 3 & 0.265 & 0.015 & -0.141 & 0.028 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & mlp & logo & MLH1 & 174 & 143 & 3 & 0.332 & 0.020 & -0.215 & 0.110 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & mlp & logo & MSH2 & 176 & 120 & 3 & 0.419 & 0.030 & -0.060 & 0.133 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & mlp & logo & MSH6 & 78 & 47 & 3 & 0.491 & 0.024 & 0.179 & 0.058 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & mlp & logo & PMS2 & 21 & 17 & 3 & 0.618 & 0.078 & -0.115 & 0.118 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & transformer & logo & MLH1 & 174 & 143 & 3 & 0.623 & 0.023 & 0.125 & 0.022 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & transformer & logo & MSH2 & 176 & 120 & 3 & 0.733 & 0.031 & 0.237 & 0.044 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & transformer & logo & MSH6 & 78 & 47 & 3 & 0.655 & 0.045 & 0.205 & 0.040 \\
+train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & transformer & logo & PMS2 & 21 & 17 & 3 & 0.456 & 0.078 & -0.191 & 0.069 \\
+train-clinvar+pg\_dms & aa\_mlp & logo & MLH1 & 174 & 143 & 3 & 0.905 & 0.045 & 0.384 & 0.055 \\
+train-clinvar+pg\_dms & aa\_mlp & logo & MSH2 & 176 & 120 & 3 & 0.899 & 0.030 & 0.509 & 0.066 \\
+train-clinvar+pg\_dms & aa\_mlp & logo & MSH6 & 78 & 47 & 3 & 0.954 & 0.002 & 0.423 & 0.061 \\
+train-clinvar+pg\_dms & aa\_mlp & logo & PMS2 & 21 & 17 & 3 & 0.853 & 0.064 & 0.343 & 0.037 \\
+train-clinvar+pg\_dms & bilstm & logo & MLH1 & 174 & 143 & 3 & 0.933 & 0.020 & 0.402 & 0.074 \\
+train-clinvar+pg\_dms & bilstm & logo & MSH2 & 176 & 120 & 3 & 0.938 & 0.010 & 0.652 & 0.015 \\
+train-clinvar+pg\_dms & bilstm & logo & MSH6 & 78 & 47 & 3 & 0.962 & 0.012 & 0.341 & 0.010 \\
+train-clinvar+pg\_dms & bilstm & logo & PMS2 & 21 & 17 & 3 & 0.907 & 0.052 & 0.331 & 0.021 \\
+train-clinvar+pg\_dms & bilstm\_attn & logo & MLH1 & 174 & 143 & 3 & 0.918 & 0.015 & 0.318 & 0.021 \\
+train-clinvar+pg\_dms & bilstm\_attn & logo & MSH2 & 176 & 120 & 3 & 0.955 & 0.009 & 0.649 & 0.129 \\
+train-clinvar+pg\_dms & bilstm\_attn & logo & MSH6 & 78 & 47 & 3 & 0.968 & 0.007 & 0.422 & 0.132 \\
+train-clinvar+pg\_dms & bilstm\_attn & logo & PMS2 & 21 & 17 & 3 & 0.887 & 0.104 & 0.343 & 0.000 \\
+train-clinvar+pg\_dms & cnn & logo & MLH1 & 174 & 143 & 3 & 0.926 & 0.009 & 0.392 & 0.033 \\
+train-clinvar+pg\_dms & cnn & logo & MSH2 & 176 & 120 & 3 & 0.912 & 0.023 & 0.527 & 0.116 \\
+train-clinvar+pg\_dms & cnn & logo & MSH6 & 78 & 47 & 3 & 0.910 & 0.055 & 0.311 & 0.018 \\
+train-clinvar+pg\_dms & cnn & logo & PMS2 & 21 & 17 & 3 & 0.941 & 0.067 & 0.307 & 0.036 \\
+train-clinvar+pg\_dms & gbm & logo & MLH1 & 174 & 143 & 3 & 0.925 & 0.017 & 0.286 & 0.034 \\
+train-clinvar+pg\_dms & gbm & logo & MSH2 & 176 & 120 & 3 & 0.897 & 0.030 & 0.676 & 0.103 \\
+train-clinvar+pg\_dms & gbm & logo & MSH6 & 78 & 47 & 3 & 0.953 & 0.009 & 0.559 & 0.085 \\
+train-clinvar+pg\_dms & gbm & logo & PMS2 & 21 & 17 & 3 & 0.951 & 0.034 & 0.458 & 0.201 \\
+train-clinvar+pg\_dms & mlp & logo & MLH1 & 174 & 143 & 3 & 0.914 & 0.020 & 0.261 & 0.060 \\
+train-clinvar+pg\_dms & mlp & logo & MSH2 & 176 & 120 & 3 & 0.945 & 0.020 & 0.786 & 0.026 \\
+train-clinvar+pg\_dms & mlp & logo & MSH6 & 78 & 47 & 3 & 0.963 & 0.015 & 0.266 & 0.059 \\
+train-clinvar+pg\_dms & mlp & logo & PMS2 & 21 & 17 & 3 & 1.000 & 0.000 & 0.319 & 0.021 \\
+train-clinvar+pg\_dms & transformer & logo & MLH1 & 174 & 143 & 3 & 0.925 & 0.007 & 0.355 & 0.004 \\
+train-clinvar+pg\_dms & transformer & logo & MSH2 & 176 & 120 & 3 & 0.890 & 0.020 & 0.548 & 0.203 \\
+train-clinvar+pg\_dms & transformer & logo & MSH6 & 78 & 47 & 3 & 0.956 & 0.014 & 0.380 & 0.033 \\
+train-clinvar+pg\_dms & transformer & logo & PMS2 & 21 & 17 & 3 & 0.809 & 0.039 & 0.343 & 0.037 \\
+train-clinvar\_expert & aa\_mlp & logo & MLH1 & 174 & 143 & 3 & 0.906 & 0.019 & 0.504 & 0.064 \\
+train-clinvar\_expert & aa\_mlp & logo & MSH2 & 176 & 120 & 3 & 0.896 & 0.026 & 0.607 & 0.087 \\
+train-clinvar\_expert & aa\_mlp & logo & MSH6 & 78 & 47 & 3 & 0.909 & 0.006 & 0.519 & 0.188 \\
+train-clinvar\_expert & aa\_mlp & logo & PMS2 & 21 & 17 & 3 & 0.765 & 0.078 & 0.484 & 0.213 \\
+train-clinvar\_expert & bilstm & logo & MLH1 & 174 & 143 & 3 & 0.954 & 0.015 & 0.658 & 0.127 \\
+train-clinvar\_expert & bilstm & logo & MSH2 & 176 & 120 & 3 & 0.942 & 0.012 & 0.683 & 0.068 \\
+train-clinvar\_expert & bilstm & logo & MSH6 & 78 & 47 & 3 & 0.927 & 0.025 & 0.501 & 0.184 \\
+train-clinvar\_expert & bilstm & logo & PMS2 & 21 & 17 & 3 & 0.838 & 0.102 & 0.327 & 0.338 \\
+train-clinvar\_expert & bilstm\_attn & logo & MLH1 & 174 & 143 & 3 & 0.914 & 0.076 & 0.544 & 0.202 \\
+train-clinvar\_expert & bilstm\_attn & logo & MSH2 & 176 & 120 & 3 & 0.943 & 0.004 & 0.722 & 0.063 \\
+train-clinvar\_expert & bilstm\_attn & logo & MSH6 & 78 & 47 & 3 & 0.944 & 0.010 & 0.702 & 0.130 \\
+train-clinvar\_expert & bilstm\_attn & logo & PMS2 & 21 & 17 & 3 & 0.922 & 0.052 & 0.565 & 0.137 \\
+train-clinvar\_expert & cnn & logo & MLH1 & 174 & 143 & 3 & 0.904 & 0.033 & 0.488 & 0.119 \\
+train-clinvar\_expert & cnn & logo & MSH2 & 176 & 120 & 3 & 0.912 & 0.025 & 0.597 & 0.008 \\
+train-clinvar\_expert & cnn & logo & MSH6 & 78 & 47 & 3 & 0.850 & 0.086 & 0.392 & 0.021 \\
+train-clinvar\_expert & cnn & logo & PMS2 & 21 & 17 & 3 & 0.750 & 0.053 & 0.252 & 0.184 \\
+train-clinvar\_expert & gbm & logo & MLH1 & 174 & 143 & 3 & 0.966 & 0.010 & 0.840 & 0.052 \\
+train-clinvar\_expert & gbm & logo & MSH2 & 176 & 120 & 3 & 0.887 & 0.007 & 0.664 & 0.026 \\
+train-clinvar\_expert & gbm & logo & MSH6 & 78 & 47 & 3 & 0.977 & 0.009 & 0.854 & 0.011 \\
+train-clinvar\_expert & gbm & logo & PMS2 & 21 & 17 & 3 & 0.995 & 0.009 & 0.690 & 0.074 \\
+train-clinvar\_expert & mlp & logo & MLH1 & 174 & 143 & 3 & 0.950 & 0.009 & 0.592 & 0.151 \\
+train-clinvar\_expert & mlp & logo & MSH2 & 176 & 120 & 3 & 0.950 & 0.010 & 0.746 & 0.052 \\
+train-clinvar\_expert & mlp & logo & MSH6 & 78 & 47 & 3 & 0.948 & 0.016 & 0.701 & 0.078 \\
+train-clinvar\_expert & mlp & logo & PMS2 & 21 & 17 & 3 & 0.956 & 0.015 & 0.690 & 0.074 \\
+train-clinvar\_expert & transformer & logo & MLH1 & 174 & 143 & 3 & 0.777 & 0.067 & 0.333 & 0.077 \\
+train-clinvar\_expert & transformer & logo & MSH2 & 176 & 120 & 3 & 0.842 & 0.006 & 0.474 & 0.003 \\
+train-clinvar\_expert & transformer & logo & MSH6 & 78 & 47 & 3 & 0.863 & 0.019 & 0.519 & 0.128 \\
+train-clinvar\_expert & transformer & logo & PMS2 & 21 & 17 & 3 & 0.770 & 0.081 & 0.369 & 0.264 \\
+train-pg\_dms & aa\_mlp & logo & MLH1 & 174 & 143 & 3 & 0.872 & 0.051 & 0.395 & 0.039 \\
+train-pg\_dms & aa\_mlp & logo & MSH6 & 78 & 47 & 3 & 0.942 & 0.015 & 0.398 & 0.324 \\
+train-pg\_dms & aa\_mlp & logo & PMS2 & 21 & 17 & 3 & 0.686 & 0.151 & 0.284 & 0.084 \\
+train-pg\_dms & bilstm & logo & MLH1 & 174 & 143 & 3 & 0.940 & 0.009 & 0.377 & 0.038 \\
+train-pg\_dms & bilstm & logo & MSH6 & 78 & 47 & 3 & 0.924 & 0.013 & 0.409 & 0.217 \\
+train-pg\_dms & bilstm & logo & PMS2 & 21 & 17 & 3 & 0.676 & 0.051 & 0.222 & 0.042 \\
+train-pg\_dms & bilstm\_attn & logo & MLH1 & 174 & 143 & 3 & 0.901 & 0.043 & 0.360 & 0.009 \\
+train-pg\_dms & bilstm\_attn & logo & MSH6 & 78 & 47 & 3 & 0.933 & 0.016 & 0.600 & 0.113 \\
+train-pg\_dms & bilstm\_attn & logo & PMS2 & 21 & 17 & 3 & 0.608 & 0.068 & 0.195 & 0.066 \\
+train-pg\_dms & cnn & logo & MLH1 & 174 & 143 & 3 & 0.893 & 0.024 & 0.386 & 0.030 \\
+train-pg\_dms & cnn & logo & MSH6 & 78 & 47 & 3 & 0.894 & 0.025 & 0.351 & 0.043 \\
+train-pg\_dms & cnn & logo & PMS2 & 21 & 17 & 3 & 0.627 & 0.034 & 0.210 & 0.021 \\
+train-pg\_dms & gbm & logo & MLH1 & 174 & 143 & 3 & 0.924 & 0.004 & 0.258 & 0.065 \\
+train-pg\_dms & gbm & logo & MSH6 & 78 & 47 & 3 & 0.955 & 0.003 & 0.597 & 0.035 \\
+train-pg\_dms & gbm & logo & PMS2 & 21 & 17 & 3 & 0.966 & 0.022 & 0.131 & 0.120 \\
+train-pg\_dms & mlp & logo & MLH1 & 174 & 143 & 3 & 0.922 & 0.005 & 0.265 & 0.045 \\
+train-pg\_dms & mlp & logo & MSH6 & 78 & 47 & 3 & 0.923 & 0.023 & 0.311 & 0.031 \\
+train-pg\_dms & mlp & logo & PMS2 & 21 & 17 & 3 & 0.824 & 0.118 & 0.127 & 0.137 \\
+train-pg\_dms & transformer & logo & MLH1 & 174 & 143 & 3 & 0.894 & 0.015 & 0.343 & 0.030 \\
+train-pg\_dms & transformer & logo & MSH6 & 78 & 47 & 3 & 0.900 & 0.014 & 0.544 & 0.168 \\
+train-pg\_dms & transformer & logo & PMS2 & 21 & 17 & 3 & 0.618 & 0.015 & 0.259 & 0.021 \\
 train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & logo & MLH1 & 174 & 143 & 3 & 0.947 & 0.009 & 0.561 & 0.131 \\
 train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & logo & MSH2 & 176 & 120 & 3 & 0.903 & 0.052 & 0.656 & 0.102 \\
 train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & logo & MSH6 & 78 & 47 & 3 & 0.891 & 0.099 & 0.589 & 0.147 \\
@@ -75,6 +376,18 @@ train-clinvar\_\_drop-domains-genomic-structure & transformer & logo & MLH1 & 17
 train-clinvar\_\_drop-domains-genomic-structure & transformer & logo & MSH2 & 176 & 120 & 3 & 0.889 & 0.037 & 0.568 & 0.009 \\
 train-clinvar\_\_drop-domains-genomic-structure & transformer & logo & MSH6 & 78 & 47 & 3 & 0.923 & 0.015 & 0.728 & 0.123 \\
 train-clinvar\_\_drop-domains-genomic-structure & transformer & logo & PMS2 & 21 & 17 & 3 & 0.907 & 0.022 & 0.529 & 0.094 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm & logo & MLH1 & 174 & 143 & 3 & 0.587 & 0.051 & 0.041 & 0.036 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm & logo & MSH2 & 176 & 120 & 3 & 0.584 & 0.039 & 0.058 & 0.092 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm & logo & MSH6 & 78 & 47 & 3 & 0.654 & 0.055 & 0.186 & 0.148 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm & logo & PMS2 & 21 & 17 & 3 & 0.348 & 0.066 & -0.112 & 0.006 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & cnn & logo & MLH1 & 174 & 143 & 3 & 0.543 & 0.083 & 0.055 & 0.106 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & cnn & logo & MSH2 & 176 & 120 & 3 & 0.472 & 0.035 & -0.063 & 0.082 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & cnn & logo & MSH6 & 78 & 47 & 3 & 0.519 & 0.025 & 0.062 & 0.060 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & cnn & logo & PMS2 & 21 & 17 & 3 & 0.779 & 0.170 & 0.371 & 0.130 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & transformer & logo & MLH1 & 174 & 143 & 3 & 0.683 & 0.013 & 0.174 & 0.057 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & transformer & logo & MSH2 & 176 & 120 & 3 & 0.730 & 0.028 & 0.215 & 0.130 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & transformer & logo & MSH6 & 78 & 47 & 3 & 0.726 & 0.009 & 0.271 & 0.040 \\
+train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & transformer & logo & PMS2 & 21 & 17 & 3 & 0.471 & 0.051 & -0.115 & 0.070 \\
 \bottomrule
 \end{tabular}
 \caption{Per held-out gene.}
@@ -88,43 +401,341 @@ train-clinvar\_\_drop-domains-genomic-structure & transformer & logo & PMS2 & 21
 \toprule
 gene & arm & model & n & n\_benign & scoreable & seeds & auc & auc\_reference & delta & ci\_low & ci\_high & ci\_excludes\_zero \\
 \midrule
-mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & 428 & 118 & True & 3 & 0.914 & 0.962 & -0.049 & -0.069 & -0.030 & True \\
-mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & bilstm & 428 & 118 & True & 3 & 0.963 & 0.962 & 0.001 & -0.012 & 0.012 & False \\
-mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & 428 & 118 & True & 3 & 0.965 & 0.962 & 0.003 & -0.010 & 0.014 & False \\
-mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & cnn & 428 & 118 & True & 3 & 0.912 & 0.962 & -0.051 & -0.075 & -0.028 & True \\
-mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & gbm & 428 & 118 & True & 3 & 0.948 & 0.962 & -0.014 & -0.031 & 0.002 & False \\
-mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & 428 & 118 & True & 3 & 0.959 & 0.962 & -0.003 & -0.014 & 0.009 & False \\
-mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & transformer & 428 & 118 & True & 3 & 0.910 & 0.962 & -0.052 & -0.082 & -0.023 & True \\
-MLH1 & train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & 174 & 31 & True & 3 & 0.947 & 0.974 & -0.027 & -0.050 & -0.006 & True \\
-MLH1 & train-clinvar\_\_drop-domains-genomic-structure & bilstm & 174 & 31 & True & 3 & 0.976 & 0.974 & 0.002 & -0.009 & 0.013 & False \\
-MLH1 & train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & 174 & 31 & True & 3 & 0.979 & 0.974 & 0.005 & -0.001 & 0.014 & False \\
-MLH1 & train-clinvar\_\_drop-domains-genomic-structure & cnn & 174 & 31 & True & 3 & 0.968 & 0.974 & -0.006 & -0.029 & 0.013 & False \\
-MLH1 & train-clinvar\_\_drop-domains-genomic-structure & gbm & 174 & 31 & True & 3 & 0.952 & 0.974 & -0.021 & -0.054 & -0.003 & True \\
-MLH1 & train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & 174 & 31 & True & 3 & 0.960 & 0.974 & -0.014 & -0.035 & -0.002 & True \\
-MLH1 & train-clinvar\_\_drop-domains-genomic-structure & transformer & 174 & 31 & True & 3 & 0.918 & 0.974 & -0.056 & -0.109 & 0.000 & False \\
-MSH2 & train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & 176 & 56 & True & 3 & 0.903 & 0.950 & -0.047 & -0.082 & -0.014 & True \\
-MSH2 & train-clinvar\_\_drop-domains-genomic-structure & bilstm & 176 & 56 & True & 3 & 0.958 & 0.950 & 0.008 & -0.005 & 0.025 & False \\
-MSH2 & train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & 176 & 56 & True & 3 & 0.955 & 0.950 & 0.005 & -0.006 & 0.019 & False \\
-MSH2 & train-clinvar\_\_drop-domains-genomic-structure & cnn & 176 & 56 & True & 3 & 0.881 & 0.950 & -0.069 & -0.101 & -0.040 & True \\
-MSH2 & train-clinvar\_\_drop-domains-genomic-structure & gbm & 176 & 56 & True & 3 & 0.912 & 0.950 & -0.038 & -0.070 & -0.011 & True \\
-MSH2 & train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & 176 & 56 & True & 3 & 0.939 & 0.950 & -0.011 & -0.025 & 0.000 & False \\
-MSH2 & train-clinvar\_\_drop-domains-genomic-structure & transformer & 176 & 56 & True & 3 & 0.889 & 0.950 & -0.061 & -0.104 & -0.019 & True \\
-MSH6 & train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & 78 & 31 & True & 3 & 0.891 & 0.963 & -0.073 & -0.117 & -0.033 & True \\
-MSH6 & train-clinvar\_\_drop-domains-genomic-structure & bilstm & 78 & 31 & True & 3 & 0.955 & 0.963 & -0.009 & -0.040 & 0.019 & False \\
-MSH6 & train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & 78 & 31 & True & 3 & 0.961 & 0.963 & -0.003 & -0.038 & 0.028 & False \\
-MSH6 & train-clinvar\_\_drop-domains-genomic-structure & cnn & 78 & 31 & True & 3 & 0.886 & 0.963 & -0.077 & -0.139 & -0.021 & True \\
-MSH6 & train-clinvar\_\_drop-domains-genomic-structure & gbm & 78 & 31 & True & 3 & 0.979 & 0.963 & 0.016 & -0.002 & 0.048 & False \\
-MSH6 & train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & 78 & 31 & True & 3 & 0.980 & 0.963 & 0.016 & -0.001 & 0.047 & False \\
-MSH6 & train-clinvar\_\_drop-domains-genomic-structure & transformer & 78 & 31 & True & 3 & 0.923 & 0.963 & -0.040 & -0.099 & 0.013 & False \\
-PMS2 & train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & 21 & 4 & False & 3 & 0.853 & 0.941 & -0.088 & -0.241 & 0.031 & False \\
-PMS2 & train-clinvar\_\_drop-domains-genomic-structure & bilstm & 21 & 4 & False & 3 & 0.961 & 0.941 & 0.020 & 0.000 & 0.074 & False \\
-PMS2 & train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & 21 & 4 & False & 3 & 0.961 & 0.941 & 0.020 & 0.000 & 0.067 & False \\
-PMS2 & train-clinvar\_\_drop-domains-genomic-structure & cnn & 21 & 4 & False & 3 & 0.941 & 0.941 & 0.000 & -0.108 & 0.125 & False \\
-PMS2 & train-clinvar\_\_drop-domains-genomic-structure & gbm & 21 & 4 & False & 3 & 1.000 & 0.941 & 0.059 & 0.000 & 0.193 & False \\
-PMS2 & train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & 21 & 4 & False & 3 & 1.000 & 0.941 & 0.059 & 0.000 & 0.193 & False \\
-PMS2 & train-clinvar\_\_drop-domains-genomic-structure & transformer & 21 & 4 & False & 3 & 0.907 & 0.941 & -0.034 & -0.200 & 0.124 & False \\
+mean:MLH1+MSH2+MSH6 & train-clinvar & aa\_mlp & 428 & 118 & True & 3 & 0.912 & 0.810 & 0.102 & 0.058 & 0.149 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar & bilstm & 428 & 118 & True & 3 & 0.952 & 0.810 & 0.142 & 0.095 & 0.190 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar & bilstm\_attn & 428 & 118 & True & 3 & 0.952 & 0.810 & 0.143 & 0.096 & 0.191 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar & cnn & 428 & 118 & True & 3 & 0.925 & 0.810 & 0.115 & 0.072 & 0.161 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar & gbm & 428 & 118 & True & 3 & 0.950 & 0.810 & 0.140 & 0.090 & 0.191 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar & mlp & 428 & 118 & True & 3 & 0.955 & 0.810 & 0.145 & 0.097 & 0.195 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar & transformer & 428 & 118 & True & 3 & 0.895 & 0.810 & 0.085 & 0.034 & 0.139 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar+pg\_dms & aa\_mlp & 428 & 118 & True & 3 & 0.919 & 0.810 & 0.109 & 0.062 & 0.158 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar+pg\_dms & bilstm & 428 & 118 & True & 3 & 0.944 & 0.810 & 0.134 & 0.090 & 0.182 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar+pg\_dms & bilstm\_attn & 428 & 118 & True & 3 & 0.947 & 0.810 & 0.137 & 0.093 & 0.185 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar+pg\_dms & cnn & 428 & 118 & True & 3 & 0.916 & 0.810 & 0.106 & 0.056 & 0.159 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar+pg\_dms & gbm & 428 & 118 & True & 3 & 0.925 & 0.810 & 0.115 & 0.068 & 0.166 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar+pg\_dms & mlp & 428 & 118 & True & 3 & 0.940 & 0.810 & 0.131 & 0.084 & 0.179 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar+pg\_dms & transformer & 428 & 118 & True & 3 & 0.924 & 0.810 & 0.114 & 0.066 & 0.165 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & aa\_mlp & 428 & 118 & True & 3 & 0.778 & 0.810 & -0.032 & -0.070 & 0.006 & False \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm & 428 & 118 & True & 3 & 0.766 & 0.810 & -0.043 & -0.078 & -0.008 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm\_attn & 428 & 118 & True & 3 & 0.781 & 0.810 & -0.029 & -0.062 & 0.005 & False \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & cnn & 428 & 118 & True & 3 & 0.713 & 0.810 & -0.097 & -0.139 & -0.054 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & gbm & 428 & 118 & True & 3 & 0.762 & 0.810 & -0.047 & -0.080 & -0.016 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & transformer & 428 & 118 & True & 3 & 0.772 & 0.810 & -0.037 & -0.096 & 0.022 & False \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & aa\_mlp & 428 & 118 & True & 3 & 0.564 & 0.810 & -0.246 & -0.316 & -0.176 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm & 428 & 118 & True & 3 & 0.608 & 0.810 & -0.202 & -0.271 & -0.131 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm\_attn & 428 & 118 & True & 3 & 0.663 & 0.810 & -0.147 & -0.216 & -0.077 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & cnn & 428 & 118 & True & 3 & 0.512 & 0.810 & -0.298 & -0.364 & -0.232 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & transformer & 428 & 118 & True & 3 & 0.713 & 0.810 & -0.097 & -0.165 & -0.029 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & aa\_mlp & 428 & 118 & True & 3 & 0.802 & 0.810 & -0.008 & -0.065 & 0.052 & False \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm & 428 & 118 & True & 3 & 0.896 & 0.810 & 0.086 & 0.034 & 0.140 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm\_attn & 428 & 118 & True & 3 & 0.909 & 0.810 & 0.099 & 0.048 & 0.153 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & cnn & 428 & 118 & True & 3 & 0.720 & 0.810 & -0.090 & -0.151 & -0.027 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & gbm & 428 & 118 & True & 3 & 0.875 & 0.810 & 0.066 & 0.009 & 0.123 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & mlp & 428 & 118 & True & 3 & 0.917 & 0.810 & 0.108 & 0.055 & 0.162 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & transformer & 428 & 118 & True & 3 & 0.756 & 0.810 & -0.054 & -0.118 & 0.011 & False \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & aa\_mlp & 428 & 118 & True & 3 & 0.880 & 0.810 & 0.070 & 0.016 & 0.124 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm & 428 & 118 & True & 3 & 0.909 & 0.810 & 0.099 & 0.042 & 0.156 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm\_attn & 428 & 118 & True & 3 & 0.918 & 0.810 & 0.109 & 0.054 & 0.164 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & cnn & 428 & 118 & True & 3 & 0.859 & 0.810 & 0.049 & -0.009 & 0.107 & False \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & gbm & 428 & 118 & True & 3 & 0.844 & 0.810 & 0.034 & -0.029 & 0.098 & False \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & mlp & 428 & 118 & True & 3 & 0.918 & 0.810 & 0.109 & 0.051 & 0.167 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & transformer & 428 & 118 & True & 3 & 0.864 & 0.810 & 0.055 & -0.004 & 0.115 & False \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & 428 & 118 & True & 3 & 0.914 & 0.810 & 0.104 & 0.053 & 0.155 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & bilstm & 428 & 118 & True & 3 & 0.963 & 0.810 & 0.153 & 0.104 & 0.203 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & 428 & 118 & True & 3 & 0.965 & 0.810 & 0.155 & 0.105 & 0.206 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & cnn & 428 & 118 & True & 3 & 0.912 & 0.810 & 0.102 & 0.050 & 0.155 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & gbm & 428 & 118 & True & 3 & 0.948 & 0.810 & 0.138 & 0.086 & 0.191 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & 428 & 118 & True & 3 & 0.959 & 0.810 & 0.149 & 0.099 & 0.201 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & mlp & 428 & 118 & True & 3 & 0.962 & 0.810 & 0.152 & 0.102 & 0.204 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & transformer & 428 & 118 & True & 3 & 0.910 & 0.810 & 0.100 & 0.047 & 0.156 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & aa\_mlp & 428 & 118 & True & 3 & 0.533 & 0.810 & -0.277 & -0.350 & -0.200 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm & 428 & 118 & True & 3 & 0.481 & 0.810 & -0.329 & -0.400 & -0.253 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm\_attn & 428 & 118 & True & 3 & 0.608 & 0.810 & -0.202 & -0.274 & -0.128 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & cnn & 428 & 118 & True & 3 & 0.535 & 0.810 & -0.275 & -0.339 & -0.208 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & gbm & 428 & 118 & True & 3 & 0.388 & 0.810 & -0.422 & -0.499 & -0.341 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & mlp & 428 & 118 & True & 3 & 0.414 & 0.810 & -0.396 & -0.471 & -0.317 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & transformer & 428 & 118 & True & 3 & 0.671 & 0.810 & -0.139 & -0.213 & -0.065 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_expert & aa\_mlp & 428 & 118 & True & 3 & 0.904 & 0.810 & 0.094 & 0.048 & 0.142 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_expert & bilstm & 428 & 118 & True & 3 & 0.941 & 0.810 & 0.131 & 0.084 & 0.180 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_expert & bilstm\_attn & 428 & 118 & True & 3 & 0.934 & 0.810 & 0.124 & 0.080 & 0.170 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_expert & cnn & 428 & 118 & True & 3 & 0.889 & 0.810 & 0.079 & 0.032 & 0.127 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_expert & gbm & 428 & 118 & True & 3 & 0.944 & 0.810 & 0.134 & 0.083 & 0.186 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_expert & mlp & 428 & 118 & True & 3 & 0.949 & 0.810 & 0.139 & 0.093 & 0.187 & True \\
+mean:MLH1+MSH2+MSH6 & train-clinvar\_expert & transformer & 428 & 118 & True & 3 & 0.828 & 0.810 & 0.018 & -0.040 & 0.077 & False \\
+mean:MLH1+MSH6 & train-pg\_dms & aa\_mlp & 252 & 62 & True & 3 & 0.907 & 0.809 & 0.098 & 0.038 & 0.164 & True \\
+mean:MLH1+MSH6 & train-pg\_dms & bilstm & 252 & 62 & True & 3 & 0.932 & 0.809 & 0.124 & 0.064 & 0.188 & True \\
+mean:MLH1+MSH6 & train-pg\_dms & bilstm\_attn & 252 & 62 & True & 3 & 0.917 & 0.809 & 0.108 & 0.049 & 0.173 & True \\
+mean:MLH1+MSH6 & train-pg\_dms & cnn & 252 & 62 & True & 3 & 0.893 & 0.809 & 0.085 & 0.019 & 0.154 & True \\
+mean:MLH1+MSH6 & train-pg\_dms & gbm & 252 & 62 & True & 3 & 0.940 & 0.809 & 0.131 & 0.071 & 0.196 & True \\
+mean:MLH1+MSH6 & train-pg\_dms & mlp & 252 & 62 & True & 3 & 0.923 & 0.809 & 0.114 & 0.054 & 0.179 & True \\
+mean:MLH1+MSH6 & train-pg\_dms & transformer & 252 & 62 & True & 3 & 0.897 & 0.809 & 0.088 & 0.027 & 0.154 & True \\
+MLH1 & train-clinvar & aa\_mlp & 174 & 31 & True & 3 & 0.922 & 0.765 & 0.157 & 0.066 & 0.256 & True \\
+MLH1 & train-clinvar & bilstm & 174 & 31 & True & 3 & 0.963 & 0.765 & 0.198 & 0.111 & 0.292 & True \\
+MLH1 & train-clinvar & bilstm\_attn & 174 & 31 & True & 3 & 0.949 & 0.765 & 0.183 & 0.094 & 0.281 & True \\
+MLH1 & train-clinvar & cnn & 174 & 31 & True & 3 & 0.938 & 0.765 & 0.173 & 0.093 & 0.260 & True \\
+MLH1 & train-clinvar & gbm & 174 & 31 & True & 3 & 0.963 & 0.765 & 0.198 & 0.098 & 0.303 & True \\
+MLH1 & train-clinvar & mlp & 174 & 31 & True & 3 & 0.963 & 0.765 & 0.198 & 0.103 & 0.298 & True \\
+MLH1 & train-clinvar & transformer & 174 & 31 & True & 3 & 0.874 & 0.765 & 0.108 & 0.009 & 0.215 & True \\
+MLH1 & train-clinvar+pg\_dms & aa\_mlp & 174 & 31 & True & 3 & 0.905 & 0.765 & 0.139 & 0.051 & 0.236 & True \\
+MLH1 & train-clinvar+pg\_dms & bilstm & 174 & 31 & True & 3 & 0.933 & 0.765 & 0.167 & 0.079 & 0.264 & True \\
+MLH1 & train-clinvar+pg\_dms & bilstm\_attn & 174 & 31 & True & 3 & 0.918 & 0.765 & 0.153 & 0.065 & 0.250 & True \\
+MLH1 & train-clinvar+pg\_dms & cnn & 174 & 31 & True & 3 & 0.926 & 0.765 & 0.161 & 0.067 & 0.263 & True \\
+MLH1 & train-clinvar+pg\_dms & gbm & 174 & 31 & True & 3 & 0.925 & 0.765 & 0.160 & 0.070 & 0.260 & True \\
+MLH1 & train-clinvar+pg\_dms & mlp & 174 & 31 & True & 3 & 0.914 & 0.765 & 0.148 & 0.050 & 0.255 & True \\
+MLH1 & train-clinvar+pg\_dms & transformer & 174 & 31 & True & 3 & 0.925 & 0.765 & 0.160 & 0.072 & 0.258 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & aa\_mlp & 174 & 31 & True & 3 & 0.784 & 0.765 & 0.018 & -0.060 & 0.100 & False \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm & 174 & 31 & True & 3 & 0.750 & 0.765 & -0.016 & -0.081 & 0.051 & False \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm\_attn & 174 & 31 & True & 3 & 0.770 & 0.765 & 0.004 & -0.053 & 0.061 & False \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & cnn & 174 & 31 & True & 3 & 0.738 & 0.765 & -0.028 & -0.092 & 0.039 & False \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & gbm & 174 & 31 & True & 3 & 0.728 & 0.765 & -0.037 & -0.101 & 0.027 & False \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & transformer & 174 & 31 & True & 3 & 0.743 & 0.765 & -0.023 & -0.134 & 0.094 & False \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & aa\_mlp & 174 & 31 & True & 3 & 0.582 & 0.765 & -0.183 & -0.318 & -0.043 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm & 174 & 31 & True & 3 & 0.587 & 0.765 & -0.179 & -0.318 & -0.040 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm\_attn & 174 & 31 & True & 3 & 0.661 & 0.765 & -0.105 & -0.235 & 0.028 & False \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & cnn & 174 & 31 & True & 3 & 0.543 & 0.765 & -0.223 & -0.347 & -0.097 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & transformer & 174 & 31 & True & 3 & 0.683 & 0.765 & -0.083 & -0.215 & 0.054 & False \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & aa\_mlp & 174 & 31 & True & 3 & 0.810 & 0.765 & 0.045 & -0.080 & 0.171 & False \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm & 174 & 31 & True & 3 & 0.898 & 0.765 & 0.132 & 0.026 & 0.242 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm\_attn & 174 & 31 & True & 3 & 0.902 & 0.765 & 0.136 & 0.027 & 0.249 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & cnn & 174 & 31 & True & 3 & 0.799 & 0.765 & 0.033 & -0.079 & 0.153 & False \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & gbm & 174 & 31 & True & 3 & 0.855 & 0.765 & 0.089 & -0.040 & 0.215 & False \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & mlp & 174 & 31 & True & 3 & 0.906 & 0.765 & 0.141 & 0.025 & 0.258 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & transformer & 174 & 31 & True & 3 & 0.717 & 0.765 & -0.049 & -0.169 & 0.080 & False \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & aa\_mlp & 174 & 31 & True & 3 & 0.924 & 0.765 & 0.158 & 0.049 & 0.269 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm & 174 & 31 & True & 3 & 0.938 & 0.765 & 0.172 & 0.068 & 0.279 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm\_attn & 174 & 31 & True & 3 & 0.943 & 0.765 & 0.177 & 0.074 & 0.283 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & cnn & 174 & 31 & True & 3 & 0.912 & 0.765 & 0.146 & 0.043 & 0.254 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & gbm & 174 & 31 & True & 3 & 0.919 & 0.765 & 0.153 & 0.033 & 0.271 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & mlp & 174 & 31 & True & 3 & 0.915 & 0.765 & 0.149 & 0.027 & 0.270 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & transformer & 174 & 31 & True & 3 & 0.865 & 0.765 & 0.100 & -0.013 & 0.219 & False \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & 174 & 31 & True & 3 & 0.947 & 0.765 & 0.181 & 0.084 & 0.285 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-structure & bilstm & 174 & 31 & True & 3 & 0.976 & 0.765 & 0.210 & 0.116 & 0.312 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & 174 & 31 & True & 3 & 0.979 & 0.765 & 0.213 & 0.119 & 0.316 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-structure & cnn & 174 & 31 & True & 3 & 0.968 & 0.765 & 0.202 & 0.107 & 0.304 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-structure & gbm & 174 & 31 & True & 3 & 0.952 & 0.765 & 0.187 & 0.072 & 0.300 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & 174 & 31 & True & 3 & 0.960 & 0.765 & 0.194 & 0.086 & 0.304 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-structure & mlp & 174 & 31 & True & 3 & 0.974 & 0.765 & 0.208 & 0.110 & 0.313 & True \\
+MLH1 & train-clinvar\_\_drop-domains-genomic-structure & transformer & 174 & 31 & True & 3 & 0.918 & 0.765 & 0.152 & 0.053 & 0.260 & True \\
+MLH1 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & aa\_mlp & 174 & 31 & True & 3 & 0.540 & 0.765 & -0.225 & -0.368 & -0.074 & True \\
+MLH1 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm & 174 & 31 & True & 3 & 0.383 & 0.765 & -0.383 & -0.512 & -0.244 & True \\
+MLH1 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm\_attn & 174 & 31 & True & 3 & 0.564 & 0.765 & -0.202 & -0.333 & -0.063 & True \\
+MLH1 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & cnn & 174 & 31 & True & 3 & 0.440 & 0.765 & -0.326 & -0.458 & -0.188 & True \\
+MLH1 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & gbm & 174 & 31 & True & 3 & 0.381 & 0.765 & -0.385 & -0.527 & -0.238 & True \\
+MLH1 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & mlp & 174 & 31 & True & 3 & 0.332 & 0.765 & -0.433 & -0.548 & -0.307 & True \\
+MLH1 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & transformer & 174 & 31 & True & 3 & 0.623 & 0.765 & -0.142 & -0.277 & -0.000 & True \\
+MLH1 & train-clinvar\_expert & aa\_mlp & 174 & 31 & True & 3 & 0.906 & 0.765 & 0.141 & 0.043 & 0.241 & True \\
+MLH1 & train-clinvar\_expert & bilstm & 174 & 31 & True & 3 & 0.954 & 0.765 & 0.188 & 0.098 & 0.286 & True \\
+MLH1 & train-clinvar\_expert & bilstm\_attn & 174 & 31 & True & 3 & 0.914 & 0.765 & 0.148 & 0.059 & 0.241 & True \\
+MLH1 & train-clinvar\_expert & cnn & 174 & 31 & True & 3 & 0.904 & 0.765 & 0.139 & 0.057 & 0.226 & True \\
+MLH1 & train-clinvar\_expert & gbm & 174 & 31 & True & 3 & 0.966 & 0.765 & 0.201 & 0.103 & 0.304 & True \\
+MLH1 & train-clinvar\_expert & mlp & 174 & 31 & True & 3 & 0.950 & 0.765 & 0.185 & 0.091 & 0.285 & True \\
+MLH1 & train-clinvar\_expert & transformer & 174 & 31 & True & 3 & 0.777 & 0.765 & 0.012 & -0.106 & 0.132 & False \\
+MLH1 & train-pg\_dms & aa\_mlp & 174 & 31 & True & 3 & 0.872 & 0.765 & 0.107 & 0.014 & 0.209 & True \\
+MLH1 & train-pg\_dms & bilstm & 174 & 31 & True & 3 & 0.940 & 0.765 & 0.175 & 0.084 & 0.275 & True \\
+MLH1 & train-pg\_dms & bilstm\_attn & 174 & 31 & True & 3 & 0.901 & 0.765 & 0.135 & 0.044 & 0.237 & True \\
+MLH1 & train-pg\_dms & cnn & 174 & 31 & True & 3 & 0.893 & 0.765 & 0.127 & 0.032 & 0.231 & True \\
+MLH1 & train-pg\_dms & gbm & 174 & 31 & True & 3 & 0.924 & 0.765 & 0.158 & 0.067 & 0.260 & True \\
+MLH1 & train-pg\_dms & mlp & 174 & 31 & True & 3 & 0.922 & 0.765 & 0.157 & 0.060 & 0.262 & True \\
+MLH1 & train-pg\_dms & transformer & 174 & 31 & True & 3 & 0.894 & 0.765 & 0.128 & 0.035 & 0.229 & True \\
+MSH2 & train-clinvar & aa\_mlp & 176 & 56 & True & 3 & 0.899 & 0.812 & 0.086 & 0.026 & 0.151 & True \\
+MSH2 & train-clinvar & bilstm & 176 & 56 & True & 3 & 0.938 & 0.812 & 0.126 & 0.062 & 0.194 & True \\
+MSH2 & train-clinvar & bilstm\_attn & 176 & 56 & True & 3 & 0.955 & 0.812 & 0.143 & 0.082 & 0.210 & True \\
+MSH2 & train-clinvar & cnn & 176 & 56 & True & 3 & 0.912 & 0.812 & 0.100 & 0.038 & 0.167 & True \\
+MSH2 & train-clinvar & gbm & 176 & 56 & True & 3 & 0.897 & 0.812 & 0.085 & 0.006 & 0.165 & True \\
+MSH2 & train-clinvar & mlp & 176 & 56 & True & 3 & 0.945 & 0.812 & 0.132 & 0.068 & 0.202 & True \\
+MSH2 & train-clinvar & transformer & 176 & 56 & True & 3 & 0.890 & 0.812 & 0.078 & -0.001 & 0.158 & False \\
+MSH2 & train-clinvar+pg\_dms & aa\_mlp & 176 & 56 & True & 3 & 0.899 & 0.812 & 0.086 & 0.026 & 0.151 & True \\
+MSH2 & train-clinvar+pg\_dms & bilstm & 176 & 56 & True & 3 & 0.938 & 0.812 & 0.126 & 0.062 & 0.194 & True \\
+MSH2 & train-clinvar+pg\_dms & bilstm\_attn & 176 & 56 & True & 3 & 0.955 & 0.812 & 0.143 & 0.082 & 0.210 & True \\
+MSH2 & train-clinvar+pg\_dms & cnn & 176 & 56 & True & 3 & 0.912 & 0.812 & 0.100 & 0.038 & 0.167 & True \\
+MSH2 & train-clinvar+pg\_dms & gbm & 176 & 56 & True & 3 & 0.897 & 0.812 & 0.085 & 0.006 & 0.165 & True \\
+MSH2 & train-clinvar+pg\_dms & mlp & 176 & 56 & True & 3 & 0.945 & 0.812 & 0.132 & 0.068 & 0.202 & True \\
+MSH2 & train-clinvar+pg\_dms & transformer & 176 & 56 & True & 3 & 0.890 & 0.812 & 0.078 & -0.001 & 0.158 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & aa\_mlp & 176 & 56 & True & 3 & 0.825 & 0.812 & 0.012 & -0.047 & 0.076 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm & 176 & 56 & True & 3 & 0.744 & 0.812 & -0.069 & -0.141 & 0.007 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm\_attn & 176 & 56 & True & 3 & 0.741 & 0.812 & -0.071 & -0.141 & 0.003 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & cnn & 176 & 56 & True & 3 & 0.650 & 0.812 & -0.162 & -0.241 & -0.082 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & gbm & 176 & 56 & True & 3 & 0.713 & 0.812 & -0.099 & -0.155 & -0.049 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & transformer & 176 & 56 & True & 3 & 0.782 & 0.812 & -0.030 & -0.120 & 0.062 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & aa\_mlp & 176 & 56 & True & 3 & 0.597 & 0.812 & -0.215 & -0.311 & -0.112 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm & 176 & 56 & True & 3 & 0.584 & 0.812 & -0.228 & -0.338 & -0.116 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm\_attn & 176 & 56 & True & 3 & 0.646 & 0.812 & -0.166 & -0.273 & -0.057 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & cnn & 176 & 56 & True & 3 & 0.472 & 0.812 & -0.340 & -0.426 & -0.253 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & transformer & 176 & 56 & True & 3 & 0.730 & 0.812 & -0.082 & -0.182 & 0.018 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & aa\_mlp & 176 & 56 & True & 3 & 0.778 & 0.812 & -0.034 & -0.113 & 0.048 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm & 176 & 56 & True & 3 & 0.860 & 0.812 & 0.047 & -0.029 & 0.123 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm\_attn & 176 & 56 & True & 3 & 0.886 & 0.812 & 0.074 & 0.007 & 0.143 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & cnn & 176 & 56 & True & 3 & 0.652 & 0.812 & -0.160 & -0.239 & -0.076 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & gbm & 176 & 56 & True & 3 & 0.840 & 0.812 & 0.028 & -0.055 & 0.109 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & mlp & 176 & 56 & True & 3 & 0.877 & 0.812 & 0.064 & -0.016 & 0.143 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & transformer & 176 & 56 & True & 3 & 0.753 & 0.812 & -0.059 & -0.156 & 0.039 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & aa\_mlp & 176 & 56 & True & 3 & 0.867 & 0.812 & 0.055 & -0.025 & 0.139 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm & 176 & 56 & True & 3 & 0.890 & 0.812 & 0.078 & -0.009 & 0.166 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm\_attn & 176 & 56 & True & 3 & 0.899 & 0.812 & 0.087 & 0.002 & 0.173 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & cnn & 176 & 56 & True & 3 & 0.822 & 0.812 & 0.010 & -0.077 & 0.097 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & gbm & 176 & 56 & True & 3 & 0.681 & 0.812 & -0.132 & -0.255 & -0.011 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & mlp & 176 & 56 & True & 3 & 0.913 & 0.812 & 0.101 & 0.020 & 0.182 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & transformer & 176 & 56 & True & 3 & 0.841 & 0.812 & 0.028 & -0.060 & 0.117 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & 176 & 56 & True & 3 & 0.903 & 0.812 & 0.091 & 0.018 & 0.167 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-structure & bilstm & 176 & 56 & True & 3 & 0.958 & 0.812 & 0.146 & 0.085 & 0.213 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & 176 & 56 & True & 3 & 0.955 & 0.812 & 0.143 & 0.082 & 0.210 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-structure & cnn & 176 & 56 & True & 3 & 0.881 & 0.812 & 0.069 & -0.005 & 0.147 & False \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-structure & gbm & 176 & 56 & True & 3 & 0.912 & 0.812 & 0.100 & 0.028 & 0.175 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & 176 & 56 & True & 3 & 0.939 & 0.812 & 0.126 & 0.062 & 0.195 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-structure & mlp & 176 & 56 & True & 3 & 0.950 & 0.812 & 0.138 & 0.075 & 0.205 & True \\
+MSH2 & train-clinvar\_\_drop-domains-genomic-structure & transformer & 176 & 56 & True & 3 & 0.889 & 0.812 & 0.077 & 0.000 & 0.157 & True \\
+MSH2 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & aa\_mlp & 176 & 56 & True & 3 & 0.563 & 0.812 & -0.249 & -0.350 & -0.145 & True \\
+MSH2 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm & 176 & 56 & True & 3 & 0.528 & 0.812 & -0.284 & -0.386 & -0.181 & True \\
+MSH2 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm\_attn & 176 & 56 & True & 3 & 0.643 & 0.812 & -0.169 & -0.270 & -0.068 & True \\
+MSH2 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & cnn & 176 & 56 & True & 3 & 0.521 & 0.812 & -0.291 & -0.380 & -0.197 & True \\
+MSH2 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & gbm & 176 & 56 & True & 3 & 0.399 & 0.812 & -0.413 & -0.522 & -0.299 & True \\
+MSH2 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & mlp & 176 & 56 & True & 3 & 0.419 & 0.812 & -0.393 & -0.502 & -0.279 & True \\
+MSH2 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & transformer & 176 & 56 & True & 3 & 0.733 & 0.812 & -0.079 & -0.178 & 0.019 & False \\
+MSH2 & train-clinvar\_expert & aa\_mlp & 176 & 56 & True & 3 & 0.896 & 0.812 & 0.084 & 0.024 & 0.147 & True \\
+MSH2 & train-clinvar\_expert & bilstm & 176 & 56 & True & 3 & 0.942 & 0.812 & 0.130 & 0.069 & 0.195 & True \\
+MSH2 & train-clinvar\_expert & bilstm\_attn & 176 & 56 & True & 3 & 0.943 & 0.812 & 0.131 & 0.072 & 0.195 & True \\
+MSH2 & train-clinvar\_expert & cnn & 176 & 56 & True & 3 & 0.912 & 0.812 & 0.100 & 0.042 & 0.163 & True \\
+MSH2 & train-clinvar\_expert & gbm & 176 & 56 & True & 3 & 0.887 & 0.812 & 0.075 & -0.006 & 0.156 & False \\
+MSH2 & train-clinvar\_expert & mlp & 176 & 56 & True & 3 & 0.950 & 0.812 & 0.138 & 0.077 & 0.205 & True \\
+MSH2 & train-clinvar\_expert & transformer & 176 & 56 & True & 3 & 0.842 & 0.812 & 0.030 & -0.053 & 0.116 & False \\
+MSH6 & train-clinvar & aa\_mlp & 78 & 31 & True & 3 & 0.916 & 0.852 & 0.064 & -0.006 & 0.139 & False \\
+MSH6 & train-clinvar & bilstm & 78 & 31 & True & 3 & 0.953 & 0.852 & 0.102 & 0.016 & 0.193 & True \\
+MSH6 & train-clinvar & bilstm\_attn & 78 & 31 & True & 3 & 0.954 & 0.852 & 0.102 & 0.021 & 0.191 & True \\
+MSH6 & train-clinvar & cnn & 78 & 31 & True & 3 & 0.925 & 0.852 & 0.073 & -0.004 & 0.158 & False \\
+MSH6 & train-clinvar & gbm & 78 & 31 & True & 3 & 0.989 & 0.852 & 0.137 & 0.066 & 0.219 & True \\
+MSH6 & train-clinvar & mlp & 78 & 31 & True & 3 & 0.957 & 0.852 & 0.105 & 0.027 & 0.190 & True \\
+MSH6 & train-clinvar & transformer & 78 & 31 & True & 3 & 0.921 & 0.852 & 0.069 & -0.017 & 0.159 & False \\
+MSH6 & train-clinvar+pg\_dms & aa\_mlp & 78 & 31 & True & 3 & 0.954 & 0.852 & 0.102 & 0.018 & 0.191 & True \\
+MSH6 & train-clinvar+pg\_dms & bilstm & 78 & 31 & True & 3 & 0.962 & 0.852 & 0.110 & 0.043 & 0.187 & True \\
+MSH6 & train-clinvar+pg\_dms & bilstm\_attn & 78 & 31 & True & 3 & 0.968 & 0.852 & 0.117 & 0.045 & 0.196 & True \\
+MSH6 & train-clinvar+pg\_dms & cnn & 78 & 31 & True & 3 & 0.910 & 0.852 & 0.059 & -0.031 & 0.157 & False \\
+MSH6 & train-clinvar+pg\_dms & gbm & 78 & 31 & True & 3 & 0.953 & 0.852 & 0.102 & 0.031 & 0.181 & True \\
+MSH6 & train-clinvar+pg\_dms & mlp & 78 & 31 & True & 3 & 0.963 & 0.852 & 0.111 & 0.046 & 0.186 & True \\
+MSH6 & train-clinvar+pg\_dms & transformer & 78 & 31 & True & 3 & 0.956 & 0.852 & 0.104 & 0.029 & 0.189 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & aa\_mlp & 78 & 31 & True & 3 & 0.725 & 0.852 & -0.127 & -0.184 & -0.074 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm & 78 & 31 & True & 3 & 0.806 & 0.852 & -0.046 & -0.080 & -0.015 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm\_attn & 78 & 31 & True & 3 & 0.833 & 0.852 & -0.019 & -0.059 & 0.023 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & cnn & 78 & 31 & True & 3 & 0.750 & 0.852 & -0.102 & -0.173 & -0.027 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & gbm & 78 & 31 & True & 3 & 0.847 & 0.852 & -0.005 & -0.053 & 0.042 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & transformer & 78 & 31 & True & 3 & 0.793 & 0.852 & -0.059 & -0.160 & 0.037 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & aa\_mlp & 78 & 31 & True & 3 & 0.513 & 0.852 & -0.339 & -0.463 & -0.217 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm & 78 & 31 & True & 3 & 0.654 & 0.852 & -0.198 & -0.313 & -0.080 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm\_attn & 78 & 31 & True & 3 & 0.682 & 0.852 & -0.170 & -0.288 & -0.051 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & cnn & 78 & 31 & True & 3 & 0.519 & 0.852 & -0.332 & -0.455 & -0.204 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & transformer & 78 & 31 & True & 3 & 0.726 & 0.852 & -0.126 & -0.241 & -0.014 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & aa\_mlp & 78 & 31 & True & 3 & 0.817 & 0.852 & -0.035 & -0.123 & 0.056 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm & 78 & 31 & True & 3 & 0.931 & 0.852 & 0.080 & -0.007 & 0.170 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm\_attn & 78 & 31 & True & 3 & 0.939 & 0.852 & 0.087 & 0.001 & 0.178 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & cnn & 78 & 31 & True & 3 & 0.709 & 0.852 & -0.142 & -0.258 & -0.027 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & gbm & 78 & 31 & True & 3 & 0.931 & 0.852 & 0.080 & 0.002 & 0.163 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & mlp & 78 & 31 & True & 3 & 0.969 & 0.852 & 0.117 & 0.043 & 0.201 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & transformer & 78 & 31 & True & 3 & 0.798 & 0.852 & -0.053 & -0.165 & 0.056 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & aa\_mlp & 78 & 31 & True & 3 & 0.848 & 0.852 & -0.004 & -0.088 & 0.082 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm & 78 & 31 & True & 3 & 0.898 & 0.852 & 0.047 & -0.061 & 0.153 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm\_attn & 78 & 31 & True & 3 & 0.913 & 0.852 & 0.062 & -0.040 & 0.164 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & cnn & 78 & 31 & True & 3 & 0.842 & 0.852 & -0.010 & -0.117 & 0.098 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & gbm & 78 & 31 & True & 3 & 0.932 & 0.852 & 0.081 & -0.005 & 0.171 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & mlp & 78 & 31 & True & 3 & 0.927 & 0.852 & 0.076 & -0.016 & 0.172 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & transformer & 78 & 31 & True & 3 & 0.888 & 0.852 & 0.036 & -0.070 & 0.141 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & 78 & 31 & True & 3 & 0.891 & 0.852 & 0.039 & -0.043 & 0.124 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & bilstm & 78 & 31 & True & 3 & 0.955 & 0.852 & 0.103 & 0.015 & 0.196 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & 78 & 31 & True & 3 & 0.961 & 0.852 & 0.109 & 0.018 & 0.204 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & cnn & 78 & 31 & True & 3 & 0.886 & 0.852 & 0.034 & -0.059 & 0.132 & False \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & gbm & 78 & 31 & True & 3 & 0.979 & 0.852 & 0.128 & 0.053 & 0.212 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & 78 & 31 & True & 3 & 0.980 & 0.852 & 0.128 & 0.053 & 0.213 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & mlp & 78 & 31 & True & 3 & 0.963 & 0.852 & 0.112 & 0.026 & 0.201 & True \\
+MSH6 & train-clinvar\_\_drop-domains-genomic-structure & transformer & 78 & 31 & True & 3 & 0.923 & 0.852 & 0.071 & -0.028 & 0.172 & False \\
+MSH6 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & aa\_mlp & 78 & 31 & True & 3 & 0.497 & 0.852 & -0.355 & -0.490 & -0.221 & True \\
+MSH6 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm & 78 & 31 & True & 3 & 0.533 & 0.852 & -0.319 & -0.460 & -0.173 & True \\
+MSH6 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm\_attn & 78 & 31 & True & 3 & 0.618 & 0.852 & -0.234 & -0.371 & -0.093 & True \\
+MSH6 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & cnn & 78 & 31 & True & 3 & 0.645 & 0.852 & -0.207 & -0.312 & -0.098 & True \\
+MSH6 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & gbm & 78 & 31 & True & 3 & 0.384 & 0.852 & -0.468 & -0.610 & -0.322 & True \\
+MSH6 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & mlp & 78 & 31 & True & 3 & 0.491 & 0.852 & -0.361 & -0.524 & -0.189 & True \\
+MSH6 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & transformer & 78 & 31 & True & 3 & 0.655 & 0.852 & -0.196 & -0.339 & -0.056 & True \\
+MSH6 & train-clinvar\_expert & aa\_mlp & 78 & 31 & True & 3 & 0.909 & 0.852 & 0.058 & -0.018 & 0.136 & False \\
+MSH6 & train-clinvar\_expert & bilstm & 78 & 31 & True & 3 & 0.927 & 0.852 & 0.075 & -0.009 & 0.164 & False \\
+MSH6 & train-clinvar\_expert & bilstm\_attn & 78 & 31 & True & 3 & 0.944 & 0.852 & 0.093 & 0.016 & 0.177 & True \\
+MSH6 & train-clinvar\_expert & cnn & 78 & 31 & True & 3 & 0.850 & 0.852 & -0.002 & -0.096 & 0.096 & False \\
+MSH6 & train-clinvar\_expert & gbm & 78 & 31 & True & 3 & 0.977 & 0.852 & 0.125 & 0.046 & 0.214 & True \\
+MSH6 & train-clinvar\_expert & mlp & 78 & 31 & True & 3 & 0.948 & 0.852 & 0.096 & 0.022 & 0.176 & True \\
+MSH6 & train-clinvar\_expert & transformer & 78 & 31 & True & 3 & 0.863 & 0.852 & 0.011 & -0.085 & 0.109 & False \\
+MSH6 & train-pg\_dms & aa\_mlp & 78 & 31 & True & 3 & 0.942 & 0.852 & 0.090 & 0.013 & 0.173 & True \\
+MSH6 & train-pg\_dms & bilstm & 78 & 31 & True & 3 & 0.924 & 0.852 & 0.072 & 0.001 & 0.151 & True \\
+MSH6 & train-pg\_dms & bilstm\_attn & 78 & 31 & True & 3 & 0.933 & 0.852 & 0.081 & 0.011 & 0.159 & True \\
+MSH6 & train-pg\_dms & cnn & 78 & 31 & True & 3 & 0.894 & 0.852 & 0.042 & -0.044 & 0.128 & False \\
+MSH6 & train-pg\_dms & gbm & 78 & 31 & True & 3 & 0.955 & 0.852 & 0.104 & 0.031 & 0.183 & True \\
+MSH6 & train-pg\_dms & mlp & 78 & 31 & True & 3 & 0.923 & 0.852 & 0.071 & 0.006 & 0.144 & True \\
+MSH6 & train-pg\_dms & transformer & 78 & 31 & True & 3 & 0.900 & 0.852 & 0.049 & -0.030 & 0.129 & False \\
+PMS2 & train-clinvar & aa\_mlp & 21 & 4 & False & 3 & 0.726 & 0.583 & 0.142 & -0.150 & 0.400 & False \\
+PMS2 & train-clinvar & bilstm & 21 & 4 & False & 3 & 0.971 & 0.583 & 0.387 & 0.034 & 0.850 & True \\
+PMS2 & train-clinvar & bilstm\_attn & 21 & 4 & False & 3 & 0.971 & 0.583 & 0.387 & 0.018 & 0.900 & True \\
+PMS2 & train-clinvar & cnn & 21 & 4 & False & 3 & 0.740 & 0.583 & 0.157 & -0.111 & 0.483 & False \\
+PMS2 & train-clinvar & gbm & 21 & 4 & False & 3 & 0.990 & 0.583 & 0.407 & 0.034 & 0.964 & True \\
+PMS2 & train-clinvar & mlp & 21 & 4 & False & 3 & 0.946 & 0.583 & 0.363 & -0.050 & 0.895 & False \\
+PMS2 & train-clinvar & transformer & 21 & 4 & False & 3 & 0.716 & 0.583 & 0.132 & -0.118 & 0.515 & False \\
+PMS2 & train-clinvar+pg\_dms & aa\_mlp & 21 & 4 & False & 3 & 0.853 & 0.583 & 0.270 & -0.185 & 0.965 & False \\
+PMS2 & train-clinvar+pg\_dms & bilstm & 21 & 4 & False & 3 & 0.907 & 0.583 & 0.324 & 0.033 & 0.825 & True \\
+PMS2 & train-clinvar+pg\_dms & bilstm\_attn & 21 & 4 & False & 3 & 0.887 & 0.583 & 0.304 & -0.056 & 0.900 & False \\
+PMS2 & train-clinvar+pg\_dms & cnn & 21 & 4 & False & 3 & 0.941 & 0.583 & 0.358 & -0.037 & 0.900 & False \\
+PMS2 & train-clinvar+pg\_dms & gbm & 21 & 4 & False & 3 & 0.951 & 0.583 & 0.368 & 0.034 & 0.789 & True \\
+PMS2 & train-clinvar+pg\_dms & mlp & 21 & 4 & False & 3 & 1.000 & 0.583 & 0.417 & 0.034 & 1.000 & True \\
+PMS2 & train-clinvar+pg\_dms & transformer & 21 & 4 & False & 3 & 0.809 & 0.583 & 0.226 & -0.333 & 0.845 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & aa\_mlp & 21 & 4 & False & 3 & 0.451 & 0.583 & -0.132 & -0.432 & 0.071 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm & 21 & 4 & False & 3 & 0.637 & 0.583 & 0.054 & -0.083 & 0.246 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & bilstm\_attn & 21 & 4 & False & 3 & 0.667 & 0.583 & 0.083 & -0.035 & 0.233 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & cnn & 21 & 4 & False & 3 & 0.505 & 0.583 & -0.078 & -0.267 & 0.100 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & gbm & 21 & 4 & False & 3 & 0.726 & 0.583 & 0.142 & 0.017 & 0.367 & True \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores & transformer & 21 & 4 & False & 3 & 0.554 & 0.583 & -0.029 & -0.350 & 0.294 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & aa\_mlp & 21 & 4 & False & 3 & 0.554 & 0.583 & -0.029 & -0.783 & 0.352 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm & 21 & 4 & False & 3 & 0.348 & 0.583 & -0.235 & -0.617 & 0.150 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & bilstm\_attn & 21 & 4 & False & 3 & 0.441 & 0.583 & -0.142 & -0.583 & 0.221 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & cnn & 21 & 4 & False & 3 & 0.779 & 0.583 & 0.196 & -0.053 & 0.632 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-prior\_scores-structure & transformer & 21 & 4 & False & 3 & 0.471 & 0.583 & -0.113 & -0.512 & 0.300 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & aa\_mlp & 21 & 4 & False & 3 & 0.686 & 0.583 & 0.103 & -0.483 & 0.617 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm & 21 & 4 & False & 3 & 0.691 & 0.583 & 0.108 & -0.267 & 0.602 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & bilstm\_attn & 21 & 4 & False & 3 & 0.853 & 0.583 & 0.270 & -0.117 & 0.756 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & cnn & 21 & 4 & False & 3 & 0.809 & 0.583 & 0.226 & -0.150 & 0.817 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & gbm & 21 & 4 & False & 3 & 0.892 & 0.583 & 0.309 & -0.017 & 0.783 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & mlp & 21 & 4 & False & 3 & 0.956 & 0.583 & 0.372 & 0.000 & 1.000 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-gnomad-structure & transformer & 21 & 4 & False & 3 & 0.559 & 0.583 & -0.025 & -0.407 & 0.439 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & aa\_mlp & 21 & 4 & False & 3 & 0.897 & 0.583 & 0.314 & -0.059 & 0.807 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm & 21 & 4 & False & 3 & 0.877 & 0.583 & 0.294 & -0.140 & 0.863 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & bilstm\_attn & 21 & 4 & False & 3 & 0.931 & 0.583 & 0.348 & -0.074 & 0.895 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & cnn & 21 & 4 & False & 3 & 0.814 & 0.583 & 0.230 & -0.058 & 0.683 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & gbm & 21 & 4 & False & 3 & 0.936 & 0.583 & 0.353 & -0.013 & 0.874 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & mlp & 21 & 4 & False & 3 & 0.882 & 0.583 & 0.299 & -0.130 & 0.824 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-prior\_scores-structure & transformer & 21 & 4 & False & 3 & 0.828 & 0.583 & 0.245 & -0.083 & 0.800 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-structure & aa\_mlp & 21 & 4 & False & 3 & 0.853 & 0.583 & 0.270 & -0.123 & 0.767 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-structure & bilstm & 21 & 4 & False & 3 & 0.961 & 0.583 & 0.378 & -0.033 & 1.000 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-structure & bilstm\_attn & 21 & 4 & False & 3 & 0.961 & 0.583 & 0.378 & -0.035 & 1.000 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-structure & cnn & 21 & 4 & False & 3 & 0.941 & 0.583 & 0.358 & 0.017 & 0.933 & True \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-structure & gbm & 21 & 4 & False & 3 & 1.000 & 0.583 & 0.417 & 0.034 & 1.000 & True \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-structure & gbm-es50 & 21 & 4 & False & 3 & 1.000 & 0.583 & 0.417 & 0.034 & 1.000 & True \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-structure & mlp & 21 & 4 & False & 3 & 0.941 & 0.583 & 0.358 & -0.083 & 1.000 & False \\
+PMS2 & train-clinvar\_\_drop-domains-genomic-structure & transformer & 21 & 4 & False & 3 & 0.907 & 0.583 & 0.324 & 0.018 & 0.850 & True \\
+PMS2 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & aa\_mlp & 21 & 4 & False & 3 & 0.363 & 0.583 & -0.221 & -0.883 & 0.154 & False \\
+PMS2 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm & 21 & 4 & False & 3 & 0.436 & 0.583 & -0.147 & -0.544 & 0.383 & False \\
+PMS2 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & bilstm\_attn & 21 & 4 & False & 3 & 0.559 & 0.583 & -0.025 & -0.444 & 0.400 & False \\
+PMS2 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & cnn & 21 & 4 & False & 3 & 0.618 & 0.583 & 0.034 & -0.267 & 0.550 & False \\
+PMS2 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & gbm & 21 & 4 & False & 3 & 0.265 & 0.583 & -0.319 & -0.895 & 0.328 & False \\
+PMS2 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & mlp & 21 & 4 & False & 3 & 0.618 & 0.583 & 0.034 & -0.439 & 0.579 & False \\
+PMS2 & train-clinvar\_\_drop-domains-gnomad-prior\_scores-structure & transformer & 21 & 4 & False & 3 & 0.456 & 0.583 & -0.128 & -0.567 & 0.333 & False \\
+PMS2 & train-clinvar\_expert & aa\_mlp & 21 & 4 & False & 3 & 0.765 & 0.583 & 0.181 & -0.017 & 0.444 & False \\
+PMS2 & train-clinvar\_expert & bilstm & 21 & 4 & False & 3 & 0.838 & 0.583 & 0.255 & 0.031 & 0.593 & True \\
+PMS2 & train-clinvar\_expert & bilstm\_attn & 21 & 4 & False & 3 & 0.922 & 0.583 & 0.338 & 0.033 & 0.719 & True \\
+PMS2 & train-clinvar\_expert & cnn & 21 & 4 & False & 3 & 0.750 & 0.583 & 0.167 & -0.049 & 0.492 & False \\
+PMS2 & train-clinvar\_expert & gbm & 21 & 4 & False & 3 & 0.995 & 0.583 & 0.412 & 0.034 & 0.950 & True \\
+PMS2 & train-clinvar\_expert & mlp & 21 & 4 & False & 3 & 0.956 & 0.583 & 0.372 & 0.017 & 0.867 & True \\
+PMS2 & train-clinvar\_expert & transformer & 21 & 4 & False & 3 & 0.770 & 0.583 & 0.186 & -0.093 & 0.600 & False \\
+PMS2 & train-pg\_dms & aa\_mlp & 21 & 4 & False & 3 & 0.686 & 0.583 & 0.103 & -0.247 & 0.633 & False \\
+PMS2 & train-pg\_dms & bilstm & 21 & 4 & False & 3 & 0.676 & 0.583 & 0.093 & -0.263 & 0.572 & False \\
+PMS2 & train-pg\_dms & bilstm\_attn & 21 & 4 & False & 3 & 0.608 & 0.583 & 0.025 & -0.392 & 0.561 & False \\
+PMS2 & train-pg\_dms & cnn & 21 & 4 & False & 3 & 0.627 & 0.583 & 0.044 & -0.370 & 0.567 & False \\
+PMS2 & train-pg\_dms & gbm & 21 & 4 & False & 3 & 0.966 & 0.583 & 0.382 & 0.033 & 0.900 & True \\
+PMS2 & train-pg\_dms & mlp & 21 & 4 & False & 3 & 0.824 & 0.583 & 0.240 & -0.037 & 0.667 & False \\
+PMS2 & train-pg\_dms & transformer & 21 & 4 & False & 3 & 0.618 & 0.583 & 0.034 & -0.433 & 0.600 & False \\
 \bottomrule
 \end{tabular}
-\caption{Paired difference: paired_main_train-clinvar__drop-domains-genomic-structure_mlp.}
-\label{tab:paired_main_train-clinvar__drop-domains-}
+\caption{Paired difference: paired_ablation_features_train-clinvar__drop-domains-genomic-gnomad-prior_scores_mlp.}
+\label{tab:paired_ablation_features_train-clinvar__}
 \end{table}

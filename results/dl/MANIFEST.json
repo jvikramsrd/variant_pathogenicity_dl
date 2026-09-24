@@ -2,54 +2,54 @@
   "artefacts": {
     "cells.csv": {
       "path": "results/dl/cells.csv",
-      "sha256": "ba15b941db2633c4403245a1a8f586e6c122981328cf55af45254b278cef0d63",
-      "bytes": 60202
+      "sha256": "b15f53ab4b73b10971f75c903c61ae56d2f13bed13ef44758a17f7b8b38dd969",
+      "bytes": 540810
     },
     "arms.csv": {
       "path": "results/dl/arms.csv",
-      "sha256": "e79da3323defd1a779f0132c96eb38a54db400ec4e3d56748567a8ef811bceea",
-      "bytes": 16400
+      "sha256": "0817c0983e77e322a21ccb136ff1fabe96a4e1f826f6e093df764c74669c7833",
+      "bytes": 144473
     },
     "paired_runs.csv": {
       "path": "results/dl/paired_runs.csv",
       "sha256": "3f66c283649d3843dfba661222fa825b94399ef7dccf6eb342b564e3ded93d51",
       "bytes": 3846
     },
-    "paired_main_train-clinvar__drop-domains-genomic-structure_mlp.csv": {
-      "path": "results/dl/paired_main_train-clinvar__drop-domains-genomic-structure_mlp.csv",
-      "sha256": "98d2fa992842d298d1a00a91556f3c692c08f913e3c0837a9c24d6fe60c11442",
-      "bytes": 4196
+    "paired_ablation_features_train-clinvar__drop-domains-genomic-gnomad-prior_scores_mlp.csv": {
+      "path": "results/dl/paired_ablation_features_train-clinvar__drop-domains-genomic-gnomad-prior_scores_mlp.csv",
+      "sha256": "2e012030724bc301be96bc2933916ab827c33a0336ab4b470196799442ff0f86",
+      "bytes": 36774
     },
-    "paired_main_train-clinvar__drop-domains-genomic-structure_mlp.png": {
-      "path": "results/dl/paired_main_train-clinvar__drop-domains-genomic-structure_mlp.png",
-      "sha256": "ee27b07aa9b1a5a2138efb5caa2c1d24af2c6bab42bfe26642b2fca683de3f7d",
-      "bytes": 64870
+    "paired_ablation_features_train-clinvar__drop-domains-genomic-gnomad-prior_scores_mlp.png": {
+      "path": "results/dl/paired_ablation_features_train-clinvar__drop-domains-genomic-gnomad-prior_scores_mlp.png",
+      "sha256": "f0c11faee1703ae9daac3f60950ad39212f46b4704e2ed0dfbcba1dc5ed0c532",
+      "bytes": 392850
     },
     "tables.md": {
       "path": "results/dl/tables.md",
-      "sha256": "1924edf8696fcccb585da6b73d27e29b6e40325424800ac93df14b648c946f3c",
-      "bytes": 16271
+      "sha256": "4255ba8c921e03b4581e9556494273f17f0906e0484660c1de4c9041a907b676",
+      "bytes": 146816
     },
     "tables.tex": {
       "path": "results/dl/tables.tex",
-      "sha256": "a0edfe7b0abf37b9a81bd3174e42c9ed3cec1e3c41525f8254f7cc329959c024",
-      "bytes": 11444
+      "sha256": "ce3cf1c25089804efbc2ec8f1058f7995232964daadee5e5383e6eb7ef3e7a6e",
+      "bytes": 90551
     },
     "checks.json": {
       "path": "results/dl/checks.json",
-      "sha256": "03be7a5fc976b5a866cd747549982febf1a51d01c08ca86ac2920f80914e4113",
-      "bytes": 720
+      "sha256": "141c42994eff3e65c3535a02b562a865d7e3abfd440bac40b89ea852507d234e",
+      "bytes": 806
     },
     "environment.json": {
       "path": "results/dl/environment.json",
-      "sha256": "6a9945728ee4b5d3d2197a00d7fba7ca8eedb1681ba60ebff167c5adbfae34a1",
-      "bytes": 1932
+      "sha256": "7ececd43d418a644cb80c034801e7c0dff4360f0b7163ff99629f75d546af5db",
+      "bytes": 2077
     }
   },
   "meta": {
     "kind": "dl-results",
     "runs_root": "runs/dl",
     "citable": true,
-    "n_cells": 24
+    "n_cells": 207
   }
 }
