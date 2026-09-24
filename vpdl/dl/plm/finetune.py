@@ -224,6 +224,9 @@ class PLMFinetuneClassifier:
             grad_accum=h["grad_accum"], warmup_frac=h["warmup_frac"], schedule="cosine",
             precision=h["precision"], compile=h["compile"],
             checkpoint_dir=h["checkpoint_dir"], resume=h["resume"],
+            # As in vpdl.dl.pretrain.run: store what trains (LoRA/adapters/unfrozen layers/head),
+            # not two copies of the frozen backbone per epoch.
+            checkpoint_trainable_only=True,
             extra={"peft": self.peft_summary["strategy"], "context": self.context,
                    "backbone": self.backbone.spec.name}),
             seed=self.seed, param_groups=groups, run_name=f"plm-{self.backbone.spec.name}")

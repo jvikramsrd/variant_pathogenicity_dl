@@ -30,7 +30,12 @@ def predict_documents(model, tensors: TaskTensors, indices: np.ndarray, device, 
             embeddings.append(out["embedding"].float().cpu().numpy())
             text.append(out["text_embedding"].float().cpu().numpy())
             if "acmg_logits" in out:
-                acmg.append(torch.sigmoid(out["acmg_logits"].float()).cpu().numpy())
+                # A code the gene's specification excludes is not "met", whatever the head says:
+                # the same mask the training loss applies (vpdl.slm.text.acmg.applicability_mask).
+                probs = torch.sigmoid(out["acmg_logits"].float())
+                if "acmg_applicable" in batch:
+                    probs = probs * batch["acmg_applicable"].float()
+                acmg.append(probs.cpu().numpy())
     empty = np.zeros((0, 0), dtype=np.float32)
     result = {"logits": np.concatenate(logits) if logits else empty,
               "embedding": np.concatenate(embeddings) if embeddings else empty,
@@ -58,8 +63,13 @@ def predict_units(model, units: UnitTensors, indices: np.ndarray, device, batch_
 
 
 def mc_dropout_samples(model, tensors: TaskTensors, indices: np.ndarray, device, samples: int = 20,
-                       batch_size: int = 64, seed: int = 0) -> np.ndarray:
-    """[S, N, 5] probabilities with dropout active (weights unchanged, RNG restored after)."""
+                       batch_size: int = 64, seed: int = 0, transform=None) -> np.ndarray:
+    """[S, N, 5] probabilities with dropout active (weights unchanged, RNG restored after).
+
+    `transform` maps one draw's logits to probabilities — pass the fitted
+    calibrator's ``transform`` so the draws are on the calibrated scale; the
+    default is a plain softmax.
+    """
     import torch
     state = torch.get_rng_state()
     torch.manual_seed(seed)
@@ -72,7 +82,7 @@ def mc_dropout_samples(model, tensors: TaskTensors, indices: np.ndarray, device,
                 for start in range(0, len(indices), batch_size):
                     out = model(**to_batch(tensors, indices[start:start + batch_size], device))
                     logits.append(out["class_logits"].float().cpu().numpy())
-                draws.append(_softmax(np.concatenate(logits)))
+                draws.append((transform or _softmax)(np.concatenate(logits)))
     finally:
         model.eval()
         torch.set_rng_state(state)

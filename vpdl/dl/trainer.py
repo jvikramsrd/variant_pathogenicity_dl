@@ -80,6 +80,20 @@ class TrainConfig:
     checkpoint_trainable_only: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        # A typo such as batch_size = 0 used to be clamped to 1 silently — a different run
+        # from the one configured. Invalid values are refused instead.
+        import numbers
+
+        for name in ("epochs", "patience", "batch_size", "grad_accum", "keep_last"):
+            value = getattr(self, name)
+            if not isinstance(value, numbers.Integral) or isinstance(value, bool) or value < 1:
+                raise ValueError(f"TrainConfig.{name} must be a positive integer, got {value!r}")
+        if not 0.0 <= float(self.warmup_frac) < 1.0:
+            raise ValueError(f"TrainConfig.warmup_frac must be in [0, 1), got {self.warmup_frac!r}")
+        if self.schedule not in ("cosine", "constant"):
+            raise ValueError(f"TrainConfig.schedule must be cosine or constant, got {self.schedule!r}")
+
     def identity(self) -> str:
         """Hash of every field a resume must agree on."""
         payload = {k: v for k, v in asdict(self).items() if k not in _RESUME_MUTABLE}

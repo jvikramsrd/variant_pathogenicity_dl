@@ -12,7 +12,7 @@ branch's commands, which this work does not touch.
     zeroshot     masked-marginal / wild-type-marginal scores -> feature store
     corpus       MMR pretraining corpus (strict per-fold or transductive)
     pretrain     continued / variant-aware pretraining arm P0-P4
-    train        one DL cell through vpdl.experiment.run_cell (same protocol)
+    train        one DL cell through vpdl.experiment.run_cell (same protocol; --dry-run)
     calibrate    fit calibrators on inner-validation predictions, apply, report
     functional   independent functional validation of held-out-gene scores
     failure      failure-analysis report
@@ -425,6 +425,11 @@ def cmd_embed(args) -> int:
                 "dataset_version": _dataset_version(args.data), "policy": args.policy,
                 "local_radius": args.radius, "layer": args.layer, "rows": args.rows,
                 "pretrain_arm": args.arm, "adaptation": adaptation}
+    if args.dtype != "float16":
+        # Stored precision is part of what the entry holds: without this a float16 entry was
+        # "reused" for a float32 request. float16 (the default) stays out of the identity so
+        # every existing entry keeps its key.
+        identity["dtype"] = args.dtype
     family = "esm1b" if backbone.spec.name == "esm1b" else "esm2"
     tag = f"{backbone.spec.name}@{args.arm}" + (f"-{args.fold}" if args.fold else "")
     store = FeatureStore(args.store)
@@ -685,6 +690,75 @@ def _run_train_cell(job: dict) -> dict:
     return summary
 
 
+def _dry_run_train(args, jobs: list[dict]) -> int:
+    """``vpdl-dl train --dry-run``: what a cell checks before training, and nothing after.
+
+    Reads the table and sequences, resolves labels and the feature schema, builds
+    the folds, runs the same leakage gate as run_cell (exit 3 on a critical
+    finding) and constructs each requested model. Trains nothing, writes nothing,
+    downloads nothing — so ``plm_finetune`` is not constructed (that loads a
+    backbone); its sequences are checked instead.
+    """
+    from vpdl.dl.leakage import LeakageError, leakage_gate
+    from vpdl.dl.splits import describe_folds, make_folds
+    from vpdl.experiment import (FRAME_MODELS, MATRIX_WIDTH_MODELS, SEQUENCE_WINDOW_MODELS,
+                                 CellConfig)
+    from vpdl.models import build_model
+
+    table = _table(args.data)
+    eval_column = f"label__{args.eval_source}"
+    if eval_column not in table.columns:
+        print(f"dry run: {args.data} has no {eval_column} column", file=sys.stderr)
+        return 2
+    work = _work(table, args.train_sources, args.eval_source)
+    columns = _columns(table, _drop_for(args.modalities, args.drop_groups), args.allow_proxy_leak)
+    needs_sequences = any(job["model"] in SEQUENCE_WINDOW_MODELS | FRAME_MODELS for job in jobs)
+    sequences = _sequences(args) if needs_sequences else {}
+    missing = sorted(set(work["uniprot_id"]) - set(sequences)) if needs_sequences else []
+    folds = make_folds(work, args.split, seed=args.seeds[0])
+    report: dict[str, Any] = {
+        "dry_run": True, "trained": False, "data": args.data,
+        "dataset_sha256": _dataset_version(args.data), "rows_with_a_label": int(len(work)),
+        "feature_columns": len(columns), "split": args.split,
+        "folds": describe_folds(work, folds).to_dict("records"),
+        "sequences_missing_for": missing, "out": args.out,
+        "out_has_previous_results": bool(Path(args.out).exists()
+                                         and any(Path(args.out).glob("summary_*.json"))),
+    }
+    try:
+        gate = leakage_gate(work, folds, args.split, columns, args.train_sources, args.eval_source)
+        report["leakage"] = {"critical": 0, "warnings": [f.message for f in gate.findings
+                                                         if f.severity == "warning"]}
+    except LeakageError as error:
+        report["leakage"] = {"critical": str(error)}
+        print(json.dumps(report, indent=2, default=str))
+        return 3
+    cells = []
+    for job in jobs:
+        config = CellConfig(
+            sources=tuple(job["sources"]), train_sources=tuple(job["train_sources"]),
+            eval_source=job["eval_source"], model=job["model"], seed=job["seed"],
+            drop_groups=tuple(job["drop_groups"]), allow_proxy_leak=job["allow_proxy_leak"],
+            n_bootstrap=job["n_bootstrap"], model_kwargs=job["model_kwargs"],
+            split=job["split"], embedding_blocks=tuple(job["embedding_blocks"]),
+            score_rows=job["score_rows"], tag=job["tag"])
+        entry = {"cell": config.slug, "model": job["model"], "seed": job["seed"]}
+        if job["model"] in FRAME_MODELS:
+            entry["constructed"] = "skipped: would load a pretrained backbone"
+        else:
+            width = {"n_tabular_features": len(columns)} if job["model"] in SEQUENCE_WINDOW_MODELS \
+                else {"n_features": len(columns)} if job["model"] in MATRIX_WIDTH_MODELS else {}
+            build_model(job["model"], seed=job["seed"], split_index=folds[0].name if folds else "0",
+                        **width, **job["model_kwargs"])
+            entry["constructed"] = True
+        if job["embedding_blocks"]:
+            entry["note"] = "embedding blocks are resolved from the feature store at train time"
+        cells.append(entry)
+    report["cells"] = cells
+    print(json.dumps(report, indent=2, default=str))
+    return 2 if missing else 0
+
+
 def cmd_train(args) -> int:
     """Train every requested (model, seed) cell; ``--jobs N`` runs N at once.
 
@@ -696,6 +770,8 @@ def cmd_train(args) -> int:
     import os
 
     jobs = _train_jobs(args)
+    if getattr(args, "dry_run", False):
+        return _dry_run_train(args, jobs)
     workers = max(1, min(int(args.jobs), len(jobs)))
     if "plm_finetune" in args.model and workers > 1:
         logger.warning("%d parallel plm_finetune cells each hold a full backbone on the GPU; "
@@ -1091,6 +1167,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--store", default="features")
     p.add_argument("--export-dir", default=None, dest="export_dir")
     p.add_argument("--out", default="runs/dl")
+    p.add_argument("--dry-run", action="store_true", dest="dry_run",
+                   help="check table, folds, leakage gate and model construction; train nothing, "
+                        "write nothing")
 
     p = command("calibrate", cmd_calibrate, "calibrate on inner-validation predictions")
     p.add_argument("--runs", required=True)

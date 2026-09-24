@@ -72,7 +72,7 @@ def measure_variant_summary(path: Path | str, limit: int | None = None) -> dict[
         if limit and n >= limit:
             break
     return {
-        "path": str(path), "sha256": sha256_file(path), "bytes": Path(path).stat().st_size,
+        "path": Path(path).as_posix(), "sha256": sha256_file(path), "bytes": Path(path).stat().st_size,
         "variants": n, "reader_counts": dict(stats),
         "genes": len(genes), "diseases_distinct_ids": len(diseases),
         "top_genes": _top(genes), "top_diseases": _top(diseases),
@@ -103,7 +103,7 @@ def inventory(root: Path | str = ".", variant_summary_limit: int | None = None,
         for folder in (raw, raw / "clinvar"):
             path = folder / name
             if path.exists():
-                clinvar[name] = {"path": str(path), "bytes": path.stat().st_size}
+                clinvar[name] = {"path": path.as_posix(), "bytes": path.stat().st_size}
     found["clinvar_files"] = clinvar
     missing = [n for n in ("submission_summary.txt.gz", "var_citations.txt") if not any(
         k.startswith(n.split(".")[0]) for k in clinvar)]
@@ -136,7 +136,7 @@ def inventory(root: Path | str = ".", variant_summary_limit: int | None = None,
             "title": meta.get("title"),
             "target": ((meta.get("targetGenes") or [{}])[0] or {}).get("name"),
             "rows": sum(1 for _ in scores.open(encoding="utf-8")) - 1 if scores.exists() else None,
-            "publications": publications, "path": str(path.parent)}
+            "publications": publications, "path": path.parent.as_posix()}
     found["mavedb"] = mavedb
 
     mmr = root / "data" / "mmr" / "processed"

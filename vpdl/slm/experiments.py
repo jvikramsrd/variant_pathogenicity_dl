@@ -126,7 +126,11 @@ EXPERIMENTS: tuple[Experiment, ...] = (
     _e("EXP-017", "+ teacher distillation", "does a local teacher's labelling help?", "H5", "variant",
        "EXP-014 + qwen3:32b labels", config="exp017_teacher.toml",
        command="vpdl-slm teacher --examples ... && " + _BASE.format(config="exp017_teacher.toml"),
-       depends_on=("EXP-014",)),
+       depends_on=("EXP-014",),
+       notes="NOT RUNNABLE YET: there is no `vpdl-slm teacher` command and nothing writes "
+             "teacher_units.parquet from vpdl.slm.teacher's records (audit 2026-09-24). "
+             "Distillation here means training the evidence heads on filtered teacher labels "
+             "(hard labels); there is no soft-label / KL loss."),
     _e("EXP-018", "+ DL representation", "complementary biology from the DL branch", "H7", "variant",
        "EXP-014 + DLRepresentation", config="exp018_dl.toml",
        command=_BASE.format(config="exp018_dl.toml"), depends_on=("EXP-014",),

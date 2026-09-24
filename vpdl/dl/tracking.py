@@ -10,6 +10,7 @@ JSON object per line) with:
     dataset_version  sha256 of the table read
     feature_version  feature-store entries read
     model_version    backbone + checkpoint identity
+    command          the command line that ran
     config, seed, hardware (vpdl.device), metrics, checkpoint, timings
 
 The registry never replaces per-cell artefacts (results/predictions/summary);
@@ -21,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
+import sys
 import time
 import uuid
 from datetime import datetime, timezone
@@ -57,11 +59,14 @@ def run_record(kind: str, config: Mapping[str, Any], seed: int | None = None,
         "kind": kind,
         "git_commit": git.get("commit"), "git_dirty": git.get("dirty"),
         "git_dirty_paths": git.get("dirty_paths"),
-        "dataset_path": str(dataset_path) if dataset_path else None,
+        "dataset_path": Path(dataset_path).as_posix() if dataset_path else None,
         "dataset_version": dataset_version,
         "feature_version": feature_version,
         "model_version": model_version,
         "config": dict(config), "seed": seed,
+        # The process's command line (a pool worker inherits its parent's). Not part of
+        # experiment_id: the same config typed two ways is still the same experiment.
+        "command": list(sys.argv),
         "hardware": detect().as_dict(),
         "platform": {"machine": platform.machine(), "python": platform.python_version()},
         "versions": _library_versions(),

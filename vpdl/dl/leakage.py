@@ -302,7 +302,11 @@ def run_checks(work: pd.DataFrame, folds: Sequence[Fold], scheme: str,
                validating_functional: bool = False,
                functional_keys: Iterable[str] = (),
                full: bool = True) -> LeakageReport:
-    """All checks. `full=False` runs only the cheap ones that can be critical."""
+    """All checks. `full=False` runs only the cheap ones that can be critical.
+
+    The label-proxy check (landmine L2: a feature that IS the label) is cheap — one
+    agreement score per column — and can be critical, so it runs in both modes.
+    """
     report = LeakageReport(scheme)
     report.add(check_exact_duplicates(work), *check_hgvs_duplicates(work))
     report.add(*check_split_isolation(work, folds, scheme))
@@ -310,8 +314,8 @@ def run_checks(work: pd.DataFrame, folds: Sequence[Fold], scheme: str,
                                          validating_functional, functional_keys))
     report.add(*check_derived_feature_leakage(work, feature_columns, train_sources,
                                               scheme, eval_source))
+    report.add(*check_feature_leakage(work, feature_columns))
     if full:
-        report.add(*check_feature_leakage(work, feature_columns))
         if sequences:
             report.add(check_protein_duplicates(sequences))
             report.add(*check_sequence_similarity(work, folds, sequences))

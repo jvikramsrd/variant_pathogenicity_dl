@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from conftest import PANEL, assembled_table, clinvar_record
+from dl_helpers import PANEL, assembled_table, clinvar_record
 
 
 # -- HGVS / identity ------------------------------------------------------------------
@@ -163,7 +163,7 @@ def test_concordant_multi_records_keep_the_label_and_count(table, sequences):
 
 
 def test_pms2_homology_region_is_withheld_unless_confirmed():
-    from conftest import random_sequences
+    from dl_helpers import random_sequences
 
     sequences = random_sequences(length=900)
     table = assembled_table(sequences, per_position=1)

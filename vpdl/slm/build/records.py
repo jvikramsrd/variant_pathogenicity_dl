@@ -82,7 +82,7 @@ def _file_identity(path: Path | str | None) -> dict[str, Any] | None:
         return None
     from vpdl.slm.build.inventory import sha256_file
     path = Path(path)
-    return {"path": str(path), "bytes": path.stat().st_size, "sha256": sha256_file(path)}
+    return {"path": path.as_posix(), "bytes": path.stat().st_size, "sha256": sha256_file(path)}
 
 
 def _document_record(submission: Mapping[str, Any], variant_gene: str | None,

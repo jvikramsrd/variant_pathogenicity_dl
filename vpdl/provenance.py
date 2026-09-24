@@ -177,7 +177,7 @@ def write_manifest(
     for artefact in artefacts:
         artefact = Path(artefact)
         manifest.artefacts[artefact.name] = {
-            "path": str(artefact),
+            "path": artefact.as_posix(),        # "/" on every OS: verifiable on the other one
             "sha256": file_sha256(artefact),
             "bytes": artefact.stat().st_size,
         }

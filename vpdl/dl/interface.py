@@ -186,9 +186,17 @@ def read_dl_outputs(jsonl: Path | str) -> list[DLRepresentation]:
         validate_dl_record(record)
         embedding = record["embedding"]
         if isinstance(embedding, dict):
-            array = cache.setdefault(embedding["file"],
-                                     np.load(jsonl.parent / embedding["file"], mmap_mode="r"))
-            embedding = np.asarray(array[embedding["row"]])
+            if embedding["file"] not in cache:
+                cache[embedding["file"]] = np.load(jsonl.parent / embedding["file"], mmap_mode="r")
+            # A copy, not a view: a view keeps the .npy memory-mapped (on Windows the file then
+            # cannot be replaced or deleted) for as long as any representation is alive.
+            embedding = np.array(cache[embedding["file"]][record["embedding"]["row"]],
+                                 dtype=np.float32, copy=True)
+            # The validator checks inline embeddings; a referenced row is checked here.
+            if embedding.shape[0] != record["embedding_dim"] or not np.isfinite(embedding).all():
+                raise ValueError(f"{record['variant_id']}: embedding row "
+                                 f"{record['embedding']['row']} of {record['embedding']['file']} "
+                                 "has the wrong width or non-finite values")
         meta = dict(record.get("metadata") or {})
         meta.update({k: record[k] for k in ("gene", "model_version", "feature_version",
                                             "dataset_version", "fold", "uncertainty_method")})

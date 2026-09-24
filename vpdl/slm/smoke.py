@@ -125,10 +125,12 @@ def run_smoke(out_dir: str | None = None, seed: int = 7, keep: bool = False) -> 
             tasks=("classify", "evidence", "acmg"), embedding_dim=32,
             train={"epochs": 1, "batch_size": 4, "lr": 1e-3, "patience": 1},
             seed=seed, mc_samples=2, cache_dir=str(root / "cache"))
-        steps["finetune_dry_run"] = {k: v for k, v in run_finetune(finetune_config, dry_run=True).items()
-                                     if k in ("finite_loss", "probs_shape", "embedding_dim",
-                                              "checkpoint_roundtrip_identical", "precision")}
         try:
+            # Both calls inside the try: a failing dry run must not leave the module pointing
+            # at this (soon deleted) temporary registry for the rest of the process.
+            steps["finetune_dry_run"] = {k: v for k, v in run_finetune(finetune_config, dry_run=True).items()
+                                         if k in ("finite_loss", "probs_shape", "embedding_dim",
+                                                  "checkpoint_roundtrip_identical", "precision")}
             result = run_finetune(finetune_config)
         finally:
             finetune_module.REGISTRY = real_registry

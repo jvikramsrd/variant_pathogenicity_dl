@@ -86,12 +86,16 @@ def population_shortcut(predictions: pd.DataFrame, table: pd.DataFrame) -> pd.Da
 
 
 def overfitting(predictions: pd.DataFrame, valpreds: pd.DataFrame) -> pd.DataFrame:
+    # Under logo, valpreds' "gene" holds the fold's held-out gene; under family and the other
+    # schemes it holds each row's own (training-side) gene and both files carry "fold" — the
+    # key `vpdl-dl calibrate` already matches on. Matching on "gene" there found no rows.
+    key = "fold" if "fold" in predictions.columns and "fold" in valpreds.columns else "gene"
     rows = []
-    for gene, test in predictions.groupby("gene"):
-        val = valpreds[valpreds["gene"] == gene]
+    for name, test in predictions.groupby(key):
+        val = valpreds[valpreds[key] == name]
         test_auc, val_auc = roc_auc(test["label"], test["score"]), roc_auc(val["label"],
                                                                           val["score"])
-        rows.append({"gene": gene, "inner_val_auc": val_auc, "heldout_auc": test_auc,
+        rows.append({key: name, "inner_val_auc": val_auc, "heldout_auc": test_auc,
                      "gap": val_auc - test_auc})
     return pd.DataFrame(rows)
 

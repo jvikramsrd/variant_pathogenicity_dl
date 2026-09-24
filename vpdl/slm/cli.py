@@ -233,6 +233,12 @@ def cmd_leakage(args) -> int:
 
 def cmd_pretrain_corpus(args) -> int:
     from vpdl.slm.build.pretrain_corpus import build_pretrain_corpus
+    if not args.exclusions and not args.no_exclusions:
+        # Without the exclusion list, evaluation narratives and the publications cited for
+        # evaluation variants go into pretraining text. Opting out must be explicit.
+        print("pretrain-corpus: pass --exclusions (from `vpdl-slm roles`), or --no-exclusions to "
+              "build an unfiltered corpus on purpose (never for a reported run)", file=sys.stderr)
+        return 2
     exclusions = json.loads(Path(args.exclusions).read_text()) if args.exclusions else None
     training_documents = None
     if args.split:
@@ -294,11 +300,13 @@ def cmd_finetune(args) -> int:
         overrides["out_dir"] = args.out_dir
     if args.seed is not None:
         overrides["seed"] = args.seed
-    if args.batch_size or args.lr or args.epochs:
+    typed = {k: v for k, v in (("batch_size", args.batch_size), ("lr", args.lr),
+                               ("epochs", args.epochs)) if v is not None}
+    if typed:
+        # `is not None`, not truthiness: `--lr 0` is a value the user typed, not "unset".
         from vpdl.slm.config import load_toml
         train = dict(load_toml(args.config).get("finetune", {}).get("train", {}))
-        train |= {k: v for k, v in (("batch_size", args.batch_size), ("lr", args.lr),
-                                    ("epochs", args.epochs)) if v}
+        train |= typed
         overrides["train"] = train
     if args.seed is not None and not args.out_dir:
         # Three seeds of one arm must not overwrite each other's run directory.
@@ -352,7 +360,9 @@ def cmd_evaluate(args) -> int:
     from vpdl.slm.evaluation.uncertainty import evaluate_uncertainty
     from vpdl.slm.schema import CLASSES
     predictions = pd.read_parquet(args.predictions)
-    examples = pd.read_parquet(args.examples)[["example_id", "target_label", "target_binary", "gene"]]
+    examples = pd.read_parquet(args.examples)
+    examples = examples[[c for c in ("example_id", "variant_id", "target_label", "target_binary", "gene")
+                         if c in examples.columns]]
     merged = predictions.merge(examples, on="example_id", how="left")
     probs = merged[[f"p_{c}" for c in CLASSES]].to_numpy()
     lookup = {name: i for i, name in enumerate(CLASSES)}
@@ -375,10 +385,18 @@ def cmd_evaluate(args) -> int:
         new = pd.read_parquet(args.vus_new)
         outcomes = reclassification_outcomes(old, new)
         scores = vus_scores(probs)
-        joined = merged.assign(priority=scores["priority"]).merge(
-            outcomes, left_on="variant_id" if "variant_id" in merged else "example_id",
-            right_on="variant_id", how="inner")
+        if "variant_id" not in merged:
+            raise SystemExit(f"{args.examples} has no variant_id column: VUS outcomes are per variant "
+                             "and cannot be joined to documents")
+        # One priority per variant (a variant has several documents), then the outcome join.
+        per_variant = (merged.assign(priority=scores["priority"])
+                       .groupby("variant_id", as_index=False)["priority"].mean())
+        joined = per_variant.merge(outcomes, on="variant_id", how="inner")
         out["vus_reclassification"] = ranking_metrics(joined["priority"], joined["outcome"])
+        out["vus_reclassification"]["variants_joined"] = int(len(joined))
+        if joined.empty:
+            print("VUS reclassification: no predicted variant is a VUS of the old release",
+                  file=sys.stderr)
     _print(out, args.out)
     return 0
 
@@ -405,15 +423,21 @@ def cmd_embed(args) -> int:
         probabilities = {c: float(getattr(record, f"p_{c}")) for c in CLASSES}
         example = examples.loc[record.example_id] if record.example_id in examples.index else None
         variant_id = str(example["variant_id"]) if example is not None else str(record.example_id)
+        entropy = float(getattr(record, "entropy", float("nan")))
         representations.append(SLMRepresentation(
             variant_id=variant_id, embedding=embeddings[row],
             score=probabilities["pathogenic"] + probabilities["likely_pathogenic"],
-            uncertainty=float(getattr(record, "entropy", float("nan"))),
+            uncertainty=entropy if np.isfinite(entropy) else None,
             metadata={"gene": str(example["gene"]) if example is not None else "",
                       "model_version": args.model_version, "feature_version": args.feature_version,
                       "dataset_version": args.dataset_version, "split": str(record.split),
-                      "uncertainty_method": "predictive_entropy"},
-            class_probabilities=probabilities))
+                      "uncertainty_method": "predictive_entropy" if np.isfinite(entropy) else None},
+            class_probabilities=probabilities,
+            # This export carries probabilities and embeddings only. Empty acmg/evidence/
+            # explanation fields mean "not produced by this path", not "no evidence found".
+            quality_flags=["acmg_not_exported", "evidence_not_exported",
+                           "explanation_not_exported"]
+                          + ([] if np.isfinite(entropy) else ["uncertainty_missing"])))
     paths = write_slm_outputs(representations, args.out, name=args.name)
     _print({k: str(v) for k, v in paths.items()} | {"records": len(representations)})
     return 0
@@ -548,7 +572,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--kb", default=None, help="data/kb (knowledge-base passages)")
     p.add_argument("--pubmed", default=None, help="data/raw/pubmed")
     p.add_argument("--records", default=None)
-    p.add_argument("--exclusions", default=None)
+    p.add_argument("--exclusions", default=None, help="pretrain_exclusions.json from `vpdl-slm roles`")
+    p.add_argument("--no-exclusions", action="store_true", dest="no_exclusions",
+                   help="build without the exclusion list (unfiltered; not for reported runs)")
     p.add_argument("--split", default=None, help="a split, to take TRAINING documents from")
     p.add_argument("--include-narratives", action="store_true")
     p.add_argument("--limit-files", type=int, default=None)

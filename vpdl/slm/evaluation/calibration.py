@@ -110,6 +110,9 @@ def fit_calibrator(method: str, logits: np.ndarray, y: Sequence[int], split: Seq
         raise ValueError(f"unknown calibrator {method!r}; known {sorted(MULTICLASS)}")
     y = np.asarray(y)
     keep = y >= 0
+    if not keep.any():
+        # Fitting on nothing would return the search bound (T = 20) as if it were a result.
+        raise ValueError("calibration needs labelled validation rows; none were given")
     calibrator = MULTICLASS[method]().fit(np.asarray(logits)[keep], y[keep])
     calibrator.fitted_on = ",".join(sorted(set(split)))
     return calibrator

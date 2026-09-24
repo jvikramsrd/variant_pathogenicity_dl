@@ -34,7 +34,7 @@ from typing import Any, Iterable, Mapping, Sequence
 from vpdl.slm.schema import as_list
 
 __all__ = ["TeacherConfig", "TeacherRecord", "build_prompt", "prompts_for", "parse_output",
-           "filter_outputs", "run_teacher", "TEACHER_SYSTEM_PROMPT"]
+           "filter_outputs", "run_teacher", "unit_problems", "TEACHER_SYSTEM_PROMPT"]
 
 TEACHER_SYSTEM_PROMPT = """You label clinical-genetics evidence for a research dataset.
 
@@ -150,6 +150,42 @@ def parse_output(raw: str) -> tuple[dict[str, Any] | None, str | None]:
     return parsed, None
 
 
+def unit_problems(parsed: Mapping[str, Any], evidence: Mapping[str, Any]) -> list[str]:
+    """What is wrong with the answer's ``units`` list: ids never given, labels outside the vocabulary.
+
+    The summary's grounding check does not look at the units, and the units are what
+    would train the evidence heads, so they are checked on their own.
+    """
+    from vpdl.slm.text.evidence import EVIDENCE_TYPES, POLARITIES
+
+    units = parsed.get("units")
+    if not isinstance(units, list):
+        return ["'units' is not a list"]
+    problems = []
+    for unit in units:
+        if not isinstance(unit, Mapping):
+            problems.append(f"unit {unit!r} is not an object")
+            continue
+        if unit.get("id") not in evidence:
+            problems.append(f"unit id {unit.get('id')!r} was not given")
+        unknown = [t for t in as_list(unit.get("types")) if t not in EVIDENCE_TYPES]
+        if unknown:
+            problems.append(f"unit {unit.get('id')!r}: unknown evidence types {unknown}")
+        if unit.get("polarity") is not None and unit.get("polarity") not in POLARITIES:
+            problems.append(f"unit {unit.get('id')!r}: unknown polarity {unit.get('polarity')!r}")
+    return problems
+
+
+def _confidence(parsed: Mapping[str, Any] | None) -> float | None:
+    """The answer's own confidence, or None when it is absent or not a number in [0, 1]."""
+    value = (parsed or {}).get("confidence")
+    try:
+        value = float(value)
+    except (TypeError, ValueError):
+        return None
+    return value if 0.0 <= value <= 1.0 else None
+
+
 def filter_outputs(records: Sequence[TeacherRecord], config: TeacherConfig) -> dict[str, Any]:
     kept, counts = [], {"parsed": 0, "grounded": 0, "confident": 0, "kept": 0, "total": len(records)}
     for record in records:
@@ -159,7 +195,8 @@ def filter_outputs(records: Sequence[TeacherRecord], config: TeacherConfig) -> d
         if not record.grounded:
             continue
         counts["grounded"] += 1
-        if record.confidence is not None and record.confidence < config.min_confidence:
+        # No stated confidence cannot pass a confidence threshold.
+        if record.confidence is None or record.confidence < config.min_confidence:
             continue
         counts["confident"] += 1
         kept.append(record)
@@ -182,6 +219,12 @@ def run_teacher(prompts: Sequence[Mapping[str, Any]], config: TeacherConfig,
             note = reason
     if client is None:
         from vpdl.kb.ollama import LocalOllama
+        if config.temperature != 0.0 or config.seed != 0:
+            # LocalOllama always sends temperature 0 and seed 0; accepting other values would
+            # store a provenance record that misstates what the model was asked with.
+            raise ValueError("the local Ollama client runs at temperature 0, seed 0; "
+                             f"TeacherConfig asks for temperature {config.temperature}, "
+                             f"seed {config.seed}")
         client = LocalOllama(config.url)
     records = []
     for item in prompts[: config.max_examples or len(prompts)]:
@@ -195,12 +238,16 @@ def run_teacher(prompts: Sequence[Mapping[str, Any]], config: TeacherConfig,
             grounded = report.unsupported_claim_rate in (0.0,) or not report.unsupported
             if not grounded:
                 reason = f"ungrounded summary ({len(report.unsupported)} sentence(s))"
+            problems = unit_problems(parsed, item["evidence"])
+            if problems:
+                grounded = False
+                reason = f"invalid units: {problems[:3]}"
         records.append(TeacherRecord(
             example_id=item["example_id"], variant_id=item["variant_id"],
             teacher_model=config.model,
             teacher_version=getattr(client, "model_versions", {}).get(config.model, "unrecorded"),
             prompt_sha256=hashlib.sha256(item["prompt"].encode()).hexdigest()[:16], raw=raw,
-            parsed=parsed, confidence=(parsed or {}).get("confidence"), grounded=grounded,
+            parsed=parsed, confidence=_confidence(parsed), grounded=grounded,
             reject_reason=reason, created=time.strftime("%Y-%m-%d %H:%M:%S"),
             split_at_generation=item["split"], licence_note=note))
     return records

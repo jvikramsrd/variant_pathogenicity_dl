@@ -319,7 +319,12 @@ def run_pretrain(config: PretrainConfig, dry_run: bool = False,
     out.mkdir(parents=True, exist_ok=True)
     data = Path(config.token_dir)
     model, tokenizer, objective = _load_lm(config.backbone, config.objective, config.seed)
-    peft_summary = apply_peft(getattr(model, "bert", getattr(model, "model", model)), config.peft)
+    # The encoder/decoder inside the task wrapper: HF names its attribute in base_model_prefix
+    # ("bert", "roberta", "electra", "model", ...), so no family is hard-coded here.
+    prefix = getattr(model, "base_model_prefix", "") or ""
+    base = getattr(model, prefix, None) if prefix else None
+    peft_summary = apply_peft(base if base is not None else
+                              getattr(model, "bert", getattr(model, "model", model)), config.peft)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cuda" and (problem := missing_python_headers()):
         raise RuntimeError(problem)
@@ -358,6 +363,12 @@ def run_pretrain(config: PretrainConfig, dry_run: bool = False,
     per_token = model_flops_per_token(model, config.context)
     stepper = torch.compile(model) if config.compile else model
 
+    def seed_step(step: int) -> None:
+        # Dropout draws from torch's global RNG. Keyed on (seed, step) like the windows and the
+        # MLM masks, a resumed run makes exactly the dropout draws an uninterrupted one would —
+        # without it, resume matched only until the first step after the checkpoint.
+        torch.manual_seed(int(np.random.default_rng([config.seed, step, 104729]).integers(0, 2 ** 31)))
+
     def windows_to_batch(step: int, micro: int):
         x, _ = train_windows.batch(step, micro, config.micro_batch, device)
         generator = torch.Generator(device=device).manual_seed(
@@ -390,6 +401,7 @@ def run_pretrain(config: PretrainConfig, dry_run: bool = False,
 
     if dry_run:
         model.train()
+        seed_step(0)
         inputs, labels = windows_to_batch(0, 0)
         loss = step_loss(inputs, labels)
         loss.backward()
@@ -451,6 +463,7 @@ def run_pretrain(config: PretrainConfig, dry_run: bool = False,
         with (out / ("benchmark.jsonl" if benchmark_steps else "log.jsonl")).open("a") as log:
             for step in range(start, end):
                 began = time.time()
+                seed_step(step)
                 rate = learning_rate(step, config)
                 for group in optimizer.param_groups:
                     group["lr"] = rate

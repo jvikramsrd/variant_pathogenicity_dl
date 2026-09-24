@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from conftest import PANEL
+from dl_helpers import PANEL
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -216,7 +216,7 @@ def test_dl_output_records_validate_and_round_trip(tmp_path):
 
 @pytest.fixture
 def cell_inputs(tmp_path, sequences):
-    from conftest import assembled_table
+    from dl_helpers import assembled_table
     from vpdl.dl.canonical import build_canonical
 
     table, _, _ = build_canonical(assembled_table(sequences, per_position=1), sequences)

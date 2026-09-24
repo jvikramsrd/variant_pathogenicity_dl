@@ -88,12 +88,26 @@ def _load_examples(config: FinetuneConfig) -> pd.DataFrame:
 
 
 def _dl_inputs(config: FinetuneConfig, examples: pd.DataFrame, variants: pd.DataFrame):
+    """(embeddings, mask), the DLInput, and its fold report — logged, and kept in the run record.
+
+    The fold report says, for every example joined to a DL record, whether the DL
+    model that produced it held that variant's gene out. A variant whose DL
+    record is in-fold carries its own label into the SLM through the DL features.
+    """
     if not config.dl_outputs:
-        return None, None
+        return None, None, None
+    import logging
+
     from vpdl.slm.interface import DLInput
     dl = DLInput.from_outputs(config.dl_outputs)
     protein = examples["variant_id"].map(variants.set_index("variant_id")["protein_variant_id"])
-    return dl.matrix(protein.tolist()), dl
+    folds = dl.fold_check(protein.tolist(), examples["gene"].fillna("").astype(str).tolist())
+    if folds["in_fold_or_other"] or folds["fold_unknown"]:
+        logging.getLogger(__name__).warning(
+            "DL inputs: %d joined example(s) have a DL record that is not out-of-gene for them and "
+            "%d have no fold recorded (%s)", folds["in_fold_or_other"], folds["fold_unknown"],
+            config.dl_outputs)
+    return dl.matrix(protein.tolist()), dl, folds
 
 
 def _class_weights(tensors: TaskTensors, rows: np.ndarray, mode: str):
@@ -116,6 +130,10 @@ def run_finetune(config: FinetuneConfig, dry_run: bool = False) -> dict[str, Any
     seed_everything(config.seed)
 
     examples = _load_examples(config)
+    # Verdict sentences in the input, or answer-describing features, are refused
+    # before anything is built — even if `vpdl-slm leakage` was never run.
+    from vpdl.slm.build.leakage import input_gate
+    input_gate(examples, config.features if config.use_structured else (), workers=None)
     tables = load_tables(config.records, ["variants", "documents"]) if Path(config.records).exists() else {}
     variants = tables.get("variants", pd.DataFrame(columns=["variant_id", "consequence", "variant_type",
                                                             "origin", "chromosome", "hgvs_p",
@@ -129,7 +147,7 @@ def run_finetune(config: FinetuneConfig, dry_run: bool = False) -> dict[str, Any
         raw = feature_frame(examples, variants, tables.get("documents"))
         encoder = StructuredEncoder(tuple(config.features)).fit(raw, examples["split"])
         structured = encoder.transform(raw)
-    dl_arrays, dl = _dl_inputs(config, examples, variants)
+    dl_arrays, dl, dl_folds = _dl_inputs(config, examples, variants)
     applicable = (applicability_mask(examples["gene"].fillna("").tolist()).numpy()
                   if config.gene_specific_acmg else None)
     tensors = assemble_documents(examples, backbone, config.max_length, config.cache_dir,
@@ -201,8 +219,12 @@ def run_finetune(config: FinetuneConfig, dry_run: bool = False) -> dict[str, Any
         return report
 
     result = trainer.fit(len(train_rows), batch_fn, loss_fn, score_fn if len(val_rows) else None)
+    provenance = {"backbone_version": backbone.version, "split_ids": _split_digest(examples),
+                  "dl_inputs": ({"versions": dl.versions, "fold_check": dl_folds} if dl is not None
+                                else None)}
     artefacts = _evaluate_and_save(model, tensors, units, trainer, config, examples, out, heads,
-                                   peft_summary | {"accelerator": accelerator}, result, started)
+                                   peft_summary | {"accelerator": accelerator}, result, started,
+                                   provenance)
     return artefacts
 
 
@@ -263,7 +285,8 @@ def _dry_run(model, tensors, units, train_rows, device, batch_fn, loss_fn, train
 
 
 def _evaluate_and_save(model, tensors, units, trainer, config, examples, out: Path, heads,
-                       peft_summary, result, started) -> dict[str, Any]:
+                       peft_summary, result, started,
+                       provenance: dict[str, Any] | None = None) -> dict[str, Any]:
     from vpdl.dl.tracking import append_registry, run_record
     from vpdl.slm.evaluation.calibration import calibration_summary, fit_calibrator
     from vpdl.slm.evaluation.metrics import (binary_metrics, five_class_metrics, pathogenic_score,
@@ -280,17 +303,23 @@ def _evaluate_and_save(model, tensors, units, trainer, config, examples, out: Pa
 
     calibrator = None
     validation = next((n for n in ("val", "mmr_val") if n in predictions), None)
-    if validation and config.calibration:
+    if validation and config.calibration and (tensors.class_index[rows_by_split[validation]] >= 0).any():
+        # The split labels are the rows' own, so fit_calibrator's refusal of test rows checks
+        # the data it is given, not a name restated by the caller.
         calibrator = fit_calibrator(config.calibration, predictions[validation]["logits"],
                                     tensors.class_index[rows_by_split[validation]],
-                                    np.full(len(rows_by_split[validation]), validation))
+                                    tensors.split[rows_by_split[validation]])
     threshold = None
     if validation:
         rows = rows_by_split[validation]
         binary = tensors.binary[rows]
         usable = np.isfinite(binary)
         if usable.sum() and len(np.unique(binary[usable])) == 2:
-            threshold = validation_threshold(binary[usable], pathogenic_score(predictions[validation]["probs"])[usable])
+            # Chosen on the scores it is applied to: the calibrated ones whenever a calibrator
+            # exists (every split below is scored on calibrated probabilities).
+            val_probs = (calibrator.transform(predictions[validation]["logits"]) if calibrator
+                         else predictions[validation]["probs"])
+            threshold = validation_threshold(binary[usable], pathogenic_score(val_probs)[usable])
 
     frames = []
     for name, rows in rows_by_split.items():
@@ -312,8 +341,11 @@ def _evaluate_and_save(model, tensors, units, trainer, config, examples, out: Pa
                                              threshold, is_validation=name.endswith("val"))
         samples = None
         if config.mc_samples:
+            # Each draw goes through the same calibrator as the point prediction, so mutual
+            # information sits on the same scale as the entropy and margin beside it.
             samples = mc_dropout_samples(model, tensors, rows, device, config.mc_samples,
-                                         seed=config.seed)
+                                         seed=config.seed,
+                                         transform=calibrator.transform if calibrator else None)
             entry["uncertainty"]["mutual_information_mean"] = float(mutual_information(samples).mean())
         metrics[name] = entry
         frame = pd.DataFrame(calibrated, columns=[f"p_{c}" for c in CLASSES])
@@ -347,14 +379,23 @@ def _evaluate_and_save(model, tensors, units, trainer, config, examples, out: Pa
     model_dir = out / "model"
     model_dir.mkdir(parents=True, exist_ok=True)
     import torch
+    provenance = dict(provenance or {})
+    from vpdl.provenance import _git_state, file_sha256
+    provenance.setdefault("git", _git_state())
+    provenance.setdefault("examples_sha256", file_sha256(config.examples)
+                          if Path(config.examples).exists() else None)
     torch.save({"format": "vpdl-slm-model/1", "config": config.as_dict(), "heads": heads.as_dict(),
                 "state_dict": model.state_dict(), "peft": peft_summary,
                 "calibrator": getattr(calibrator, "__dict__", None),
-                "threshold": threshold}, model_dir / "model.pt")
+                "threshold": threshold, "threshold_basis": "calibrated" if calibrator else "raw",
+                "provenance": provenance}, model_dir / "model.pt")
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2, default=str))
     record = run_record("slm_finetune", config.as_dict(), seed=config.seed,
                         dataset_path=config.examples,
-                        model_version={"backbone": config.backbone, "peft": peft_summary},
+                        model_version={"backbone": config.backbone, "peft": peft_summary,
+                                       "backbone_version": provenance.get("backbone_version")},
+                        extra={"split_ids": provenance.get("split_ids"),
+                               "dl_inputs": provenance.get("dl_inputs")},
                         metrics={k: v.get("five_class", {}).get("macro_f1") for k, v in metrics.items()
                                  if isinstance(v, dict) and "five_class" in v},
                         checkpoint=str(model_dir / "model.pt"),

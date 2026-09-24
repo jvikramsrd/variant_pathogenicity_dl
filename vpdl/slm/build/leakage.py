@@ -46,7 +46,8 @@ from vpdl.slm.parallel import pmap
 from vpdl.slm.text.conclusion import classify_sentence, residual_assertions
 from vpdl.slm.text.sentences import split_sentences
 
-__all__ = ["AuditInputs", "run_audit", "leakage_gate", "LeakageError", "LeakageReport", "CHECKS"]
+__all__ = ["AuditInputs", "run_audit", "leakage_gate", "input_gate", "LeakageError", "LeakageReport",
+           "CHECKS"]
 
 CHECKS = ("label_leakage", "conclusion_leakage", "template_leakage", "exact_duplicates",
           "near_duplicates", "variant_duplicates", "literature_leakage", "gene_shortcut",
@@ -131,7 +132,10 @@ def _check_conclusions(inputs: AuditInputs) -> list[LeakageFinding]:
 def _check_crossing(inputs: AuditInputs, check: str, column: str, what: str) -> LeakageFinding:
     rows, groups = _crossing(inputs.examples, column)
     if rows < 0:
-        return LeakageFinding(check, "warning", f"{column} not available: run `vpdl-slm dedup` "
+        # The text and laboratory schemes promise that similar text never crosses the split;
+        # without the clusters that promise is unchecked, so it cannot pass as clean.
+        return LeakageFinding(check, "critical" if inputs.scheme in ISOLATING else "warning",
+                              f"{column} not available: run `vpdl-slm dedup` "
                               "and join clusters before auditing", 0)
     if rows == 0:
         return LeakageFinding(check, "info", f"no {what} crosses train/evaluation", 0)
@@ -378,5 +382,21 @@ def run_audit(inputs: AuditInputs) -> LeakageReport:
 
 def leakage_gate(inputs: AuditInputs) -> LeakageReport:
     report = run_audit(inputs)
+    report.assert_clean()
+    return report
+
+
+def input_gate(examples: pd.DataFrame, features: Iterable[str] = (),
+               workers: int | None = 1) -> LeakageReport:
+    """The checks that need only the examples a run trains on — run by `finetune` itself.
+
+    Answer-describing features and conclusion sentences left in the model input
+    are critical whatever the split, so training refuses them even when the full
+    fifteen-check audit (`vpdl-slm leakage`) was skipped. The full audit is still
+    the one that checks splits, duplicates, literature and the rest.
+    """
+    inputs = AuditInputs("input_gate", examples, features=tuple(features), workers=workers)
+    report = LeakageReport(scheme="input_gate")
+    report.add(_check_label(inputs), *_check_conclusions(inputs))
     report.assert_clean()
     return report

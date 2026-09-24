@@ -22,12 +22,19 @@ conclusion pattern:
                                laboratories / in ClinVar / by the expert panel"
                                (someone else's verdict — the consensus leaks)
     heading                    "Classification: Pathogenic", a bare "Likely benign."
+    label_statement            the label with no verb: "Assertion: Likely Pathogenic",
+                               "Criteria met: PS3, PM2 -> Likely Pathogenic",
+                               "Pathogenic (PVS1, PM2_Supporting, PP3)", "ACMG: LP"
 
 Everything else is kept verbatim, including sentences that mention a class
 word as evidence. :func:`residual_assertions` re-scans masked text for
 assertive class statements the patterns missed; the leakage audit reports that
 rate and fails a build above its threshold, so a new lab template that slips
 through is caught by a number, not by luck.
+
+Short forms (LP, LB, P, B, VUS, VOUS, US) are matched case-sensitively and only
+where a label is expected — after "classified as", a colon or an arrow, at the
+end of a clause — because "P" and "B" mean many other things in prose.
 """
 
 from __future__ import annotations
@@ -41,12 +48,28 @@ __all__ = ["CONCLUSION_CATEGORIES", "MaskedSpan", "MaskResult", "classify_senten
            "mask_conclusions", "residual_assertions", "LABEL_TERM"]
 
 CONCLUSION_CATEGORIES = ("classification_statement", "criteria_statement",
-                         "insufficient_evidence", "external_classification", "heading")
+                         "insufficient_evidence", "external_classification", "heading",
+                         "label_statement")
 
 LABEL_TERM = (r"(?:likely[\s-]+pathogenic|likely[\s-]+benign|pathogenic|benign|"
               r"(?:a\s+)?variants?\s+of\s+(?:uncertain|unknown|undetermined)\s+(?:clinical\s+)?significance|"
               r"uncertain\s+(?:clinical\s+)?significance|unknown\s+significance|VUS|VOUS)")
 _L = LABEL_TERM
+# Abbreviated labels; case-sensitive even inside re.I patterns, never followed by a word character.
+_SHORT = r"(?-i:(?:LP|LB|VUS|VOUS|US|P|B))(?![\w-])"
+_ANY_LABEL = r"(?:" + _L + r"|" + _SHORT + r")"
+# A separator a label can follow with no verb: "Assertion: LP", "PS3, PM2 -> Likely pathogenic".
+_SEP = r"(?::|-+>|=+>|→)"
+# A trailing parenthetical: "(PVS1, PM2_Supporting)", "(VUS-high)".
+_PAREN = r"(?:\s*[(\[][^)\]]{0,120}[)\]])?"
+_CODE_START = r"(?:PVS|PS|PM|PP|BA|BS|BP)\d"
+# "REVEL: benign", "Functional assay: benign" are evidence of one kind (BP4, BS3), not the
+# variant's verdict; a label after a separator is kept when what precedes it names evidence.
+_EVIDENCE_LEAD = re.compile(
+    r"\b(?:in\s+silico|computational|predict\w*|sift|polyphen\w*|revel|cadd|alphamissense|"
+    r"splice\s*ai|spliceai|maxent\w*|mutation\s*taster|provean|bayesdel|meta-?(?:svm|lr|rnn)|"
+    r"align-?gvgd|tools?|algorithms?|scores?|conservation|functional|assays?|population|"
+    r"frequency|segregation|splic\w*)\b", re.I)
 
 _SUBJECT = (r"(?:this|the|that)\s+(?:(?:[\w.>*+-]+\s+){0,3})?"
             r"(?:variant|alteration|change|sequence\s+change|substitution|mutation|allele|deletion|"
@@ -70,7 +93,18 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
     ("heading", re.compile(
         r"^\s*(?:acmg\s+|final\s+|overall\s+|clinical\s+)?(?:classification|interpretation|"
         r"conclusion|assessment|clinical\s+significance|verdict)\s*[:\-]", re.I)),
-    ("heading", re.compile(r"^\s*[\"'(]?" + _L + r"[\"')]?\s*[.!]?\s*$", re.I)),
+    ("heading", re.compile(r"^\s*[\"'(]?" + _L + r"[\"')]?" + _PAREN + r"\s*[.!]?\s*$", re.I)),
+    ("heading", re.compile(r"^\s*(?-i:(?:LP|LB|VUS|VOUS))\s*[.!]?\s*$")),
+    # "Assertion: Likely Pathogenic", "Result: Likely Pathogenic (PS3, PM2).", "ACMG: LP".
+    ("label_statement", re.compile(
+        r"^\s*(?:[\w/-]+\s+){0,3}?(?:assertion|result|call|acmg|classification|interpretation|"
+        r"conclusion|verdict)\s*" + _SEP + r"\s*[\"'(]?" + _ANY_LABEL, re.I)),
+    # "Criteria met: PS3, PM2 -> Likely Pathogenic": a separator, then only the label, at the end.
+    ("label_statement", re.compile(
+        _SEP + r"\s*[\"'(]?" + _ANY_LABEL + r"[\"')]?" + _PAREN + r"\s*[.!;]?\s*$", re.I)),
+    # "Pathogenic (PVS1, PM2_Supporting, PP3)", "Likely benign: BS1, BP4".
+    ("label_statement", re.compile(
+        r"^\s*[\"'(]?" + _L + r"[\"')]?\s*(?:[(\[]|:|-)\s*" + _CODE_START, re.I)),
     ("insufficient_evidence", re.compile(
         r"(?:evidence|data|information)\s+(?:is|are|was|were)\s+(?:currently\s+|presently\s+|"
         r"at\s+this\s+time\s+)?(?:insufficient|inadequate|not\s+sufficient|limited)\s+to\s+"
@@ -92,7 +126,7 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
         r"(?:re)?(?:classify|classified|interpret(?:ed)?|consider(?:ed)?|categori[sz]e[sd]?|"
         r"curate[sd]?|call(?:ed)?)\b.{0,80}?\b" + _L, re.I)),
     ("classification_statement", re.compile(
-        _VERB + _JUDGED + r"\s+(?:to\s+be\s+|as\s+)?(?:a\s+|an\s+)?(?:\w+\s+){0,2}?" + _L, re.I)),
+        _VERB + _JUDGED + r"\s+(?:to\s+be\s+|as\s+)?(?:a\s+|an\s+)?(?:\w+\s+){0,2}?" + _ANY_LABEL, re.I)),
     ("classification_statement", re.compile(
         r"(?:re)?classif(?:ied|ication)\s+(?:was\s+|has\s+been\s+)?(?:changed|updated|revised|"
         r"downgraded|upgraded|moved)?\s*(?:from\s+" + _L + r"\s+)?to\s+" + _L, re.I)),
@@ -101,7 +135,7 @@ _PATTERNS: list[tuple[str, re.Pattern]] = [
     ("classification_statement", re.compile(
         r"(?:^|[,;:]\s*|\b(?:therefore|thus|hence|consequently|overall|in\s+summary|in\s+conclusion|"
         r"taken\s+together|collectively|together),?\s+)(?:" + _SUBJECT + r")\s+" + _VERB +
-        r"(?:a\s+|an\s+)?(?:\w+\s+)?" + _L + r"(?:\s+variant)?\s*(?:[.;,]|$|\s+(?:and|based|given|"
+        r"(?:a\s+|an\s+)?(?:\w+\s+)?" + _L + r"(?:\s+variant)?" + _PAREN + r"\s*(?:[.;,]|$|\s+(?:and|based|given|"
         r"because|due|for|in|with))", re.I)),
     ("classification_statement", re.compile(
         r"(?:overall|available|the|this|these|collective)\s+(?:\w+\s+){0,2}?(?:evidence|data)\s+"
@@ -115,7 +149,12 @@ _ASSERTIVE = re.compile(
     r"(?:\b(?:is|was|as|be|been)\s+(?:a\s+|an\s+)?(?:likely\s+)?(?:pathogenic|benign)\b(?!\s+(?:variant|"
     r"missense|allele|mutation|change)s?\s+(?:in|at|within|of|is|are|was|were|have|has|that|which)))"
     r"|\bclassified\s+as\b|\binterpreted\s+as\b"
-    r"|\b(?:is|was|as)\s+(?:a\s+)?(?:VUS|VOUS|variant\s+of\s+uncertain\s+significance)\b", re.I)
+    r"|\b(?:is|was|as)\s+(?:a\s+)?(?:VUS|VOUS|variant\s+of\s+uncertain\s+significance)\b"
+    # Verb-less labels (over-counts "PolyPhen: benign" — a tripwire may, the masker may not).
+    r"|" + _SEP + r"\s*[\"'(]?(?:likely\s+)?(?:pathogenic|benign|uncertain\s+significance)\b"
+    r"|" + _SEP + r"\s*[\"'(]?(?-i:(?:LP|LB|VUS|VOUS))(?![\w-])"
+    r"|(?:^|[.!?]\s+)[\"'(]?(?:likely\s+)?(?:pathogenic|benign)[\"')]?\s*(?:[(\[]|:|-)\s*" + _CODE_START,
+    re.I | re.M)
 
 
 @dataclass(frozen=True)
@@ -161,7 +200,10 @@ def classify_sentence(sentence: str) -> str | None:
             continue
         if category == "classification_statement" and _OTHER_VARIANTS.search(text[:match.start() + 1]):
             continue
-        if category == "classification_statement" and _EXTERNAL.search(text):
+        if category == "label_statement" and (_EVIDENCE_LEAD.search(text[:match.start() + 1])
+                                               or _OTHER_VARIANTS.search(text[:match.start() + 1])):
+            continue
+        if category in ("classification_statement", "label_statement") and _EXTERNAL.search(text):
             return "external_classification"
         return category
     if _EXTERNAL.search(text) and re.search(_L, text, re.I) and re.search(

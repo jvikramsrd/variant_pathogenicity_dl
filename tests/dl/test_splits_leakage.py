@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from conftest import PANEL
+from dl_helpers import PANEL
 
 
 def _work(table):

@@ -45,6 +45,17 @@ __all__ = ["SLMRepresentation", "SLM_OUTPUT_SCHEMA", "validate_slm_record", "wri
            "read_slm_outputs", "DLInput"]
 
 
+def _check_probabilities(variant_id: str, probabilities: Mapping[str, Any]) -> None:
+    """Each class probability finite and in [0, 1] — a sum near 1 alone lets 1.6 and -0.6 through."""
+    import math
+    import numbers
+    bad = {k: v for k, v in probabilities.items()
+           if not isinstance(v, numbers.Real) or not math.isfinite(float(v))
+           or not 0.0 <= float(v) <= 1.0}
+    if bad:
+        raise ValueError(f"{variant_id}: class probabilities outside [0, 1] or non-finite: {bad}")
+
+
 @dataclass
 class SLMRepresentation(ReasoningRepresentation):
     """One variant's SLM output. ``modality`` stays "reasoning" — the DL branch's name for it."""
@@ -65,6 +76,7 @@ class SLMRepresentation(ReasoningRepresentation):
             missing = [c for c in CLASSES if c not in self.class_probabilities]
             if missing:
                 raise ValueError(f"{self.variant_id}: class_probabilities missing {missing}")
+            _check_probabilities(self.variant_id, self.class_probabilities)
             total = sum(self.class_probabilities.values())
             if not 0.99 <= total <= 1.01:
                 raise ValueError(f"{self.variant_id}: class probabilities sum to {total:.3f}")
@@ -185,6 +197,7 @@ def validate_slm_record(record: Mapping[str, Any]) -> None:
     if probabilities:
         if sorted(probabilities) != sorted(CLASSES):
             raise ValueError(f"class_probabilities must hold exactly {sorted(CLASSES)}")
+        _check_probabilities(str(record["variant_id"]), probabilities)
         total = sum(probabilities.values())
         if not 0.99 <= total <= 1.01:
             raise ValueError(f"class probabilities sum to {total:.3f}")
@@ -192,8 +205,10 @@ def validate_slm_record(record: Mapping[str, Any]) -> None:
         value = record.get(key)
         if value is not None and not 0.0 <= float(value) <= 1.0:
             raise ValueError(f"{key} {value} outside [0, 1]")
-    if record["uncertainty"] is not None and float(record["uncertainty"]) < 0:
-        raise ValueError("uncertainty must be >= 0")
+    uncertainty = record["uncertainty"]
+    if uncertainty is not None and not (np.isfinite(float(uncertainty)) and float(uncertainty) >= 0):
+        # NaN would pass a "< 0" test and be written as a bare NaN token, which is not JSON.
+        raise ValueError("uncertainty must be a finite number >= 0, or null")
     for key in ("model_version", "feature_version"):
         if not isinstance(record[key], str) or not record[key]:
             raise ValueError(f"{key} must be a non-empty string")
@@ -227,8 +242,14 @@ def read_slm_outputs(jsonl: Path | str) -> list[SLMRepresentation]:
 
     def resolve(value):
         if isinstance(value, dict):
-            array = cache.setdefault(value["file"], np.load(jsonl.parent / value["file"], mmap_mode="r"))
-            return np.asarray(array[value["row"]])
+            if value["file"] not in cache:
+                cache[value["file"]] = np.load(jsonl.parent / value["file"], mmap_mode="r")
+            # A copy (releases the memory map, which on Windows locks the file), then the
+            # finiteness check the validator can only make for inline vectors.
+            row = np.array(cache[value["file"]][value["row"]], dtype=np.float32, copy=True)
+            if not np.isfinite(row).all():
+                raise ValueError(f"{jsonl}: row {value['row']} of {value['file']} has non-finite values")
+            return row
         return None if value is None else np.asarray(value, dtype=np.float32)
 
     out = []
@@ -266,6 +287,14 @@ class DLInput:
         representations = read_dl_outputs(jsonl)
         if not representations:
             raise ValueError(f"{jsonl}: no DL representations")
+        seen: set[str] = set()
+        repeated = sorted({r.variant_id for r in representations
+                           if r.variant_id in seen or seen.add(r.variant_id)})
+        if repeated:
+            # Keyed by variant, a second record would silently replace the first — and the two
+            # can come from different folds (e.g. `--score-rows all` under random_debug).
+            raise ValueError(f"{jsonl}: {len(repeated)} variant(s) appear more than once, "
+                             f"e.g. {repeated[:3]}; export one record per variant")
         dimensions = {int(r.embedding.shape[0]) for r in representations}
         if len(dimensions) != 1:
             raise ValueError(f"{jsonl}: DL embeddings of different widths {sorted(dimensions)}")
@@ -290,13 +319,19 @@ class DLInput:
                 mask[row] = 1.0
         return embeddings, mask
 
-    def fold_check(self, protein_variant_ids: Iterable[str | None], genes: Iterable[str]) -> dict[str, Any]:
+    def fold_check(self, protein_variant_ids: Iterable[str | None], genes: Iterable[str],
+                   fold_genes: Mapping[str, Iterable[str]] | None = None) -> dict[str, Any]:
         """Are the DL scores out-of-fold for these variants? (Leakage audit input.)
 
-        A DL record's ``fold`` is the gene held out when it was produced. If it
-        equals the variant's gene, that variant's own label did not train the DL
-        model. Anything else is reported, not silently accepted.
+        A DL record's ``fold`` names what was held out when it was produced: the
+        gene under ``logo`` / ``logo_purged``, ``family-<name>`` (or
+        ``family:<name>``) under ``family``. If the variant's gene is among the
+        held-out genes, its own label did not train the DL model. Anything else —
+        including ``random_debug`` folds, which never hold a gene out — is
+        reported, not silently accepted. `fold_genes` overrides the family table.
         """
+        held_out = _fold_gene_table() if fold_genes is None else {
+            str(k): {str(g) for g in v} for k, v in fold_genes.items()}
         matched = mismatched = unknown = 0
         for identifier, gene in zip(protein_variant_ids, genes):
             if not isinstance(identifier, str) or identifier not in self.by_variant:
@@ -304,10 +339,27 @@ class DLInput:
             fold = self.folds.get(identifier)
             if fold is None:
                 unknown += 1
-            elif str(fold) == str(gene):
+            elif str(gene) in held_out.get(str(fold), {str(fold)}):
                 matched += 1
             else:
                 mismatched += 1
         return {"out_of_fold": matched, "in_fold_or_other": mismatched, "fold_unknown": unknown,
                 "note": "'in_fold_or_other' means the DL model that produced the score may have "
                         "trained on this variant's gene: its score is not out-of-gene for it."}
+
+
+def _fold_gene_table() -> dict[str, set[str]]:
+    """Fold token -> held-out genes for the DL branch's ``family`` scheme, both spellings.
+
+    Built from the DL branch's own tables (vpdl.dl.homology.PROTEIN_FAMILIES,
+    vpdl.sources.uniprot.MMR_ACCESSIONS), so a new family there is picked up here.
+    """
+    from vpdl.dl.homology import PROTEIN_FAMILIES
+    from vpdl.sources.uniprot import MMR_ACCESSIONS
+
+    gene_of = {accession: gene for gene, (accession, _) in MMR_ACCESSIONS.items()}
+    table: dict[str, set[str]] = {}
+    for accession, family in PROTEIN_FAMILIES.items():
+        for token in (f"family:{family}", f"family-{family}"):
+            table.setdefault(token, set()).add(gene_of.get(accession, accession))
+    return table
