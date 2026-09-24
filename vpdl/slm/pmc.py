@@ -9,9 +9,14 @@ bulk tarballs any more (https://pmc.ncbi.nlm.nih.gov/tools/pmcaws/, read
 1. **Search** — NCBI ESearch on ``db=pmc`` with a topic query and a licence
    filter. ESearch returns at most 9,999 ids per query, so the PMC release-date
    range is split in halves until every piece fits.
-2. **Choose a version** — list the article's versions, read each version's
-   metadata, keep one whose licence is CC0 / CC BY / CC BY-SA and which is not
-   retracted, preferring the published version over an author manuscript.
+2. **Choose a version** — the bucket's daily inventory (read once) says which
+   versions each article has; read each version's metadata, keep one whose
+   licence is CC0 / CC BY / CC BY-SA and which is not retracted, preferring the
+   published version over an author manuscript.
+
+Speed comes from latency, not bandwidth: every worker thread keeps its HTTPS
+connection open, and the inventory replaces one listing request per article,
+so an article costs two small requests on a warm connection.
 3. **Fetch** — the XML, gzipped, beside its metadata:
    ``<out>/<last two digits>/PMC<n>.<v>.json`` and ``.xml.gz``.
 
@@ -33,9 +38,7 @@ import os
 import re
 import threading
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -46,7 +49,7 @@ from vpdl.slm.textsources import ALLOWED_PMC_LICENCES, normalise_licence
 logger = logging.getLogger(__name__)
 
 __all__ = ["DEFAULT_TOPIC", "LICENCE_FILTER", "search_ids", "choose_version", "fetch_article",
-           "download", "NotFound", "CITATION"]
+           "download", "inventory_versions", "Http", "NotFound", "CITATION"]
 
 ESEARCH = "https://eutils.ncbi.nlm.nih.gov/eutils/esearch.fcgi"
 S3 = "https://pmc-oa-opendata.s3.amazonaws.com"
@@ -73,17 +76,44 @@ class NotFound(Exception):
 
 
 class Http:
-    """GET with retries and back-off; NCBI calls are paced to NCBI's published rate."""
+    """GET with kept-alive connections, retries and back-off; NCBI calls paced to NCBI's rate.
+
+    Each worker thread keeps one HTTPS connection per host open between requests.
+    A fresh connection per request (what ``urllib.request`` does) costs a TCP and
+    TLS handshake — several round trips to us-east-1 — before every small file,
+    and that latency, not bandwidth, limited the download to ~5 articles/s.
+    """
 
     def __init__(self, api_key: str | None = None, timeout: float = 60.0, retries: int = 5):
+        import ssl
         self.api_key = api_key if api_key is not None else os.environ.get("NCBI_API_KEY")
         self.timeout = timeout
         self.retries = retries
         self._lock = threading.Lock()
         self._last_ncbi = 0.0
         self._interval = 0.11 if self.api_key else 0.35
+        self._local = threading.local()
+        self._tls = ssl.create_default_context()
+
+    def _connection(self, scheme: str, host: str):
+        import http.client
+        pool = getattr(self._local, "pool", None)
+        if pool is None:
+            pool = self._local.pool = {}
+        connection = pool.get((scheme, host))
+        if connection is None:
+            connection = (http.client.HTTPSConnection(host, timeout=self.timeout, context=self._tls)
+                          if scheme == "https" else http.client.HTTPConnection(host, timeout=self.timeout))
+            pool[(scheme, host)] = connection
+        return connection
+
+    def _drop(self, scheme: str, host: str) -> None:
+        connection = getattr(self._local, "pool", {}).pop((scheme, host), None)
+        if connection is not None:
+            connection.close()
 
     def __call__(self, url: str) -> bytes:
+        import http.client
         if url.startswith(ESEARCH):
             with self._lock:
                 wait = self._interval - (time.monotonic() - self._last_ncbi)
@@ -92,20 +122,30 @@ class Http:
                 self._last_ncbi = time.monotonic()
             if self.api_key:
                 url += "&api_key=" + urllib.parse.quote(self.api_key)
+        parts = urllib.parse.urlsplit(url)
+        target = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
         for attempt in range(self.retries):
+            if attempt:
+                time.sleep(min(60.0, 2.0 ** attempt))
+            connection = self._connection(parts.scheme, parts.netloc)
             try:
-                request = urllib.request.Request(url, headers={"User-Agent": "vpdl-slm (research)"})
-                with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                    return response.read()
-            except urllib.error.HTTPError as error:
-                if error.code in (403, 404):
-                    raise NotFound(url) from error
-                if error.code not in (429, 500, 502, 503, 504) or attempt == self.retries - 1:
-                    raise
-            except (urllib.error.URLError, TimeoutError, ConnectionError):
+                connection.request("GET", target, headers={"User-Agent": "vpdl-slm (research)"})
+                response = connection.getresponse()
+                data = response.read()
+            except (http.client.HTTPException, OSError):
+                # A kept-alive connection the server has closed fails here; reconnect and retry.
+                self._drop(parts.scheme, parts.netloc)
                 if attempt == self.retries - 1:
                     raise
-            time.sleep(min(60.0, 2.0 ** attempt))
+                continue
+            if response.will_close:
+                self._drop(parts.scheme, parts.netloc)
+            if response.status == 200:
+                return data
+            if response.status in (403, 404):
+                raise NotFound(url)
+            if response.status not in (429, 500, 502, 503, 504) or attempt == self.retries - 1:
+                raise RuntimeError(f"HTTP {response.status} for {url}")
         raise RuntimeError(f"unreachable: {url}")
 
 
@@ -149,6 +189,55 @@ def _versions(pmcid: str, http: Callable[[str], bytes]) -> list[str]:
                   key=lambda v: int(v.rsplit(".", 1)[1]))
 
 
+INVENTORY = "inventory-reports/pmc-oa-opendata/metadata/"
+
+
+def inventory_versions(http: Callable[[str], bytes], wanted: Iterable[str],
+                       workers: int = 8) -> tuple[dict[str, list[str]], str]:
+    """``{pmcid: [version prefixes]}`` for the wanted articles, from the bucket's daily inventory.
+
+    One pass over ~230 MB of CSV instead of one listing request per article; an
+    article absent from the inventory has no version in the bucket. Returns the
+    inventory date used.
+    """
+    import csv
+    import io
+    wanted = set(wanted)
+    listing = http(f"{S3}/?list-type=2&delimiter=/&prefix={INVENTORY}").decode("utf-8", "replace")
+    dates = sorted(re.findall(re.escape(INVENTORY) + r"(\d{4}-\d\d-\d\dT[\d-]+Z)/", listing),
+                   reverse=True)
+    manifest = None
+    for date in dates[:3]:                      # the newest can still be being written
+        try:
+            manifest = json.loads(http(f"{S3}/{INVENTORY}{date}/manifest.json"))
+            break
+        except NotFound:
+            continue
+    if manifest is None:
+        raise NotFound(f"{S3}/{INVENTORY}: no readable inventory manifest")
+
+    def read(key: str) -> dict[str, list[str]]:
+        found: dict[str, list[str]] = {}
+        text = io.TextIOWrapper(io.BytesIO(gzip.decompress(http(f"{S3}/{key}"))), encoding="utf-8")
+        for row in csv.reader(text):
+            if len(row) < 2 or not row[1].startswith("metadata/"):
+                continue
+            version = row[1][len("metadata/"):].removesuffix(".json")
+            pmcid = version.split(".", 1)[0]
+            if pmcid in wanted:
+                found.setdefault(pmcid, []).append(version)
+        return found
+
+    versions: dict[str, list[str]] = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        for part in pool.map(read, [f["key"] for f in manifest["files"]]):
+            for pmcid, found in part.items():
+                versions.setdefault(pmcid, []).extend(found)
+    for pmcid in versions:
+        versions[pmcid] = sorted(set(versions[pmcid]), key=lambda v: int(v.rsplit(".", 1)[1]))
+    return versions, dates[0] if dates else "unknown"
+
+
 def choose_version(metas: Iterable[dict[str, Any]],
                    allowed: Iterable[str] = ALLOWED_PMC_LICENCES) -> tuple[dict[str, Any] | None, str]:
     """(metadata of the version to use, reason). Published before manuscript, newest first."""
@@ -168,12 +257,16 @@ def choose_version(metas: Iterable[dict[str, Any]],
 
 
 def fetch_article(pmcid: str, out_dir: Path, http: Callable[[str], bytes],
-                  allowed: Iterable[str] = ALLOWED_PMC_LICENCES) -> tuple[str, str | None]:
-    """(status, licence). Status: ok | exists | no_version | retracted | licence:<codes>."""
+                  allowed: Iterable[str] = ALLOWED_PMC_LICENCES,
+                  versions: list[str] | None = None) -> tuple[str, str | None]:
+    """(status, licence). Status: ok | exists | no_version | retracted | licence:<codes>.
+
+    `versions` from the inventory saves a listing request; None lists the bucket."""
     shard = out_dir / pmcid[-2:]
     if any(shard.glob(f"{pmcid}.*.xml.gz")):
         return "exists", None
-    versions = _versions(pmcid, http)
+    if versions is None:
+        versions = _versions(pmcid, http)
     if not versions:
         return "no_version", None
     metas = []
@@ -197,8 +290,9 @@ def fetch_article(pmcid: str, out_dir: Path, http: Callable[[str], bytes],
     return "ok", normalise_licence(chosen.get("license_code"))
 
 
-def download(out: Path | str, query: str | None = None, workers: int = 16, limit: int | None = None,
-             http: Callable[[str], bytes] | None = None, refresh_ids: bool = False) -> dict[str, Any]:
+def download(out: Path | str, query: str | None = None, workers: int = 64, limit: int | None = None,
+             http: Callable[[str], bytes] | None = None, refresh_ids: bool = False,
+             use_inventory: bool = True) -> dict[str, Any]:
     """Search once (ids cached in ``ids.txt``), then fetch every article not yet on disk."""
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
@@ -214,6 +308,22 @@ def download(out: Path | str, query: str | None = None, workers: int = 16, limit
         ids_path.write_text("\n".join(ids) + "\n")
     if limit:
         ids = ids[:limit]
+    versions: dict[str, list[str]] | None = None
+    if use_inventory:
+        cache = out / "versions.json"
+        if cache.exists() and not refresh_ids:
+            versions = json.loads(cache.read_text())
+            search["inventory"] = "reused versions.json"
+        else:
+            try:
+                versions, date = inventory_versions(http, ids)
+                cache.write_text(json.dumps(versions))
+                search["inventory"] = date
+                logger.info("inventory %s: %d of %d articles have a version in the bucket",
+                            date, len(versions), len(ids))
+            except Exception as error:               # noqa: BLE001 - fall back to listing each article
+                logger.warning("inventory unavailable (%s); listing each article instead", error)
+                search["inventory"] = f"unavailable: {error}"
     started = time.time()
     counts: Counter = Counter()
     licences: Counter = Counter()
@@ -222,7 +332,8 @@ def download(out: Path | str, query: str | None = None, workers: int = 16, limit
 
     def one(pmcid: str) -> None:
         try:
-            status, licence = fetch_article(pmcid, out, http)
+            status, licence = fetch_article(
+                pmcid, out, http, versions=None if versions is None else versions.get(pmcid, []))
         except Exception as error:                       # noqa: BLE001 — counted, logged, retried next run
             status, licence = f"error:{type(error).__name__}", None
             logger.warning("%s: %s", pmcid, error)

@@ -228,6 +228,18 @@ class FakeHttp:
             retmax = int(parse_qs(urlparse(url).query)["retmax"][0])
             return json.dumps({"esearchresult": {"count": str(len(ids)),
                                                  "idlist": ids[:retmax]}}).encode()
+        if "list-type=2" in url and "inventory-reports" in url:
+            self.calls["inventory"] += 1
+            return (b"<ListBucketResult><CommonPrefixes><Prefix>inventory-reports/pmc-oa-opendata/"
+                    b"metadata/2026-09-23T01-00Z/</Prefix></CommonPrefixes></ListBucketResult>")
+        if url.endswith("manifest.json"):
+            return json.dumps({"files": [{"key": "inventory-reports/pmc-oa-opendata/metadata/data/a.csv.gz"}]}).encode()
+        if url.endswith("a.csv.gz"):
+            # Every article has version 1 except PMC1029 (absent from the bucket); PMC1000 also has .2.
+            rows = [f'"pmc-oa-opendata","metadata/PMC{n}.1.json","2026-09-01","x"'
+                    for day_ids in self.days.values() for n in day_ids if n != "1029"]
+            rows.append('"pmc-oa-opendata","metadata/PMC1000.2.json","2026-09-01","x"')
+            return gzip.compress("\n".join(rows).encode())
         if "list-type=2" in url:
             self.calls["list"] += 1
             prefix = re.search(r"prefix=(PMC\d+)\.", url).group(1)
@@ -257,12 +269,12 @@ def test_search_splits_the_date_range_under_the_esearch_cap(monkeypatch):
 def test_download_fetches_licence_clear_articles_and_resumes(tmp_path, monkeypatch):
     monkeypatch.setattr(pmc, "MAX_IDS", 7)
     http = FakeHttp()
-    first = pmc.download(tmp_path, "topic", workers=4, limit=6, http=http)
+    first = pmc.download(tmp_path, "topic", workers=4, limit=6, http=http, use_inventory=False)
     assert first["status"] == {"ok": 5, "licence_excluded": 1}
     assert len(list(tmp_path.glob("*/PMC*.xml.gz"))) == 5
     assert "NLM" in first["citation"] or "PubMed Central" in first["citation"]
     xml_calls = http.calls["xml"]
-    again = pmc.download(tmp_path, "topic", workers=4, limit=6, http=http)
+    again = pmc.download(tmp_path, "topic", workers=4, limit=6, http=http, use_inventory=False)
     assert again["status"]["exists"] == 5 and http.calls["xml"] == xml_calls   # nothing re-fetched
     assert (tmp_path / "ids.txt").read_text().split()[:2] == ["PMC1000", "PMC1001"]
 
@@ -297,3 +309,54 @@ def test_the_cli_reports_each_source_before_a_build(tmp_path, capsys):
     report = json.loads(capsys.readouterr().out)
     assert code == 0 and report["medlineplus"]["documents_read"] == 2
     assert report["mondo"]["decisions"]["mondo_kept"] == 1
+
+
+def test_the_inventory_replaces_per_article_listing(tmp_path, monkeypatch):
+    monkeypatch.setattr(pmc, "MAX_IDS", 7)
+    http = FakeHttp()
+    manifest = pmc.download(tmp_path, "topic", workers=4, http=http)
+    assert http.calls["list"] == 0 and http.calls["inventory"] == 1
+    assert manifest["search"]["inventory"] == "2026-09-23T01-00Z"
+    assert manifest["status"]["no_version"] == 1                        # PMC1029: not in the bucket
+    assert manifest["status"]["ok"] == 28 and manifest["status"]["licence_excluded"] == 1
+    versions = json.loads((tmp_path / "versions.json").read_text())
+    assert versions["PMC1000"] == ["PMC1000.1", "PMC1000.2"]
+    calls = dict(http.calls)
+    pmc.download(tmp_path, "topic", workers=4, http=http)                # resume: cached, nothing new
+    assert http.calls["inventory"] == calls["inventory"] and http.calls["xml"] == calls["xml"]
+
+
+def test_the_http_client_reuses_one_connection_per_thread():
+    import http.server
+    import threading
+
+    connections = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def setup(self):
+            connections.append(self.client_address)
+            super().setup()
+
+        def do_GET(self):
+            body = b"missing" if self.path.startswith("/missing") else f"ok {self.path}".encode()
+            self.send_response(404 if self.path.startswith("/missing") else 200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        client = pmc.Http(retries=2)
+        base = f"http://127.0.0.1:{server.server_address[1]}"
+        assert [client(f"{base}/a{i}") for i in range(5)] == [f"ok /a{i}".encode() for i in range(5)]
+        with pytest.raises(pmc.NotFound):
+            client(f"{base}/missing")
+        assert len(connections) == 1                                      # one TCP connection, reused
+    finally:
+        server.shutdown()

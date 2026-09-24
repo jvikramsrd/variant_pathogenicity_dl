@@ -651,7 +651,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dir", default="data/raw/pmc")
     p.add_argument("--query", default=None, help="PMC search; default: medical-genetics topic "
                                                    "AND CC0/CC BY/CC BY-SA AND open access")
-    p.add_argument("--workers", type=int, default=16)
+    p.add_argument("--workers", type=int, default=64,
+                   help="parallel downloads; each keeps its connection open (latency-bound)")
     p.add_argument("--limit", type=int, default=None, help="first N articles only (a trial)")
     p.add_argument("--count-only", action="store_true", dest="count_only")
     p.add_argument("--refresh-ids", action="store_true", dest="refresh_ids",
