@@ -5,6 +5,47 @@ Format: date · what ran (command) · outcome · artifacts.
 
 ---
 
+## 2026-09-24 (Windows dev PC, CPU) — paper analysis of the DL ablation grid
+
+`python paper/analysis.py` → `paper/generated/` (numbers, tables, figures). Manuscript:
+`paper/main.tex`; how to rebuild it: `paper/README.md`. Nothing was retrained. The
+script reads the saved predictions of 204 runs (68 arm × model cells × 3 seeds, plus the
+three `gbm-es50` runs as a sensitivity check).
+
+Integrity checks that passed:
+- All 795 per-gene AUROC and MCC values recomputed from predictions match
+  `results/dl/cells.csv` to 1e-9.
+- Every arm scored the same variants.
+- The feature lists reconstructed per arm match the schema hash every run recorded.
+- The dataset hash matches (`6cea58db…`).
+- All 18 archived repeat runs (`runs/dl/seqonly/superseded/`) are byte-identical to the
+  reported ones.
+
+Findings (AUROC, mean over held-out MLH1/MSH2/MSH6; see the paper for intervals):
+- **Features:** frequency + AlphaMissense (arm M) ≈ all features. The residue window alone
+  gives 0.51–0.71. Genomic position alone is *below* chance for GBM/MLP (0.39/0.41).
+- **Label-free baselines are strong:** −log10 AF 0.922, AlphaMissense 0.917. The best
+  trained model is only +0.04 above AF, and a post hoc label-free rank-mean of the two
+  scores 0.969. No window model beats GBM.
+- **Labels:** expert-panel only ≈ all ClinVar. MSH2 DMS pooled with ClinVar: AUROC mixed,
+  but MCC lower for all 7 models. The threshold is set on inner-validation labels that
+  are 15% pathogenic, against 72% in the test genes.
+- **Circularity:** 89% of benign vs 24% of pathogenic variants are in gnomAD. The signal
+  survives on the gnomAD-observed subset, so it is not only presence/absence. It cannot
+  be separated from curation circularity with ClinVar labels.
+- **B-1** (gnomAD allele collapsing, 7 labelled rows): removing them changes AUROC by at
+  most 0.007. Not material to any conclusion.
+
+Found in passing:
+- `results/dl/cells.csv` has an empty `n_features` column (`vpdl/dl/report.py:105`,
+  `len(...) and None`). The paper reconstructs feature counts and verifies them against
+  the recorded schema hashes instead.
+- `runs/dl/main` cells for four window models record commit `e500d72`, which is not in the
+  published history. Model and evaluation code did not change between the neighbouring
+  commits (`eed35c5` → `d025634`: only validation, the leakage gate and the CLI).
+
+---
+
 ## 2026-09-23 (Windows dev PC, CPU) — broad genomic SLM branch built; nothing trained
 
 `vpdl-slm` (new; `vpdl` and the DL branch untouched). Audit first:

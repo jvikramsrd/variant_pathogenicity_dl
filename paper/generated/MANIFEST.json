@@ -1,0 +1,52 @@
+{
+  "generator": "paper/analysis.py",
+  "inputs": {
+    "dataset": {
+      "path": "data/built/canonical_full.csv",
+      "sha256": "6cea58dbb6c6e086cdc7433758a1f425f5f074f0fecc104cad0bd69ffeeb4e00"
+    },
+    "zero_shot": {
+      "path": "data/built/canonical_zs.csv",
+      "sha256": "363d28512826b1a93cbad1aae472e8415abf827f5fc73395f4443eab008c6269"
+    },
+    "results_manifest_sha256": "a493bb960086183f30d3fb9dfa208d5c9d3a89a228b1ef5beb4267674259e199",
+    "cells_verified": 795
+  },
+  "n_bootstrap": 10000,
+  "outputs": {
+    "arm_summary.csv": "a3ed00e02c8e301816fba2aae71c4d7364a18515e02fb7f6f62f7098f20ea626",
+    "b1_sensitivity.csv": "cc5d2235a992f0597a2e7d87e6daebc5f042f6fcb8954bc2fd84b3385285cee8",
+    "b1_sensitivity_comparisons.csv": "717f5c76a5d10809c753c9bd5619dffc1cdd381ff89f37c40cf8a89a20beb42d",
+    "baselines.csv": "419e799ac0a6b53ddbf4ed23cf0f96ad1c6cf7aad5e6a29d67d76a556937c90b",
+    "comparisons.csv": "871350babfdb79a2c5980b96527b5a7ffe5572d330fae90fb18797d2af25b1d3",
+    "composition.csv": "ae05a7de8223bf94c2c3911402644c55bfed629e57de7c58d8bd94f6268b49ca",
+    "feature_columns.json": "6bbf7ec8c51da83d42651b53e4fa04b06602fab5fea8df9bba1d96f01120b199",
+    "figures/fig_baselines.pdf": "21a3401f0ac41370b498ebb3df62a719f646fa239362afa3b7435b75e7487da4",
+    "figures/fig_baselines.png": "8fac2d86129f2bb37e18901ce45704d6b0f400c69141be04ee2a3b68b70dc6f3",
+    "figures/fig_circularity.pdf": "5c30573c557d19b4dbf96b6bb12723fd7c29e8374847f7f0f6350f1364153163",
+    "figures/fig_circularity.png": "df432a2331716807e9fc8bc5ec17b2bb01888fdeae8eda4f2d603725999872bc",
+    "figures/fig_design.pdf": "870b2770bebaf1eb3e7baee02852e29b22401f9b873c0f63714c80701a9f306b",
+    "figures/fig_design.png": "548139880ed55b4913635bf01fe0a0bb47a23c7f84f287a3832387654068ce95",
+    "figures/fig_features.pdf": "c3447abfb0507154ff86bf5f1e06d4efeced57f65b1c3e32dd65e2c8d2e53f1e",
+    "figures/fig_features.png": "ac04e7261e960a5b12e29f29495c80fc3b3fed0cd929f29ab53d043083fe607b",
+    "figures/fig_labels.pdf": "bcba9bef4bcde84d3423333c3f5f6ca565026710887e2b5b1a8e8f205d905832",
+    "figures/fig_labels.png": "ac03713c76081ef011b8dd9fb111240f24bc64bc8412412fa540f2538472b483",
+    "figures/fig_per_gene.pdf": "4f44fad7224b9050edd0c43ac9d149cac7388a4aeabe4234cf44f1427038c5b6",
+    "figures/fig_per_gene.png": "265f7093ed51f63d1a31f3915c9b328f204896d43f32fc0709267eed28dff8ef",
+    "numbers.tex": "a8c30dcd5d689b9c0f8f68ef8c2bb9c032b8195a28a6842485c08b839dc60b50",
+    "observed_subset.csv": "fa559fc5baadea987cc6e2c7d8a8482170766f05ae661d022e81608d42b9ea48",
+    "per_gene_per_seed.csv": "99639d13fdb757cb86d2b695fc4e3a97426da6e35208a2b161e08fba6d880cac",
+    "tab_b1.tex": "1de474c294ccc09896860b54aaea344300ae30d9ea9ba6dcd73f8b951674661d",
+    "tab_baselines.tex": "a76b4edc9ff87b2d018e1c860c52bf084c9693e5d2d754364d52b8891d7b23fd",
+    "tab_composition.tex": "99358f78d16f5361764ad022891af783db95aa1c1c0240ceb40508f28877b129",
+    "tab_feature_deltas.tex": "1ec0d27e4cc6f9f6d941f4fa581bd858c211464d5d601bda0c1cf5e277a495f5",
+    "tab_features_auc.tex": "7b2771a81c26c39eb1763ee6b682a3f18a81a7ada810ddb0660476c5bebf1a4c",
+    "tab_features_mcc.tex": "42d9eb78b80cfa65938ce7ae305bea980e95b4b7ecf5b56dd38d16618528ec10",
+    "tab_labels.tex": "3d99fdd5a2e9a429ddf066c4815c9f611a04175316ddb793cdd9a254badd834b",
+    "tab_model_vs_gbm.tex": "03503842d32e0c4c6bbf7b5f0eb34f98a0ec9ce12562cfa397fb667179614671",
+    "tab_observed.tex": "63c58d039337e46c4908315e7eadbcf5113a1dcf0a08289ee0c7ea55bcf49c7f",
+    "tab_supp_arms.tex": "f7bb080f2da56d3b0f22959625fe818c60ff1ad7be956fabeefaa91afdd907ef",
+    "tab_supp_per_gene.tex": "e567ab84b447e7ea5be577c4c6fb50b2a6fb71c7738b7c44aa64d051d48e49d6",
+    "thresholds.csv": "3966a006c1fc038679601e003c564fafc16350e259eaab5e3a675ff1a3b32e85"
+  }
+}

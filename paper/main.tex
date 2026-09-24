@@ -1,0 +1,723 @@
+% Manuscript. Every number in the text is a macro from generated/numbers.tex, written by
+% paper/analysis.py from the saved runs; tables are \input from generated/. Do not type numbers here.
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=2.3cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage[font=small,labelfont=bf]{caption}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,citecolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\usepackage{url}
+
+\input{generated/numbers.tex}
+
+\newcommand{\gene}[1]{\textit{#1}}
+\newcommand{\todo}[1]{\textcolor{red}{[#1]}}
+
+\title{Population frequency and AlphaMissense explain cross-gene pathogenicity prediction
+in Lynch syndrome mismatch-repair genes: a leakage-controlled ablation of features,
+labels and architectures}
+
+\author{Jyothi Vikrama Simha Reddy Dirisinapu\\
+\small \todo{Affiliation}\\
+\small Correspondence: \todo{e-mail}}
+
+\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\noindent\textbf{Motivation.} Supervised predictors of missense-variant pathogenicity are
+built by choosing feature sources, label sources and an architecture, usually together.
+For a single clinical gene panel it is rarely measured which of these choices matters
+when the model has to generalise to a gene it has not seen.
+
+\noindent\textbf{Results.} We trained seven model classes (gradient-boosted trees, a
+multilayer perceptron and five neural networks over the residue window around the
+substitution) on the four Lynch syndrome mismatch-repair genes and evaluated them
+leave-one-gene-out on ClinVar labels. Seven feature arms and four label arms were each run
+with three seeds (\nCells{} runs), and all were scored on the same \nLabelledScoreable{}
+held-out variants in \gene{MLH1}, \gene{MSH2} and \gene{MSH6}. Discrimination came from
+population frequency and AlphaMissense. The residue window alone gave AUROC
+\aucAZeroCnn--\aucAZeroTransformer, genomic position alone fell below chance for the
+tabular models (\aucAFourGbm, \aucAFourMlp), and gnomAD plus AlphaMissense (best
+\aucMBilstmAttn) did as well as all feature sources combined. Scores that use no training
+labels were already strong: $-\log_{10}$ allele frequency reached \baseNegLogAf{} and
+AlphaMissense \baseAlphamissense. The best trained model improved on the frequency score by
+\dAucMBilstmAttnVsNegLogAfAbs, and a label-free combination of the two, added post hoc,
+reached \baseRankMean. No
+sequence-window network outperformed gradient boosting. Training on the \nExpert{}
+expert-panel labels alone matched training on all \nLabelled{} ClinVar labels. Adding
+\nDms{} deep-mutational-scanning labels from one \gene{MSH2} assay changed discrimination
+inconsistently across models, but lowered MCC for all seven, because decision thresholds
+learned on DMS-dominated labels did not transfer. In gnomAD, \benignObservedPct\% of benign
+variants were observed, against \pathObservedPct\% of pathogenic ones. The main feature
+and the labels are therefore not independent, and this design cannot separate biological
+signal from curation circularity.
+
+\noindent\textbf{Availability.} Code, the variant table, every per-variant prediction and
+the script that regenerates each number, table and figure in this paper:
+\url{https://github.com/jvikramsrd/variant_pathogenicity_dl} \todo{archive DOI}.
+\end{abstract}
+
+% ===========================================================================
+\section{Introduction}
+
+Deciding whether a missense variant is pathogenic is one of the main bottlenecks of
+clinical genetic testing, and computational predictors are one line of evidence in the
+ACMG/AMP framework~\citep{richards2015acmg}. The Lynch syndrome genes \gene{MLH1},
+\gene{MSH2}, \gene{MSH6} and \gene{PMS2}, which encode the DNA mismatch-repair (MMR)
+proteins, are a case where the question matters and where expert classifications
+exist~\citep{thompson2014insight}.
+
+A supervised predictor for such a panel is assembled from three choices, usually made at
+once. The first is the \emph{features}: population allele frequency from
+gnomAD~\citep{karczewski2020gnomad,chen2024gnomad}, a prior pathogenicity score such as
+AlphaMissense~\citep{cheng2023alphamissense}, predicted structure from
+AlphaFold~\citep{jumper2021alphafold,varadi2022afdb}, and protein language-model
+scores~\citep{meier2021pllr,rives2021esm,lin2023esm2,brandes2023espm}. The second is the
+\emph{labels}: ClinVar assertions~\citep{landrum2018clinvar}, their expert-panel subset, or
+deep mutational scans (DMS) collected in ProteinGym~\citep{notin2023proteingym} and
+increasingly used as training signal~\citep{lafita2024dmsft,jagota2023transfer}. The third
+is the \emph{architecture}, from gradient-boosted trees~\citep{chen2016xgboost} to
+recurrent~\citep{hochreiter1997lstm} and attention-based~\citep{vaswani2017attention}
+networks. When these choices are made together, their effects cannot be told apart.
+
+Two further problems make the question hard to answer from published numbers. First,
+predictors are routinely evaluated on ClinVar, whose labels are partly produced with the
+same evidence the predictors use, a circularity recognised for a decade
+\citep{grimm2015circularity}. Second, ClinVar labels are structured by gene, so a random
+split rewards knowing which gene a variant is in. A recent preprint reports that a null
+model scoring each variant by its gene's pathogenic fraction reaches AUROC 0.921 under a
+random split~\citep{harrizi2026geneidentity}. Leakage of this kind is a general hazard of
+machine-learning studies~\citep{kapoor2023leakage}. Genome-wide ablations have measured
+which feature families a pooled model depends
+on~\citep{muneeb2026annotatemissense}. What they do not provide, for one clinical panel,
+is a controlled comparison of feature sources, label sources and architectures under a
+split in which the evaluated gene is never seen in training.
+
+We make that comparison. Every model is trained leave-one-gene-out over the four MMR
+genes and scored on the held-out gene's ClinVar labels. We vary one factor at a time:
+the feature sources a ClinVar-trained model may use (axis~A), the label sources it is
+trained on (axis~B), and seven architectures within every arm. Every cell is run with
+three seeds, and every difference between arms is a paired comparison on identical
+variants. Our findings are negative in the useful sense. On this panel, discrimination
+comes from two inputs, population frequency and AlphaMissense. Neither architecture nor
+additional labels add reliably to them, and the strongest input is entangled with how
+the labels were made.
+
+% ===========================================================================
+\section{Methods}
+
+\subsection{Variant table}
+
+We enumerated every possible missense substitution in the canonical UniProt
+sequences~\citep{uniprot2025} of \gene{MLH1} (P40692), \gene{MSH2} (P43246), \gene{MSH6}
+(P52701) and \gene{PMS2} (P54278). This gave \nRows{} substitutions (Table~\ref{tab:composition}),
+annotated as follows.
+\begin{itemize}
+\item \textbf{ClinVar}~\citep{landrum2018clinvar}: from \texttt{variant\_summary.txt.gz},
+  mapped to MANE Select transcripts~\citep{morales2022mane}.
+\item \textbf{gnomAD v4}: variant allele frequencies and gene constraint, queried through
+  the gnomAD API.
+\item \textbf{AlphaMissense}: predictions for every substitution~\citep{cheng2023alphamissense},
+  used under CC~BY~4.0~\citep{alphamissense2024licence}.
+\item \textbf{AlphaFold}: structures from AlphaFold DB model version~6~\citep{varadi2022afdb}.
+\item \textbf{ProteinGym}: the v1.3 DMS assay covering this panel, a single \gene{MSH2}
+  assay~\citep{jia2021msh2,notin2023proteingym}.
+\end{itemize}
+Discordant ClinVar records for one protein change are quarantined rather than resolved
+by file order. A ClinVar label that contradicts the DMS label is quarantined in any arm
+that pools the two (\nConflictQuarantined{} rows). In \gene{PMS2}, codons 382--862 overlap
+the \gene{PMS2CL} pseudogene, and short-read calls there are unreliable without
+orthogonal confirmation. No confirmations were supplied, so the \pmsHomologyRows{} rows
+in that region are withheld from supervision. The table used by every run has SHA-256
+\texttt{\datasetSha\ldots}.
+
+\subsection{Labels}
+
+\textbf{ClinVar.} Pathogenic or likely pathogenic is class~1 and benign or likely benign
+is class~0. Only assertions with at least two review stars are used: \nTwoStar{} variants
+at two stars and \nThreeStar{} at three (expert panel), \nLabelled{} in total. Variants
+of uncertain significance and conflicting assertions have no label. These labels also
+define the test set in every arm.
+
+\textbf{Expert panel.} The \nExpert{} three-star variants on their own.
+
+\textbf{DMS.} ProteinGym's binarised assay label, with the fitness-reducing class mapped
+to class~1: \nDms{} \gene{MSH2} variants, \nDmsPathogenic{} of them damaging. The
+orientation of every label source is checked after merging against an independent anchor
+(AlphaMissense). An earlier version of this pipeline inverted the DMS labels, which is
+why the check exists.
+
+\subsection{Features}
+
+Feature families are defined by column and removed as whole families:
+\begin{itemize}
+\item \textbf{gnomAD}: $\log_{10}$ allele frequency, an observed/unobserved indicator, and
+  ACMG frequency flags (BA1 $>5\%$, BS1 $>0.1\%$, PM2 $<10^{-5}$). A variant gnomAD never
+  observed is given $\log_{10}\mathrm{AF}=-7$, below the rarest frequency gnomAD v4 can
+  report, and flagged as unobserved, so absence is kept as evidence rather than imputed.
+\item \textbf{AlphaMissense}: the pathogenicity score.
+\item \textbf{Structure}: \nFeatAThree{} per-residue descriptors from the AlphaFold model:
+  pLDDT and a low-confidence flag, relative solvent accessibility, helix and strand
+  indicators, two contact counts, half-sphere exposure and backbone curvature.
+\item \textbf{Genomic}: four descriptors of position in the coding sequence and relative
+  to exon junctions.
+\end{itemize}
+Gene-level constraint scores (pLI, o/e missense, missense $Z$) are constant within a gene.
+Under a leave-one-gene-out split they would act as gene identifiers, so they are dropped
+from every arm. The arms used \nFeatAOne{} (gnomAD), \nFeatATwo{} (AlphaMissense),
+\nFeatAThree{} (structure), \nFeatAFour{} (genomic), \nFeatM{} (gnomAD + AlphaMissense) and
+\nFeatAFive{} (all) tabular features. Missing values are imputed with the training-fold
+median, and features are standardised on the training fold only.
+
+\subsection{Evaluation protocol}
+
+\textbf{Split.} Leave one gene out. Each fold trains on three genes and scores the fourth
+against its ClinVar labels. Because the split is by gene, no residue of the held-out
+protein is seen in training. The paralogue of the held-out gene, however, is always in
+training (\gene{MSH2}/\gene{MSH6}, \gene{MLH1}/\gene{PMS2}), so the task is transfer
+within the MutS and MutL families, not to an unrelated protein.
+
+\textbf{Inner validation and thresholds.} Twenty per cent of the training genes' residues
+are held out as an inner-validation set. Grouping is by residue, so substitutions at one
+residue never straddle the boundary. The inner-validation set is used for early stopping
+and for the decision threshold, chosen to maximise MCC. The held-out gene is never used
+for either. Because the threshold is chosen on the arm's own training labels, an arm whose
+labels have a different class balance from ClinVar's also tests threshold transfer. MCC
+is sensitive to this and AUROC is not. We therefore designated AUROC as the cross-arm
+comparison (a rationale recorded in the code on 21 September 2026, before any result in
+this paper existed) and report MCC~\citep{chicco2020mcc} alongside it.
+
+\textbf{Scoreable genes.} \gene{PMS2} has \nPMSTwo{} labelled variants, \benignPMSTwo{} of
+them benign, too few for a stable AUROC. By a rule fixed before the grid ran
+($n\geq50$), it is reported (Supplementary Table~\ref{tab:supp-per-gene}) but never enters
+a headline mean. Headline metrics are the mean over \gene{MLH1} ($n=\nMLHOne$),
+\gene{MSH2} ($n=\nMSHTwo$) and \gene{MSH6} ($n=\nMSHSix$).
+
+\textbf{Leakage gate.} Before any fold trains, an automated gate checks for duplicate
+variants, variants straddling folds, functional-assay data reaching training, and
+features that reproduce the label. It refuses to train through a critical finding. No
+run in this study had one.
+
+\subsection{Models}
+
+The models are listed below. Each neural model stops early on inner-validation AUROC
+(patience 10, at most 100 epochs).
+\begin{itemize}
+\item \textbf{GBM}: gradient-boosted trees (XGBoost~\citep{chen2016xgboost}, 600 trees,
+  learning rate 0.03, depth 4, row and column subsampling 0.8, no class weighting).
+\item \textbf{MLP}: a two-hidden-layer residual network (256 and 128 units, LayerNorm,
+  dropout 0.3, batch size 64).
+\item \textbf{Sequence-window networks}: five models over the 15-residue wild-type and
+  mutant windows centred on the substitution, each encoded by a shared (Siamese) encoder
+  and concatenated with the arm's tabular features. The encoders are a window MLP, a
+  residual CNN, a BiLSTM~\citep{hochreiter1997lstm}, a BiLSTM with attention pooling, and
+  a two-layer Transformer encoder~\citep{vaswani2017attention} (batch size 32).
+\end{itemize}
+All neural models use AdamW~\citep{loshchilov2019adamw} (learning rate $10^{-3}$) with
+class-weighted binary cross-entropy. Training ran on one NVIDIA GB10 (DGX Spark); the window
+MLP, CNN, BiLSTM with attention and Transformer use bf16 autocast. Hyperparameters are package defaults fixed before the grid and
+were not tuned per arm. Every model and fold is seeded from the run seed and the held-out
+gene's name. Seeds 42, 43 and 44 were used throughout.
+
+\subsection{Experimental design}
+
+\textbf{Axis A: feature sources, with ClinVar labels} (Figure~\ref{fig:design}).
+\begin{itemize}
+\item A0: residue window only (sequence models).
+\item A1: gnomAD.
+\item A2: AlphaMissense.
+\item A3: AlphaFold structure.
+\item A4: genomic position.
+\item M: gnomAD + AlphaMissense.
+\item A5: all sources.
+\end{itemize}
+AlphaMissense was trained with labels derived from population
+frequency~\citep{cheng2023alphamissense}, so it carries frequency information and A2 is
+not a clean removal of that signal. The code refuses such a partial ablation unless it is
+explicitly declared, and A2 is declared.
+
+\textbf{Axis B: label sources, with all features.}
+\begin{itemize}
+\item A5: ClinVar.
+\item B3: ClinVar expert panel only.
+\item B1: \gene{MSH2} DMS only.
+\item B2: ClinVar + \gene{MSH2} DMS.
+\end{itemize}
+Every DMS label is in \gene{MSH2}. When \gene{MSH2} is held out, B1 has nothing to train
+on (the fold is reported as untrainable), and B2 trains on exactly the same data as A5.
+DMS labels can therefore enter training only when \gene{MLH1} or \gene{MSH6} is held out,
+and comparisons involving B1 or B2 are made on those two genes. The analysis finds genes
+on which two arms made identical predictions and excludes them from the comparison, so
+this is enforced rather than assumed.
+
+\textbf{Zero-training baselines.} Four scores ranked on the held-out variants without
+using any label:
+\begin{itemize}
+\item $-\log_{10}$ gnomAD allele frequency;
+\item the AlphaMissense score;
+\item ESM-1b~\citep{rives2021esm} masked-marginal log-likelihood ratio~\citep{meier2021pllr};
+\item ESM-2 650M~\citep{lin2023esm2} masked-marginal log-likelihood ratio.
+\end{itemize}
+A fifth score, the mean of each variant's within-gene percentile ranks under
+$-\log_{10}$AF and AlphaMissense, was added after the single-score results had been seen
+and is reported as post hoc.
+
+\subsection{Statistics}
+
+For each cell and held-out gene, a metric is averaged over the three seeds, and the
+headline is the mean over scoreable genes. The $\pm$ values are standard deviations over
+seeds. Confidence intervals are percentile intervals from \nBoot{} bootstrap resamples.
+Variants are drawn within each gene, so each gene keeps its size, and the statistic stays
+an average of per-gene effects. A difference between two arms is \emph{paired}: each
+resample scores both arms on the same variants, so shared test-set noise cancels. We
+report \nComparisons{} comparisons without multiplicity adjustment, so an interval that
+excludes zero is not by itself a finding. We interpret patterns that repeat across
+architectures and seeds.
+
+\textbf{Pre-specified and post hoc analyses.} The following were fixed before the grid
+ran on 23 and 24 September 2026:
+\begin{itemize}
+\item the design of both axes;
+\item the models and seeds;
+\item leave-one-gene-out evaluation on ClinVar labels;
+\item the scoreable-gene rule;
+\item AUROC as the cross-arm comparison;
+\item the zero-training baselines.
+\end{itemize}
+The analysis plan (20 September 2026) named MCC as the primary metric. We report both
+metrics and explain above why AUROC is the fair cross-arm measure. The plan's
+ProteinGym-clinical label arm was not run. Three analyses were added after the results
+were seen:
+\begin{itemize}
+\item the rank-mean baseline;
+\item the restriction to gnomAD-observed variants;
+\item the sensitivity analysis for a known feature defect.
+\end{itemize}
+
+\subsection{Integrity checks}
+
+Before writing any output, the analysis script checks four things and refuses to run if
+any fails:
+\begin{itemize}
+\item the run summary is marked citable;
+\item the dataset hash matches the one every run recorded;
+\item every per-gene AUROC and MCC recomputed from the per-variant predictions equals the
+  value written during training (\nCellsChecked{} of \nCellsChecked{} matched to $10^{-9}$);
+\item every arm scored identical variants with identical labels.
+\end{itemize}
+Every number in this paper is written by that script from the saved predictions.
+
+% ===========================================================================
+\section{Results}
+
+\subsection{Data}
+
+The panel has \nLabelled{} ClinVar-labelled missense variants (Table~\ref{tab:composition}).
+The three scoreable genes contribute \nLabelledScoreable{} of them: \nPathogenicScoreable{}
+pathogenic and \nBenignScoreable{} benign. The classes are strongly separated by
+population frequency. gnomAD contains \benignObserved{} of the \benignTotal{} benign
+variants (\benignObservedPct\%) but only \pathObserved{} of the \pathTotal{} pathogenic
+variants (\pathObservedPct\%). Only \benignBsOne{} benign variants reach the
+BS1 or BA1 frequency flags, so the separation is carried by frequencies well below the
+ACMG benign thresholds (Figure~\ref{fig:circularity}a).
+
+\begin{table}[t]
+\centering
+\caption{\textbf{Variant table.} Missense substitutions per gene; ClinVar labels
+($\geq$2 review stars), of which three-star expert-panel; DMS labels from the single
+ProteinGym \gene{MSH2} assay; and how many labelled variants are observed in gnomAD.
+$^{a}$\gene{PMS2} is not scoreable ($n<50$).}
+\label{tab:composition}
+\resizebox{\textwidth}{!}{\input{generated/tab_composition.tex}}
+\end{table}
+
+\subsection{Population frequency and AlphaMissense carry the signal}
+
+With ClinVar labels, the feature sources differ far more than the architectures
+(Figure~\ref{fig:features}, Table~\ref{tab:features}):
+\begin{itemize}
+\item \textbf{Residue window only (A0):} AUROC \aucAZeroCnn--\aucAZeroTransformer{}.
+\item \textbf{Genomic position (A4):} below chance for both tabular models. GBM reached
+  \aucAFourGbm{} \aucCiAFourGbm{} and MLP \aucAFourMlp{} \aucCiAFourMlp: whatever
+  positional pattern the training genes share is reversed in the held-out gene.
+\item \textbf{AlphaFold structure (A3):} \aucAThreeCnn--\aucAThreeMlp.
+\item \textbf{gnomAD (A1) or AlphaMissense (A2) alone:} up to \aucAOneMlp{} and
+  \aucATwoMlp{} respectively.
+\item \textbf{gnomAD + AlphaMissense (M):} the best cells in the grid, e.g. BiLSTM with
+  attention \aucMBilstmAttn{} and MLP \aucMMlp.
+\end{itemize}
+Adding structure and genomic position to M, which gives A5, left AUROC unchanged: all
+\nMVsAFiveAucNull{} paired intervals include zero and no difference exceeds
+\maxAbsMVsAFiveAuc{}. It did lower MCC, significantly for \nMVsAFiveMccBetter{} of seven
+architectures (Supplementary Table~\ref{tab:supp-arms}). The added features move scores
+in a way that disturbs the transferred threshold without improving the ranking.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{generated/figures/fig_features.pdf}
+\caption{\textbf{Feature sources against architectures.} AUROC (mean over held-out
+\gene{MLH1}, \gene{MSH2}, \gene{MSH6}; $\pm$ SD over three seeds) for every feature arm
+(rows, ClinVar labels) and model (columns). The tabular models have no input in A0.}
+\label{fig:features}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{\textbf{AUROC by feature arm and model} (mean over the three scoreable held-out
+genes $\pm$ SD over seeds; best model per arm in bold). MCC is in Supplementary
+Table~\ref{tab:supp-arms}.}
+\label{tab:features}
+\resizebox{\textwidth}{!}{\input{generated/tab_features_auc.tex}}
+\end{table}
+
+For the single-feature arms, training can lose information the raw score already has. On
+AlphaMissense alone, the MLP reproduces the raw score's ranking (\aucATwoMlp{} against
+\baseAlphamissense{} untrained), while GBM's piecewise-constant fit reaches \aucATwoGbm.
+On gnomAD alone, GBM reaches \aucAOneGbm{} against \baseNegLogAf{} for the untrained
+frequency.
+
+\subsection{Supervision adds little to label-free scores}
+
+The zero-training scores were strong (Figure~\ref{fig:baselines}, Table~\ref{tab:baselines}):
+\begin{itemize}
+\item $-\log_{10}$ allele frequency: \baseNegLogAf{} \baseCiNegLogAf;
+\item AlphaMissense: \baseAlphamissense{} \baseCiAlphamissense;
+\item ESM-1b: \baseEsmOneb{} \baseCiEsmOneb;
+\item ESM-2: \baseEsmTwo{} \baseCiEsmTwo.
+\end{itemize}
+In arm M, \nBeatNegLogAfM{} of the 7 trained architectures improved significantly on the
+frequency score. The improvements were MLP \dAucMMlpVsNegLogAf, BiLSTM
+\dAucMBilstmVsNegLogAf{} and BiLSTM with attention \dAucMBilstmAttnVsNegLogAf. GBM's
+interval included zero (\dAucMGbmVsNegLogAf), and the window MLP, CNN and Transformer did
+not exceed the untrained score.
+
+The post hoc mean-rank combination of the two scores, which uses no labels, reached
+\baseRankMean{} \baseCiRankMean. No trained model exceeded it significantly
+(\nBeatRankMeanM{} of 7 in M, \nBeatRankMeanAFive{} of 7 in A5). The closest, BiLSTM with attention
+in M, differed by \dAucMBilstmAttnVsRankMean. Because it was constructed after the results
+were seen, the combination supports a narrower statement than a pre-specified baseline
+would. On this panel, the ClinVar labels of three training genes teach the models little
+beyond how to weigh two inputs that are already informative.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.78\textwidth]{generated/figures/fig_baselines.pdf}
+\caption{\textbf{Zero-training scores against trained models.} AUROC with 95\% bootstrap
+intervals over the same held-out variants. Light: scores computed without labels. Dark:
+trained GBM and MLP in arms M and A5. The mean-rank combination was added post hoc.}
+\label{fig:baselines}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{\textbf{Zero-training scores.} Per-gene AUROC and the mean over genes with a 95\%
+bootstrap interval, with trained models for reference.}
+\label{tab:baselines}
+\resizebox{0.9\textwidth}{!}{\input{generated/tab_baselines.tex}}
+\end{table}
+
+\subsection{No architecture outperforms gradient boosting}
+
+Within the two strongest feature arms, no sequence-window network had a significantly
+higher AUROC than GBM (\nSeqBeatGbmAucM{} of 5 in M, \nSeqBeatGbmAucAFive{} of 5 in
+A5). Several were significantly lower (\nSeqWorseGbmAucM{} of 5 in M, \nSeqWorseGbmAucAFive{}
+of 5 in A5; Supplementary Table~\ref{tab:model-vs-gbm}). The two BiLSTMs were the closest,
+e.g. BiLSTM with attention against GBM in M, \dAucBilstmAttnVsGbmM. The MLP was
+indistinguishable from GBM (\dAucMlpVsGbmM). Where the residue window is the only input
+(A0), the Transformer does best, and it still reaches only \aucAZeroTransformer. The
+window carries some signal on its own, but once frequency and AlphaMissense are present
+no window model improved significantly on GBM with the same features.
+
+Seed variation was large for threshold-dependent metrics. The MCC standard deviation over
+three seeds reached \maxMccSd{} (\maxMccSdCell), against at most \maxAucSd{} for AUROC.
+A single-seed MCC comparison on this panel would be uninterpretable.
+
+\subsection{Labels: expert-panel labels suffice; DMS labels transfer but break thresholds}
+
+Figure~\ref{fig:labels} and Table~\ref{tab:labels} compare each label source with
+ClinVar (A5), paired and on identical variants.
+
+\textbf{Expert panel only (B3).} The \nExpert{} expert-panel labels matched all \nLabelled{}
+ClinVar labels for the tabular models: GBM \dAucBThreeVsAFiveGbm, MLP
+\dAucBThreeVsAFiveMlp. MCC rose slightly for GBM (\dMccBThreeVsAFiveGbm). Among the sequence networks,
+\nModelsBThreeAucExcl{} lost AUROC; the largest loss was the Transformer's,
+\dAucBThreeVsAFiveTransformer.
+
+\textbf{DMS only (B1).} Labels from one \gene{MSH2} assay transferred to \gene{MLH1} and
+\gene{MSH6} with AUROC \aucBOneCnn--\aucBOneGbm. Relative to ClinVar training on the same
+genes, the differences ranged from \bOneAucWorst{} to \bOneAucLeast. With all features available, the ranking comes
+largely from the features, and the labels mainly orient them.
+
+\textbf{ClinVar + DMS pooled (B2).} Pooling did not change discrimination consistently.
+AUROC fell for GBM (\dAucBTwoVsAFiveGbm) and rose for the Transformer
+(\dAucBTwoVsAFiveTransformer), and the other \nModelsBTwoAucNull{} intervals included
+zero. MCC fell for all \nModelsBTwoMccWorse{} architectures, by \bTwoMccLeast{} to
+\bTwoMccWorst, and calibration degraded (GBM Brier score \brierAFiveGbm{} with ClinVar
+against \brierBTwoGbm{} pooled). The mechanism is the threshold. In B2 the
+inner-validation labels that set it are \valPrevBTwo{} pathogenic, against
+\valPrevAFive{} with ClinVar labels and \testPrev{} in the held-out ClinVar genes, so the
+selected threshold does not transfer. A pooled model can rank as well as a ClinVar-only
+model and still classify worse.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{generated/figures/fig_labels.pdf}
+\caption{\textbf{Label sources against ClinVar training (A5), all features.} Paired
+$\Delta$AUROC (left) and $\Delta$MCC (right), with 95\% bootstrap intervals. B3 is scored
+on \gene{MLH1}, \gene{MSH2} and \gene{MSH6}; B1 and B2 on \gene{MLH1} and \gene{MSH6}, the
+genes on which DMS labels can enter training.}
+\label{fig:labels}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{\textbf{Label sources against ClinVar training} (A5, all features; paired
+difference [95\% CI]; bold: interval excludes zero).}
+\label{tab:labels}
+\resizebox{\textwidth}{!}{\input{generated/tab_labels.tex}}
+\end{table}
+
+\subsection{How much of the frequency signal is circular?}
+
+Population frequency is both the strongest feature and a criterion used to classify
+variants~\citep{richards2015acmg}. It is also the source of AlphaMissense's training
+labels~\citep{cheng2023alphamissense}. The simplest version of the circularity is the
+presence shortcut: almost every benign variant is observed in gnomAD. We re-scored the
+models on the gnomAD-observed variants only (\nObsBenign{} benign, \nObsPath{}
+pathogenic), where presence cannot separate the classes
+(Figure~\ref{fig:circularity}b, Table~\ref{tab:observed}). Discrimination did not fall:
+\begin{itemize}
+\item $-\log_{10}$ allele frequency: \aucObsBaselineNegLogAf{} \aucObsCiBaselineNegLogAf;
+\item AlphaMissense: \aucObsBaselineAlphamissense;
+\item MLP in arm M: \aucObsMMlp.
+\end{itemize}
+Among observed variants, the frequency level itself still separates the classes, mostly
+below the BS1 threshold. This rules out the crudest shortcut. It does not show that the
+signal is biological. Curators may weigh sub-threshold frequency informally, and
+computational predictions enter classifications as PP3 or BP4
+evidence~\citep{pejaver2022pp3}. Where either happened, the ClinVar label is partly a
+function of the model inputs, and nothing in a ClinVar-scored design can separate that from
+genuine predictive value. Labels that are independent of frequency, such as functional
+assays of variants never used in classification or outcome-based evidence, would be
+needed.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\textwidth]{generated/figures/fig_circularity.pdf}
+\caption{\textbf{Frequency and labels.} (a) gnomAD allele frequency of every held-out
+ClinVar variant by label ($-7$ = not observed; dashed line, BS1 at 0.1\%). (b) AUROC on
+all held-out variants and on the gnomAD-observed variants only, where presence in gnomAD
+cannot separate the classes. 95\% bootstrap intervals.}
+\label{fig:circularity}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{\textbf{Discrimination without the absent-from-gnomAD shortcut.} AUROC [95\% CI],
+mean over \gene{MLH1}, \gene{MSH2}, \gene{MSH6}.}
+\label{tab:observed}
+\resizebox{0.85\textwidth}{!}{\input{generated/tab_observed.tex}}
+\end{table}
+
+\subsection{Robustness}
+
+\textbf{Known feature defect.} An audit found that when several nucleotide changes give
+the same protein change, the gnomAD frequency feature keeps the first allele's value.
+For \nBOne{} labelled variants the feature disagrees with a recount (\nBOneGenes). Removing them changed no
+AUROC by more than \bOneMaxChange{} (Supplementary Table~\ref{tab:b1}). The four headline
+comparisons we recomputed without them (pooled against ClinVar labels for GBM and MLP;
+gnomAD alone, and gnomAD + AlphaMissense, against all sources for GBM) kept their sign.
+
+\textbf{Reproducibility.} Some cells were executed more than once during the grid; the
+repeat outputs were archived rather than reported. All \nRepeatIdentical{} of
+\nRepeatRuns{} repeated executions produced byte-identical predictions, including across
+two code revisions on the GPU.
+
+\textbf{GBM defaults.} GBM with early stopping on the inner-validation set, run in arm M
+only, reached \aucMGbmEs. That is a small improvement over the default GBM
+(\dAucGbmEsVsGbm) and indistinguishable from the MLP (\dAucGbmEsVsMlp). The comparisons
+with GBM above use the default configuration, so they slightly understate it.
+
+% ===========================================================================
+\section{Discussion}
+
+The study set out to measure which of the three construction choices matters for
+predicting pathogenicity in an unseen Lynch syndrome gene. On this panel the answer is
+the features, and specifically two of them. Population frequency and AlphaMissense
+together explain almost all the discrimination any model reached. Once those two are
+present, structure and genomic position add nothing measurable, and no model reading the
+residue window improves on gradient boosting over the same features. No
+neural architecture beat gradient boosting. Training on the expert-panel subset alone
+(\nExpert{} of \nLabelled{} labels) cost the tabular models nothing. A large pool of functional-assay labels from one gene did not help
+ranking consistently, and it did harm classification, through a mechanism that is easy to
+miss: the decision threshold is learned on labels whose class balance differs from the
+clinical test set.
+
+These results agree with genome-wide observations made with different designs.
+AnnotateMissense reports that removing population-frequency and prior-predictor features
+reduces performance~\citep{muneeb2026annotatemissense}. Evaluations that remove gene
+identity find that much of a ClinVar benchmark score is structure, not variant-level
+signal~\citep{harrizi2026geneidentity}. Our leave-one-gene-out design removes gene
+identity by construction, and within-gene AUROC remains high. What remains is the
+frequency signal, whose relation to the labels we cannot resolve. Our DMS result extends
+earlier reports that DMS measurements track clinical pathogenicity~\citep{livesey2020dms}
+and can improve clinical prediction when used to train or fine-tune
+models~\citep{lafita2024dmsft,jagota2023transfer}. On this panel
+DMS labels on their own transferred almost as well as ClinVar labels, but pooling them
+with ClinVar in a single classifier harmed classification. How the sources are combined
+matters as much as whether they are.
+
+\textbf{Implications.} For a panel of this size we suggest three practices:
+\begin{itemize}
+\item Report label-free baselines, at least $-\log_{10}$ allele frequency and
+  AlphaMissense, on the same variants and split. On our data the frequency score is within
+  \dAucMBilstmAttnVsNegLogAfAbs{} AUROC of the best trained model, and a label-free
+  combination of the two matches it.
+\item Report a threshold-free metric alongside any thresholded one when label sources
+  differ.
+\item Treat a DMS assay from one gene as a source to be calibrated, not pooled.
+\end{itemize}
+
+\textbf{Limitations.}
+\begin{itemize}
+\item \textbf{Size.} The panel is small: three scoreable genes and \nLabelledScoreable{}
+  test variants, so intervals are wide. Each held-out gene's paralogue stays in training,
+  so the task is transfer within the MutS and MutL families.
+\item \textbf{DMS arms.} The DMS arms rest on a single assay in a single gene, so ``DMS
+  labels'' here means ``this \gene{MSH2} assay'' and is confounded with gene identity.
+\item \textbf{Circularity.} Both leading features are entangled with how ClinVar labels
+  are made, so our AUROCs are upper bounds on what a model would achieve against
+  independent truth.
+\item \textbf{Hyperparameters.} Defaults were used throughout, never tuned per arm. Tuning
+  could favour the neural models more than the trees, although the zero-training results
+  leave little room above them.
+\item \textbf{Calibration.} The neural models use class-weighted losses, so their raw
+  probabilities are not calibrated to prevalence~\citep{guo2017calibration}. Brier score
+  and ECE partly measure that weighting.
+\item \textbf{Frequency flags.} The ACMG flags use generic thresholds, not the InSiGHT
+  expert panel's gene-specific specification. The continuous frequency feature is
+  present in every gnomAD arm regardless.
+\item \textbf{ClinVar version.} ClinVar is a single snapshot (downloaded 28 August 2026).
+  Classifications change over time, and a temporal hold-out would test a different
+  question.
+\end{itemize}
+
+% ===========================================================================
+\section{Conclusion}
+
+For cross-gene pathogenicity prediction in the Lynch syndrome MMR genes, population
+frequency and AlphaMissense account for nearly all the discrimination that seven
+architectures and four label sources achieve. The large neural models, the extra
+structural features and the extra functional-assay labels bought nothing measurable in
+ranking, and the pooled labels made classification worse. The question left open is
+whether the frequency signal reflects biology or the way the labels were made. On ClinVar
+labels alone it cannot be answered.
+
+% ===========================================================================
+\section*{Data and code availability}
+Everything needed to reproduce this paper is in the repository
+(\url{https://github.com/jvikramsrd/variant_pathogenicity_dl}):
+\begin{itemize}
+\item the variant table (\texttt{data/built/canonical\_full.csv});
+\item the ablation script (\texttt{scripts/dl\_ablation.sh});
+\item the per-variant predictions, inner-validation predictions and run summaries of every
+  run (\texttt{runs/dl/});
+\item the run-level summary (\texttt{results/dl/});
+\item the analysis that regenerates every number, table and figure
+  (\texttt{paper/analysis.py}).
+\end{itemize}
+Each run records the dataset hash, the split hash, the feature-schema hash, the git
+commit and the library versions. The source data are public: ClinVar (public domain),
+gnomAD (CC0), AlphaMissense (CC~BY~4.0), AlphaFold DB (CC~BY~4.0), ProteinGym (MIT) and
+UniProt (CC~BY~4.0). \todo{Archive the repository (e.g.\ Zenodo) and give the DOI.}
+
+\section*{Acknowledgements}
+\todo{Acknowledgements.}
+
+\section*{Funding}
+\todo{Funding statement.}
+
+\section*{Conflict of interest}
+\todo{Declaration.}
+
+\bibliographystyle{unsrtnat}
+\bibliography{references}
+
+% ===========================================================================
+\clearpage
+\appendix
+\renewcommand{\thetable}{S\arabic{table}}
+\renewcommand{\thefigure}{S\arabic{figure}}
+\setcounter{table}{0}
+\setcounter{figure}{0}
+\section*{Supplementary material}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{generated/figures/fig_design.pdf}
+\caption{\textbf{Study design.} Axis A varies the feature sources of a ClinVar-trained
+model. Axis B varies the label sources with all features. Every arm is run with seven
+models and three seeds and scored leave-one-gene-out on the held-out gene's ClinVar
+labels. The decision threshold comes from inner validation on the training genes.}
+\label{fig:design}
+\end{figure}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=\textwidth]{generated/figures/fig_per_gene.pdf}
+\caption{\textbf{AUROC per held-out gene} for arms M and A5 (mean $\pm$ SD over three
+seeds).}
+\label{fig:per-gene}
+\end{figure}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Architectures against GBM} within arms M and A5 (paired difference
+[95\% CI]; bold: interval excludes zero).}
+\label{tab:model-vs-gbm}
+\resizebox{\textwidth}{!}{\input{generated/tab_model_vs_gbm.tex}}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Each feature arm against all sources (A5)}, paired $\Delta$AUROC (bold:
+95\% interval excludes zero).}
+\label{tab:feature-deltas}
+\resizebox{\textwidth}{!}{\input{generated/tab_feature_deltas.tex}}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{MCC by feature arm and model} (mean $\pm$ SD over seeds; threshold from
+inner validation).}
+\label{tab:features-mcc}
+\resizebox{\textwidth}{!}{\input{generated/tab_features_mcc.tex}}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{\textbf{Sensitivity to the gnomAD allele-collapsing defect.} AUROC with and
+without the \nBOne{} labelled variants whose frequency feature disagrees with a recount.}
+\label{tab:b1}
+\input{generated/tab_b1.tex}
+\end{table}
+
+{\small
+\input{generated/tab_supp_arms.tex}
+\input{generated/tab_supp_per_gene.tex}
+}
+
+\end{document}

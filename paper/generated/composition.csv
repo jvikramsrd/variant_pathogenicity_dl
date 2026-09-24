@@ -1,0 +1,5 @@
+gene,rows,n,pathogenic,benign,expert,dms,gnomad_observed_benign,gnomad_observed_pathogenic
+MLH1,14364,174,143,31,129,0,27,30
+MSH2,17746,176,120,56,75,16748,49,18
+MSH6,25840,78,47,31,42,0,29,22
+PMS2,16378,21,17,4,6,0,4,7
