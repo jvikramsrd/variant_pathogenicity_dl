@@ -165,3 +165,24 @@ def test_a_training_dry_run_stops_on_critical_leakage(tmp_path, sequences, capsy
     code = main(["train", "--data", str(data), "--sources", "clinvar", "--model", "mlp",
                  "--seeds", "42", "--out", str(tmp_path / "runs"), "--dry-run"])
     assert code == 3 and "feature_proxy" in capsys.readouterr().out
+
+
+def test_skip_existing_resumes_a_grid_without_retraining_finished_cells(tmp_path, sequences,
+                                                                        monkeypatch, capsys):
+    from vpdl.dl.cli import main
+
+    _, data = _canonical(tmp_path, sequences)
+    monkeypatch.chdir(tmp_path)                    # the run registry lands here
+    out = tmp_path / "runs_out"
+    common = ["train", "--data", str(data), "--sources", "clinvar", "--model", "mlp",
+              "--modalities", "population", "--n-bootstrap", "20", "--model-kwargs",
+              '{"epochs": 1}', "--tag", "t", "--out", str(out)]
+    assert main(common + ["--seeds", "42"]) == 0
+    first = (out / "summary_train-clinvar__drop-domains-genomic-prior_scores-structure"
+                   "__mlp-t__seed42.json").stat().st_mtime_ns
+    capsys.readouterr()
+    assert main(common + ["--seeds", "42", "43", "--skip-existing"]) == 0
+    assert "1 cell(s) already finished, 1 to run" in capsys.readouterr().err
+    assert (out / "summary_train-clinvar__drop-domains-genomic-prior_scores-structure"
+                  "__mlp-t__seed42.json").stat().st_mtime_ns == first
+    assert len(list(out.glob("summary_*.json"))) == 2 and not (out / "superseded").exists()

@@ -636,12 +636,25 @@ def _train_jobs(args) -> list[dict]:
             for model in args.model for seed in args.seeds]
 
 
+def _cell_config(job: dict):
+    """The CellConfig one job describes (its slug names every file the cell writes)."""
+    from vpdl.experiment import CellConfig
+
+    return CellConfig(
+        sources=tuple(job["sources"]), train_sources=tuple(job["train_sources"]),
+        eval_source=job["eval_source"], model=job["model"], seed=job["seed"],
+        drop_groups=tuple(job["drop_groups"]), allow_proxy_leak=job["allow_proxy_leak"],
+        n_bootstrap=job["n_bootstrap"], model_kwargs=job["model_kwargs"],
+        split=job["split"], embedding_blocks=tuple(job["embedding_blocks"]),
+        score_rows=job["score_rows"], tag=job["tag"])
+
+
 def _run_train_cell(job: dict) -> dict:
     """One cell, in this process or in a pool worker. Returns its summary."""
     from dataclasses import asdict
 
     from vpdl.dl.runner import DLContext
-    from vpdl.experiment import CellConfig, run_cell
+    from vpdl.experiment import run_cell
 
     threads = job.get("threads")
     if threads:
@@ -664,13 +677,7 @@ def _run_train_cell(job: dict) -> dict:
                         export_dir=job["export_dir"], sequences=sequences)
     feature_columns = [c for c in table.columns if c.startswith("feature_")]
     started = time.time()
-    config = CellConfig(
-        sources=tuple(job["sources"]), train_sources=tuple(job["train_sources"]),
-        eval_source=job["eval_source"], model=job["model"], seed=job["seed"],
-        drop_groups=tuple(job["drop_groups"]), allow_proxy_leak=job["allow_proxy_leak"],
-        n_bootstrap=job["n_bootstrap"], model_kwargs=job["model_kwargs"],
-        split=job["split"], embedding_blocks=tuple(job["embedding_blocks"]),
-        score_rows=job["score_rows"], tag=job["tag"])
+    config = _cell_config(job)
     _archive_superseded(job["out"], config.slug)
     _reset_gpu_peak()
     result = run_cell(table, config, feature_columns, job["data"], job["out"],
@@ -701,8 +708,7 @@ def _dry_run_train(args, jobs: list[dict]) -> int:
     """
     from vpdl.dl.leakage import LeakageError, leakage_gate
     from vpdl.dl.splits import describe_folds, make_folds
-    from vpdl.experiment import (FRAME_MODELS, MATRIX_WIDTH_MODELS, SEQUENCE_WINDOW_MODELS,
-                                 CellConfig)
+    from vpdl.experiment import FRAME_MODELS, MATRIX_WIDTH_MODELS, SEQUENCE_WINDOW_MODELS
     from vpdl.models import build_model
 
     table = _table(args.data)
@@ -735,13 +741,7 @@ def _dry_run_train(args, jobs: list[dict]) -> int:
         return 3
     cells = []
     for job in jobs:
-        config = CellConfig(
-            sources=tuple(job["sources"]), train_sources=tuple(job["train_sources"]),
-            eval_source=job["eval_source"], model=job["model"], seed=job["seed"],
-            drop_groups=tuple(job["drop_groups"]), allow_proxy_leak=job["allow_proxy_leak"],
-            n_bootstrap=job["n_bootstrap"], model_kwargs=job["model_kwargs"],
-            split=job["split"], embedding_blocks=tuple(job["embedding_blocks"]),
-            score_rows=job["score_rows"], tag=job["tag"])
+        config = _cell_config(job)
         entry = {"cell": config.slug, "model": job["model"], "seed": job["seed"]}
         if job["model"] in FRAME_MODELS:
             entry["constructed"] = "skipped: would load a pretrained backbone"
@@ -772,6 +772,16 @@ def cmd_train(args) -> int:
     jobs = _train_jobs(args)
     if getattr(args, "dry_run", False):
         return _dry_run_train(args, jobs)
+    if getattr(args, "skip_existing", False):
+        # Resume a long grid: a cell whose summary exists is finished (the summary is written
+        # last). Without this flag a re-run archives the old files and trains the cell again.
+        done = [job for job in jobs
+                if (Path(job["out"]) / f"summary_{_cell_config(job).slug}.json").exists()]
+        jobs = [job for job in jobs if job not in done]
+        print(f"--skip-existing: {len(done)} cell(s) already finished, {len(jobs)} to run",
+              file=sys.stderr)
+        if not jobs:
+            return 0
     workers = max(1, min(int(args.jobs), len(jobs)))
     if "plm_finetune" in args.model and workers > 1:
         logger.warning("%d parallel plm_finetune cells each hold a full backbone on the GPU; "
@@ -1167,6 +1177,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--store", default="features")
     p.add_argument("--export-dir", default=None, dest="export_dir")
     p.add_argument("--out", default="runs/dl")
+    p.add_argument("--skip-existing", action="store_true", dest="skip_existing",
+                   help="skip cells whose summary_<cell>.json already exists in --out (resume)")
     p.add_argument("--dry-run", action="store_true", dest="dry_run",
                    help="check table, folds, leakage gate and model construction; train nothing, "
                         "write nothing")
